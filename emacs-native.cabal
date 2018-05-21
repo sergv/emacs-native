@@ -1,0 +1,123 @@
+-- Created     :   3 May 2018
+
+name:
+  emacs-native
+version:
+  0.1.0.0
+synopsis:
+  Emacs modules implemented in Haskell for my configuration
+license:
+  BSD3
+license-file:
+  LICENSE
+author:
+  Sergey Vinokurov
+maintainer:
+  Sergey Vinokurov <serg.foo@gmail.com>
+stability: stable
+tested-with:
+    GHC == 8.2.2
+
+cabal-version:
+  >= 2.0
+build-type:
+  Simple
+
+library
+  exposed-modules:
+    Data.Filesystem
+    Data.NBSem
+    Data.Regex
+  hs-source-dirs:
+    src
+  build-depends:
+    async,
+    base >= 4.7,
+    emacs-module,
+    filepath,
+    path >=0.6.1,
+    prettyprinter,
+    regex-tdfa,
+    regex-tdfa-text,
+    safe-exceptions-checked,
+    stm,
+    stm-chans,
+    streaming-commons,
+    text
+  default-language:
+    Haskell2010
+  ghc-options:
+    -Wall
+    -fwarn-name-shadowing
+    -fno-warn-type-defaults
+  if impl(ghc >= 8.0)
+    ghc-options:
+      -Wcompat
+      -Whi-shadowing
+      -Widentities
+      -Wincomplete-record-updates
+      -Wincomplete-uni-patterns
+      -Wmissing-exported-signatures
+  if impl(ghc >= 8.2)
+    ghc-options:
+      -Wcpp-undef
+      -Wmissing-home-modules
+      -Wunbanged-strict-patterns
+
+foreign-library emacs-native
+  type:                native-shared
+  lib-version-info:    0:0:0
+  build-tools:
+    hsc2hs
+  c-sources:
+    cbits/emacs_wrapper.c
+  includes:
+    emacs-module.h
+  install-includes:
+    emacs-module.h
+  include-dirs:
+    cbits
+  other-modules:
+    Emacs.FastFileSearch
+    Emacs.Init
+
+  if os(Windows)
+    options: standalone
+  --   mod-def-file: MyForeignLib.def
+
+  build-depends:
+    base >=4.7,
+    bytestring,
+    emacs-module,
+    emacs-native,
+    lifted-async,
+    path,
+    prettyprinter,
+    safe-exceptions-checked,
+    stm,
+    stm-chans,
+    text
+  hs-source-dirs:
+    lib
+  default-language:
+    Haskell2010
+  ghc-options:
+    -threaded
+    -Wall
+    -fwarn-name-shadowing
+    -fno-warn-type-defaults
+  if impl(ghc >= 8.0)
+    ghc-options:
+      -Wcompat
+      -Whi-shadowing
+      -Widentities
+      -Wincomplete-record-updates
+      -Wincomplete-uni-patterns
+      -Wmissing-exported-signatures
+  if impl(ghc >= 8.2)
+    ghc-options:
+      -Wcpp-undef
+      -Wmissing-home-modules
+      -Wunbanged-strict-patterns
+  ghc-prof-options:
+    -fprof-auto
