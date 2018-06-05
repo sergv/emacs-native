@@ -90,8 +90,8 @@ emacsFindRec env root globsToFind ignoredFileGlobs ignoredDirGlobs = runEmacsM e
 
       withAsync (rewriteResultsAsEmacsList result) $ \rewriteAsync -> do
         liftIO $ findRec FollowSymlinks jobs
-          (\_status -> shouldVisit)
-          (\_status -> shouldCollect)
+          shouldVisit
+          shouldCollect
           collect
           root''
         liftIO $ atomically $ closeTMQueue results
