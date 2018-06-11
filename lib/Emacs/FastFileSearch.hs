@@ -90,12 +90,14 @@ emacsFindRec env roots globsToFind ignoredFileGlobs ignoredDirGlobs = runEmacsM 
             _           <- setcdr resultList resultList'
             rewriteResultsAsEmacsList resultList'
 
-  withAsync (rewriteResultsAsEmacsList result) $ \rewriteAsync -> do
-    liftIO $ findRec FollowSymlinks jobs
-      shouldVisit
-      shouldCollect
-      collect
-      roots''
-    liftIO $ atomically $ closeTMQueue results
-    wait rewriteAsync
+      doFind =
+        findRec FollowSymlinks jobs
+          shouldVisit
+          shouldCollect
+          collect
+          roots''
+
+  withAsync (liftIO (doFind *> atomically (closeTMQueue results))) $ \searchAsync -> do
+    rewriteResultsAsEmacsList result
+    liftIO (wait searchAsync)
     cdr result
