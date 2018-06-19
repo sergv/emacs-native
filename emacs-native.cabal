@@ -16,15 +16,26 @@ maintainer:
   Sergey Vinokurov <serg.foo@gmail.com>
 stability: stable
 tested-with:
-    GHC == 8.2.2
+    GHC == 8.2.2, GHC == 8.4.3
 
 cabal-version:
   >= 2.0
 build-type:
   Simple
 
+flag runtime-checks
+  description:
+    Enable more runtime checks
+  default:
+    False
+  manual:
+    True
+
 library
+  if flag(runtime-checks)
+    cpp-options: -DRUNTIME_CHECKS
   exposed-modules:
+    Data.ByteString.Char8.Ext
     Data.Filesystem
     Data.NBSem
     Data.Regex
@@ -33,8 +44,13 @@ library
   build-depends:
     async,
     base >= 4.7,
+    bytestring,
     emacs-module,
+    exceptions,
     filepath,
+    lifted-async,
+    monad-control,
+    mtl,
     path >=0.6.1,
     prettyprinter,
     regex-tdfa,
@@ -43,7 +59,8 @@ library
     stm,
     stm-chans,
     streaming-commons,
-    text
+    text,
+    transformers-base
   default-language:
     Haskell2010
   ghc-options:
@@ -79,6 +96,7 @@ foreign-library emacs-native
     cbits
   other-modules:
     Emacs.FastFileSearch
+    Emacs.Grep
     Emacs.Init
 
   if os(Windows)
@@ -88,15 +106,20 @@ foreign-library emacs-native
   build-depends:
     base >=4.7,
     bytestring,
+    bytestring-lexing,
+    containers,
     emacs-module,
     emacs-native,
     lifted-async,
+    monad-control,
     path,
+    path-io,
     prettyprinter,
     safe-exceptions-checked,
     stm,
     stm-chans,
-    text
+    text,
+    transformers-base
   hs-source-dirs:
     lib
   default-language:

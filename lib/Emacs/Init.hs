@@ -12,13 +12,11 @@
 --
 ----------------------------------------------------------------------------
 
-{-# LANGUAGE DataKinds                  #-}
-{-# LANGUAGE FlexibleContexts           #-}
-{-# LANGUAGE ForeignFunctionInterface   #-}
-{-# LANGUAGE GADTs                      #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE OverloadedStrings          #-}
-{-# LANGUAGE QuasiQuotes                #-}
+{-# LANGUAGE DataKinds                #-}
+{-# LANGUAGE FlexibleContexts         #-}
+{-# LANGUAGE ForeignFunctionInterface #-}
+{-# LANGUAGE GADTs                    #-}
+{-# LANGUAGE QuasiQuotes              #-}
 
 module Emacs.Init (initialise) where
 
@@ -33,8 +31,10 @@ import qualified Data.Emacs.Module.Runtime as Runtime
 import Data.Emacs.Module.SymbolName.TH
 import Emacs.Module
 import Emacs.Module.Assert
+import Emacs.Module.Errors
 
 import Emacs.FastFileSearch
+import Emacs.Grep
 
 foreign export ccall initialise :: Ptr Runtime -> IO CBool
 
@@ -52,10 +52,14 @@ initialise runtime = do
       res <- reportAllErrorsToEmacs env (pure False) $ runEmacsM env initialise'
       pure $ if res then true else false
 
-initialise' :: (WithCallStack, MonadEmacs m, MonadIO m) => m Bool
+initialise'
+  :: (WithCallStack, Throws EmacsThrow, Throws EmacsError, Throws EmacsInternalError)
+  => EmacsM s Bool
 initialise' = do
   liftIO $ setNumCapabilities 4
   emacsFindFun <- makeFunction emacsFindRec emacsFindRecDoc
   bindFunction [esym|haskell-native-find-rec|] emacsFindFun
+  emacsGrepFun <- makeFunction emacsGrepRec emacsGrepRecDoc
+  bindFunction [esym|haskell-native-grep-rec|] emacsGrepFun
   _ <- provide [esym|haskell-native-emacs-extensions|]
   pure True

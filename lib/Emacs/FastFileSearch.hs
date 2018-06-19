@@ -15,8 +15,10 @@
 {-# LANGUAGE DataKinds                #-}
 {-# LANGUAGE FlexibleContexts         #-}
 {-# LANGUAGE ForeignFunctionInterface #-}
+{-# LANGUAGE MultiParamTypeClasses    #-}
 {-# LANGUAGE OverloadedStrings        #-}
 {-# LANGUAGE QuasiQuotes              #-}
+{-# LANGUAGE ScopedTypeVariables      #-}
 
 module Emacs.FastFileSearch (emacsFindRecDoc, emacsFindRec) where
 
@@ -24,7 +26,8 @@ import Control.Concurrent.Async.Lifted.Safe
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TMQueue
 import qualified Control.Exception.Safe.Checked as Checked
-import Control.Monad.IO.Class
+import Control.Monad.Base
+import Control.Monad.Trans.Control
 
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.Text as T
@@ -46,14 +49,16 @@ emacsFindRecDoc :: C8.ByteString
 emacsFindRecDoc =
   "Recursively find files leveraging multiple cores."
 
-emacsFindRec :: WithCallStack => EmacsFunction ('S ('S ('S ('S 'Z)))) 'Z 'False
-emacsFindRec env roots globsToFind ignoredFileGlobs ignoredDirGlobs = runEmacsM env $ do
+emacsFindRec
+  :: forall m s. (WithCallStack, MonadEmacs m, Monad (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)))
+  => EmacsFunction ('S ('S ('S ('S 'Z)))) 'Z 'False s m
+emacsFindRec (R roots (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs Stop)))) = do
   roots'              <- extractVectorWith extractText roots
   globsToFind'        <- extractVectorWith extractText globsToFind
   ignoredFileGlobs'   <- extractVectorWith extractText ignoredFileGlobs
   ignoredDirGlobs'    <- extractVectorWith extractText ignoredDirGlobs
 
-  jobs <- liftIO getNumCapabilities
+  jobs <- liftBase getNumCapabilities
 
   roots'' <- for roots' $ \root ->
     case parseAbsDir $ T.unpack root of
@@ -61,27 +66,27 @@ emacsFindRec env roots globsToFind ignoredFileGlobs ignoredDirGlobs = runEmacsM 
         "One of the search roots is not a valid absolute directory:" <+> pretty root
       Just x  -> pure x
 
-  results <- liftIO newTMQueueIO
+  results <- liftBase newTMQueueIO
 
   ignoredDirsRE  <- globsToRegex ignoredDirGlobs'
   ignoredFilesRE <- globsToRegex ignoredFileGlobs'
   filesToFindRE  <- globsToRegex globsToFind'
   let shouldVisit :: Path Abs Dir -> Bool
       shouldVisit = not . reMatchesPath ignoredDirsRE
-      shouldCollect :: Path Abs File -> Maybe (Path Abs File)
-      shouldCollect path
-        | reMatchesPath ignoredFilesRE path = Nothing
-        | reMatchesPath filesToFindRE path  = Just path
-        | otherwise                         = Nothing
+      shouldCollect :: Path Abs Dir -> Path Abs File -> IO (Maybe (Path Abs File))
+      shouldCollect _root path
+        | reMatchesPath ignoredFilesRE path = pure Nothing
+        | reMatchesPath filesToFindRE path  = pure $ Just path
+        | otherwise                         = pure Nothing
 
       collect :: Path Abs File -> IO ()
       collect = atomically . writeTMQueue results
 
   nil'   <- nil
   result <- cons nil' nil'
-  let rewriteResultsAsEmacsList :: Emacs.Value -> EmacsM ()
+  let rewriteResultsAsEmacsList :: Emacs.Value s -> m s ()
       rewriteResultsAsEmacsList resultList = do
-        res <- liftIO $ atomically $ readTMQueue results
+        res <- liftBase $ atomically $ readTMQueue results
         case res of
           Nothing -> pure ()
           Just x  -> do
@@ -97,7 +102,7 @@ emacsFindRec env roots globsToFind ignoredFileGlobs ignoredDirGlobs = runEmacsM 
           collect
           roots''
 
-  withAsync (liftIO (doFind *> atomically (closeTMQueue results))) $ \searchAsync -> do
+  withAsync (liftBase (doFind *> atomically (closeTMQueue results))) $ \searchAsync -> do
     rewriteResultsAsEmacsList result
-    liftIO (wait searchAsync)
+    liftBase (wait searchAsync)
     cdr result
