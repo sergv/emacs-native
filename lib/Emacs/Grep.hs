@@ -14,7 +14,7 @@
 {-# LANGUAGE QuasiQuotes         #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Emacs.Grep (emacsGrepRecDoc, emacsGrepRec) where
+module Emacs.Grep (initialise) where
 
 import Control.Arrow (first)
 import Control.Concurrent.Async.Lifted.Safe
@@ -43,6 +43,7 @@ import Data.Traversable
 import GHC.Conc (getNumCapabilities)
 
 import Data.Emacs.Module.Args
+import Data.Emacs.Module.SymbolName.TH
 import qualified Data.Emacs.Module.Value as Emacs
 import Emacs.Module
 import Emacs.Module.Assert
@@ -53,8 +54,12 @@ import Data.Regex
 import Path
 import Path.IO
 
-
-import Data.Emacs.Module.SymbolName.TH
+initialise
+  :: (WithCallStack, Throws EmacsThrow, Throws EmacsError, Throws EmacsInternalError)
+  => EmacsM s ()
+initialise =
+  bindFunction [esym|haskell-native-grep-rec|] =<<
+    makeFunction emacsGrepRec emacsGrepRecDoc
 
 emacsGrepRecDoc :: C8.ByteString
 emacsGrepRecDoc =

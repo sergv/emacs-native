@@ -20,7 +20,7 @@
 {-# LANGUAGE QuasiQuotes              #-}
 {-# LANGUAGE ScopedTypeVariables      #-}
 
-module Emacs.FastFileSearch (emacsFindRecDoc, emacsFindRec) where
+module Emacs.FastFileSearch (initialise) where
 
 import Control.Concurrent.Async.Lifted.Safe
 import Control.Concurrent.STM
@@ -36,6 +36,7 @@ import Data.Traversable
 import GHC.Conc (getNumCapabilities)
 
 import Data.Emacs.Module.Args
+import Data.Emacs.Module.SymbolName.TH
 import qualified Data.Emacs.Module.Value as Emacs
 import Emacs.Module
 import Emacs.Module.Assert
@@ -44,6 +45,13 @@ import Emacs.Module.Errors
 import Data.Filesystem
 import Data.Regex
 import Path
+
+initialise
+  :: (WithCallStack, Throws EmacsThrow, Throws EmacsError, Throws EmacsInternalError)
+  => EmacsM s ()
+initialise =
+  bindFunction [esym|haskell-native-find-rec|] =<<
+    makeFunction emacsFindRec emacsFindRecDoc
 
 emacsFindRecDoc :: C8.ByteString
 emacsFindRecDoc =
