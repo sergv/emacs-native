@@ -209,12 +209,7 @@ formatMatchEntry MatchEntry{matchAbsPath, matchRelPath, matchLineNum, matchLineP
   let paddingSize = C8.length matchPath' + 1 + C8.length matchLineNum'
   headerPadding <- makeString $ C8.replicate paddingSize ' '
 
-  body <- case matchedTextLines of
-    []     -> Checked.throw $ mkUserError "formatMatchEntry" "No matched text lines in the result"
-    xs@[_] -> pure xs
-    x : xs -> do
-      xs' <- traverse (concat2 headerPadding) xs
-      pure $ x : xs'
+  let body = L.intersperse headerPadding matchedTextLines
   formatted <- funcallPrimitive [esym|concat|] $ [fileName, colon, lineNum', colon] ++ body
   pure (matchPath', emacsPath, formatted)
 
