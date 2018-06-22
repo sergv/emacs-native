@@ -24,7 +24,9 @@ module Data.Regex
 
 import Control.Exception.Safe.Checked (Throws, MonadThrow)
 import qualified Control.Exception.Safe.Checked as Checked
+
 import qualified Data.ByteString.Char8 as C8
+import Data.Foldable
 import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Prettyprint.Doc
@@ -36,9 +38,11 @@ import qualified Text.Regex.TDFA.Text as TDFA
 import Emacs.Module.Assert (WithCallStack)
 import Emacs.Module.Errors
 
-globsToRegex :: (WithCallStack, Throws UserError, MonadThrow m) => [Text] -> m Regex
+globsToRegex
+  :: (WithCallStack, Throws UserError, MonadThrow m, Foldable f, Functor f)
+  => f Text -> m Regex
 globsToRegex =
-  compileReWithOpts compOpts . mkStartEnd . mkGroup . T.intercalate "|" . map (mkGroup . T.concatMap f)
+  compileReWithOpts compOpts . mkStartEnd . mkGroup . T.intercalate "|" . toList . fmap (mkGroup . T.concatMap f)
   where
     mkGroup :: Text -> Text
     mkGroup = T.cons '(' . (`T.snoc` ')')

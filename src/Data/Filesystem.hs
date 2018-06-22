@@ -38,18 +38,18 @@ data FollowSymlinks a =
 newtype FindEnv = FindEnv { feRoot :: Path Abs Dir }
 
 findRec
-  :: forall a f. (WithCallStack, Foldable f)
+  :: forall a f ff. (WithCallStack, Foldable f, Foldable ff)
   => FollowSymlinks a
   -> Int                     -- ^ Extra search threads to run in parallel.
   -> (Path Abs Dir  -> Bool) -- ^ Whether to visit a directory.
   -> (Path Abs Dir -> Path Abs File -> IO (f a))
                              -- ^ What to do with a file.
   -> (a -> IO ())            -- ^ Consume output
-  -> [Path Abs Dir]          -- ^ Where to start search.
+  -> ff (Path Abs Dir)       -- ^ Where to start search.
   -> IO ()
 findRec followSymlinks extraJobs dirPred filePred consumeOutput roots = do
   sem <- newNBSem extraJobs
-  findWithSem sem $ reverse roots
+  findWithSem sem $ reverse $ toList roots
   where
     findWithSem :: NBSem -> [Path Abs Dir] -> IO ()
     findWithSem _   []       = pure ()
