@@ -193,7 +193,7 @@ formatMatchEntry MatchEntry{matchAbsPath, matchRelPath, matchLineNum, matchLineP
       matchedLines = [ (`addFaceProp` [esym|lazy-highlight|]) =<< makeString line
                      | line <- C8.lines matchLineStr
                      ]
-      suffixLines  = [makeString (C8.snoc matchLineSuffix '\n') | not $ C8.null matchLinePrefix ]
+      suffixLines  = [makeString (C8.snoc matchLineSuffix '\n')]
 
       connect
         :: [m s (Emacs.Value s)]
