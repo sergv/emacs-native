@@ -11,6 +11,7 @@
 module EmacsNativeTest (main) where
 
 import Data.List.NonEmpty (NonEmpty(..))
+import qualified Data.List.NonEmpty as NE
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector.Unboxed as U
@@ -62,6 +63,11 @@ fuzzyMatchTests = testGroup "fuzzy match"
       }
   , mkTestCase "x" "foobar" foobarHeatmap noMatch
   , mkTestCase "fooxar" "foobar" foobarHeatmap noMatch
+
+  , mkTestCase "aaaaaaaaaa" (T.replicate 100 "a") (U.replicate 100 1) $ Match
+      { mScore = 865
+      , mPositions = NE.fromList [90..99]
+      }
   ]
   where
     mkTestCase :: Text -> Text -> U.Vector Int -> Match -> TestTree
