@@ -158,6 +158,7 @@ test-suite emacs-native-test
   build-depends:
     QuickCheck,
     base,
+    containers,
     emacs-native,
     tasty,
     tasty-hunit,
