@@ -34,6 +34,7 @@ import Emacs.Module.Assert
 import Emacs.Module.Errors
 
 import qualified Emacs.FastFileSearch
+import qualified Emacs.FuzzyMatch
 import qualified Emacs.Grep
 
 foreign export ccall initialise :: Ptr Runtime -> IO CBool
@@ -58,6 +59,7 @@ initialise'
 initialise' = do
   liftIO $ setNumCapabilities 4
   Emacs.FastFileSearch.initialise
+  Emacs.FuzzyMatch.initialise
   Emacs.Grep.initialise
   _ <- provide [esym|haskell-native-emacs-extensions|]
   pure True

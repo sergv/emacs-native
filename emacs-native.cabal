@@ -99,6 +99,7 @@ foreign-library emacs-native
     cbits
   other-modules:
     Emacs.FastFileSearch
+    Emacs.FuzzyMatch
     Emacs.Grep
     Emacs.Init
 
@@ -115,6 +116,8 @@ foreign-library emacs-native
     emacs-native,
     lifted-async,
     monad-control,
+    monad-par,
+    monad-par-extras,
     path,
     path-io,
     prettyprinter,
