@@ -139,7 +139,7 @@ fuzzyMatch heatmap needle haystack =
           case evalState (memoizeBy makeKey computeScore (NE.zip (0 :| [1..]) needle', StrIdx (-1))) mempty of
             []  -> noMatch
             [m] -> submatchToMatch m
-            ms  -> error $ "More than one optimal match found:" ++ show ms
+            ms  -> submatchToMatch $ maximumBy (comparing smScore) ms
   where
     noMatch = Match
       { mScore     = 0
