@@ -44,7 +44,6 @@ import GHC.Conc (getNumCapabilities)
 
 import Data.Emacs.Module.Args
 import Data.Emacs.Module.SymbolName.TH
-import qualified Data.Emacs.Module.Value as Emacs
 import Emacs.Module
 import Emacs.Module.Assert
 import Emacs.Module.Errors
@@ -113,12 +112,12 @@ emacsGrepRec (R roots (R regexp (R extsGlobs (R ignoredFileGlobs (R ignoredDirGl
               AllMatches ms -> makeMatches root path ms contents
         | otherwise = pure []
 
-  let collectEntries :: TMQueue MatchEntry -> m s (Emacs.Value s)
+  let collectEntries :: TMQueue MatchEntry -> m s (EmacsRef m s)
       collectEntries results = go mempty
         where
           -- Accumulator is a map from file names and positions within file
           -- to Emacs strings that could be presented to the user.
-          go :: Map (C8.ByteString, Word) (Emacs.Value s) -> m s (Emacs.Value s)
+          go :: Map (C8.ByteString, Word) (EmacsRef m s) -> m s (EmacsRef m s)
           go acc = do
             res <- liftBase $ atomically $ readTMQueue results
             case res of
@@ -142,7 +141,7 @@ emacsGrepRec (R roots (R regexp (R extsGlobs (R ignoredFileGlobs (R ignoredDirGl
           roots''
 
   withAsync (liftBase (doFind `finally` atomically (closeTMQueue results))) $ \searchAsync ->
-    collectEntries results <* wait searchAsync
+    (produceRef =<< collectEntries results) <* wait searchAsync
 
 data MatchEntry = MatchEntry
   { matchAbsPath    :: !(Path Abs File)
@@ -177,7 +176,7 @@ connectTailHeadWith f xs ys = go xs
 -- the user.
 formatMatchEntry
   :: forall m s. (Monad (m s), MonadThrow (m s), MonadEmacs m, Throws UserError)
-  => MatchEntry -> m s (C8.ByteString, Emacs.Value s, Emacs.Value s)
+  => MatchEntry -> m s (C8.ByteString, EmacsRef m s, EmacsRef m s)
 formatMatchEntry MatchEntry{matchAbsPath, matchRelPath, matchLineNum, matchLinePrefix, matchLineStr, matchLineSuffix} = do
   let matchPath'    = C8.pack $ toFilePath matchRelPath
       matchLineNum' = packWord matchLineNum
@@ -188,7 +187,7 @@ formatMatchEntry MatchEntry{matchAbsPath, matchRelPath, matchLineNum, matchLineP
 
   lineNum' <- addFaceProp lineNum [esym|compilation-line-number|]
 
-  let prefixLines, matchedLines, suffixLines :: [m s (Emacs.Value s)]
+  let prefixLines, matchedLines, suffixLines :: [m s (EmacsRef m s)]
       prefixLines  = [makeString matchLinePrefix | not $ C8.null matchLinePrefix ]
       matchedLines = [ (`addFaceProp` [esym|lazy-highlight|]) =<< makeString line
                      | line <- C8.lines matchLineStr
@@ -196,9 +195,9 @@ formatMatchEntry MatchEntry{matchAbsPath, matchRelPath, matchLineNum, matchLineP
       suffixLines  = [makeString (C8.snoc matchLineSuffix '\n')]
 
       connect
-        :: [m s (Emacs.Value s)]
-        -> [m s (Emacs.Value s)]
-        -> [m s (Emacs.Value s)]
+        :: [m s (EmacsRef m s)]
+        -> [m s (EmacsRef m s)]
+        -> [m s (EmacsRef m s)]
       connect = connectTailHeadWith $ \x y -> do
         x' <- x
         y' <- y

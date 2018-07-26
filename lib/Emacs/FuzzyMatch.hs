@@ -49,7 +49,7 @@ scoreMatchesDoc =
   \sort the strings according to score of fuzzy matching them against the query."
 
 scoreMatches
-  :: forall m s. (WithCallStack, MonadEmacs m, Monad (m s), MonadIO (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)))
+  :: forall m s. (WithCallStack, MonadEmacs m, Monad (m s), MonadIO (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)), NFData (EmacsRef m s))
   => EmacsFunction ('S ('S 'Z)) 'Z 'False s m
 scoreMatches (R needle (R haystacks Stop)) = do
   needle'    <- extractText needle
@@ -59,7 +59,7 @@ scoreMatches (R needle (R haystacks Stop)) = do
         $ L.sortOn (\(score, str, _emacsStr) -> (Down score, T.length str))
         $ runPar
         $ parMap (\(str, emacsStr) -> (mScore $ fuzzyMatch (computeHeatMap str mempty) needle' str, str, emacsStr)) haystacks'
-  makeList matches
+  produceRef =<< makeList matches
 
 scoreSingleMatchDoc :: C8.ByteString
 scoreSingleMatchDoc =
@@ -74,4 +74,4 @@ scoreSingleMatch (R needle (R haystack Stop)) = do
   let Match{mScore, mPositions} = fuzzyMatch (computeHeatMap haystack' mempty) needle' haystack'
   score     <- makeInt mScore
   positions <- makeList =<< traverse (makeInt . unStrIdx) (toList mPositions)
-  cons score positions
+  produceRef =<< cons score positions

@@ -37,7 +37,6 @@ import GHC.Conc (getNumCapabilities)
 
 import Data.Emacs.Module.Args
 import Data.Emacs.Module.SymbolName.TH
-import qualified Data.Emacs.Module.Value as Emacs
 import Emacs.Module
 import Emacs.Module.Assert
 import Emacs.Module.Errors
@@ -58,7 +57,7 @@ emacsFindRecDoc =
   "Recursively find files leveraging multiple cores."
 
 emacsFindRec
-  :: forall m s. (WithCallStack, MonadEmacs m, Monad (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)))
+  :: forall m s. (WithCallStack, MonadEmacs m, Monad (m s) MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)))
   => EmacsFunction ('S ('S ('S ('S 'Z)))) 'Z 'False s m
 emacsFindRec (R roots (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs Stop)))) = do
   roots'              <- extractVectorWith extractText roots
@@ -92,7 +91,7 @@ emacsFindRec (R roots (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs Stop
 
   nil'   <- nil
   result <- cons nil' nil'
-  let rewriteResultsAsEmacsList :: Emacs.Value s -> m s ()
+  let rewriteResultsAsEmacsList :: EmacsRef m s -> m s ()
       rewriteResultsAsEmacsList resultList = do
         res <- liftBase $ atomically $ readTMQueue results
         case res of
@@ -113,4 +112,4 @@ emacsFindRec (R roots (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs Stop
   withAsync (liftBase (doFind *> atomically (closeTMQueue results))) $ \searchAsync -> do
     rewriteResultsAsEmacsList result
     liftBase (wait searchAsync)
-    cdr result
+    produceRef =<< cdr result
