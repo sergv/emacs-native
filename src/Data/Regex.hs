@@ -16,6 +16,8 @@ module Data.Regex
   , reMatches
   , reMatchesPath
   , reMatchesString
+  , reMatchesByteString
+  , reMatchesShortByteString
   , reAllByteStringMatches
 
     -- * Reexports
@@ -26,6 +28,8 @@ import Control.Exception.Safe.Checked (Throws, MonadThrow)
 import qualified Control.Exception.Safe.Checked as Checked
 
 import qualified Data.ByteString.Char8 as C8
+import Data.ByteString.Short (ShortByteString)
+import qualified Data.ByteString.Short as BSS
 import Data.Foldable
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -98,6 +102,12 @@ reMatchesPath re = match re . toFilePath
 
 reMatchesString :: Regex -> String -> Bool
 reMatchesString = match
+
+reMatchesByteString :: Regex -> C8.ByteString -> Bool
+reMatchesByteString = match
+
+reMatchesShortByteString :: Regex -> ShortByteString -> Bool
+reMatchesShortByteString re = match re . BSS.fromShort
 
 reAllByteStringMatches
   :: Regex -> C8.ByteString -> AllMatches [] (MatchOffset, MatchLength)

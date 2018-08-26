@@ -53,7 +53,7 @@ scoreMatches
   => EmacsFunction ('S ('S 'Z)) 'Z 'False s m
 scoreMatches (R needle (R haystacks Stop)) = do
   needle'    <- extractText needle
-  haystacks' <- traverse (\str -> (, str) <$> extractText str) =<< extractListRev haystacks
+  haystacks' <- extractListRevWith (\str -> (, str) <$> extractText str) haystacks
   let matches
         = map (\(_, _, emacsStr) -> emacsStr)
         $ L.sortOn (\(score, str, _emacsStr) -> (Down score, T.length str))
@@ -63,7 +63,8 @@ scoreMatches (R needle (R haystacks Stop)) = do
 
 scoreSingleMatchDoc :: C8.ByteString
 scoreSingleMatchDoc =
-  "."
+  "Fuzzy match a single string against another. Returns match score and \
+  \positions where the match occured."
 
 scoreSingleMatch
   :: forall m s. (WithCallStack, MonadEmacs m, Monad (m s), MonadIO (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)))

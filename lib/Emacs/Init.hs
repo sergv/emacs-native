@@ -33,6 +33,7 @@ import Emacs.Module
 import Emacs.Module.Assert
 import Emacs.Module.Errors
 
+import qualified Emacs.EprojTagIndex
 import qualified Emacs.FastFileSearch
 import qualified Emacs.FuzzyMatch
 import qualified Emacs.Grep
@@ -61,5 +62,6 @@ initialise' = do
   Emacs.FastFileSearch.initialise
   Emacs.FuzzyMatch.initialise
   Emacs.Grep.initialise
+  Emacs.EprojTagIndex.initialise
   _ <- provide [esym|haskell-native-emacs-extensions|]
   pure True

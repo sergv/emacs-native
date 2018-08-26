@@ -57,7 +57,7 @@ emacsFindRecDoc =
   "Recursively find files leveraging multiple cores."
 
 emacsFindRec
-  :: forall m s. (WithCallStack, MonadEmacs m, Monad (m s) MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)))
+  :: forall m s. (WithCallStack, MonadEmacs m, Monad (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)))
   => EmacsFunction ('S ('S ('S ('S 'Z)))) 'Z 'False s m
 emacsFindRec (R roots (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs Stop)))) = do
   roots'              <- extractVectorWith extractText roots
