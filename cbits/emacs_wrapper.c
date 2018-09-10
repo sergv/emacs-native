@@ -4,7 +4,15 @@
 #include "HsFFI.h"
 #include "Rts.h"
 
-#include <Emacs/Init_stub.h>
+// #include <Emacs/Init_stub.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+extern HsBool initialise(struct emacs_runtime *ert);
+#ifdef __cplusplus
+}
+#endif
 
 int plugin_is_GPL_compatible = 1;
 
@@ -27,15 +35,6 @@ HsBool init(void) {
 void deinit(void) {
   hs_exit();
 }
-
-// #ifdef __cplusplus
-// extern "C" {
-// #endif
-// extern HsBool initialise(void);
-// #ifdef __cplusplus
-// }
-// #endif
-
 
 int
 emacs_module_init(struct emacs_runtime *ert)

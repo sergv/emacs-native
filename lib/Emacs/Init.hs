@@ -16,7 +16,7 @@
 {-# LANGUAGE FlexibleContexts         #-}
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE GADTs                    #-}
-{-# LANGUAGE QuasiQuotes              #-}
+{-# LANGUAGE OverloadedStrings        #-}
 
 module Emacs.Init (initialise) where
 
@@ -28,7 +28,7 @@ import GHC.Conc
 
 import Data.Emacs.Module.Runtime (Runtime)
 import qualified Data.Emacs.Module.Runtime as Runtime
-import Data.Emacs.Module.SymbolName.TH
+import Data.Emacs.Module.SymbolName
 import Emacs.Module
 import Emacs.Module.Assert
 import Emacs.Module.Errors
@@ -63,5 +63,5 @@ initialise' = do
   Emacs.FuzzyMatch.initialise
   Emacs.Grep.initialise
   Emacs.EprojTagIndex.initialise
-  _ <- provide [esym|haskell-native-emacs-extensions|]
+  _ <- provide $ mkSymbolName "haskell-native-emacs-extensions"
   pure True

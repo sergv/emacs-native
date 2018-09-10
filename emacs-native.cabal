@@ -41,21 +41,31 @@ library
     Data.FuzzyMatch
     Data.NBSem
     Data.Regex
+
+    Emacs.EprojTagIndex
+    Emacs.FastFileSearch
+    Emacs.FuzzyMatch
+    Emacs.Grep
+    Emacs.Init
   hs-source-dirs:
     src
+    lib
   build-depends:
     async,
     base >= 4.7,
     bimap,
     bytestring,
+    bytestring-lexing,
     containers,
     emacs-module,
     exceptions,
     filepath,
     lifted-async,
     monad-control,
+    monad-par,
     mtl,
     path >=0.6.1,
+    path-io,
     prettyprinter,
     radix-tree,
     regex-tdfa,
@@ -101,11 +111,6 @@ foreign-library emacs-native
   include-dirs:
     cbits
   other-modules:
-    Emacs.EprojTagIndex
-    Emacs.FastFileSearch
-    Emacs.FuzzyMatch
-    Emacs.Grep
-    Emacs.Init
 
   if os(Windows)
     options: standalone
@@ -114,23 +119,9 @@ foreign-library emacs-native
   build-depends:
     base >=4.7,
     bytestring,
-    bytestring-lexing,
-    containers,
     emacs-module,
     emacs-native,
-    exceptions,
-    lifted-async,
-    monad-control,
-    monad-par,
-    monad-par-extras,
-    path,
-    path-io,
-    prettyprinter,
-    safe-exceptions-checked,
-    stm,
-    stm-chans,
-    text,
-    transformers-base
+    safe-exceptions-checked
   hs-source-dirs:
     lib
   default-language:
