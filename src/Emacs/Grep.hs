@@ -97,9 +97,9 @@ emacsGrepRec (R roots (R regexp (R extsGlobs (R ignoredFileGlobs (R ignoredDirGl
   regexp'' <- compileReWithOpts compOpts regexp'
   jobs     <- liftBase getNumCapabilities
 
-  extsToFindRE   <- globsToRegex extsGlobs'
-  ignoredFilesRE <- globsToRegex ignoredFileGlobs'
-  ignoredDirsRE  <- globsToRegex ignoredDirGlobs'
+  extsToFindRE   <- fileGlobsToRegex extsGlobs'
+  ignoredFilesRE <- fileGlobsToRegex ignoredFileGlobs'
+  ignoredDirsRE  <- fileGlobsToRegex ignoredDirGlobs'
 
   let shouldVisit :: Path Abs Dir -> Bool
       shouldVisit = not . reMatchesPath ignoredDirsRE

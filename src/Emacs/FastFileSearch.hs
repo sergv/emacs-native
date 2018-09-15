@@ -75,9 +75,9 @@ emacsFindRec (R roots (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs Stop
 
   results <- liftBase newTMQueueIO
 
-  ignoredDirsRE  <- globsToRegex ignoredDirGlobs'
-  ignoredFilesRE <- globsToRegex ignoredFileGlobs'
-  filesToFindRE  <- globsToRegex globsToFind'
+  ignoredDirsRE  <- fileGlobsToRegex ignoredDirGlobs'
+  ignoredFilesRE <- fileGlobsToRegex ignoredFileGlobs'
+  filesToFindRE  <- fileGlobsToRegex globsToFind'
   let shouldVisit :: Path Abs Dir -> Bool
       shouldVisit = not . reMatchesPath ignoredDirsRE
       shouldCollect :: Path Abs Dir -> Path Abs File -> IO (Maybe (Path Abs File))

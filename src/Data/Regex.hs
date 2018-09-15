@@ -6,11 +6,13 @@
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
 
+{-# LANGUAGE CPP               #-}
 {-# LANGUAGE FlexibleContexts  #-}
+{-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Data.Regex
-  ( globsToRegex
+  ( fileGlobsToRegex
   , compileRe
   , compileReWithOpts
   , reMatches
@@ -35,18 +37,22 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Text.Prettyprint.Doc
 import Path
-import qualified System.FilePath
 import Text.Regex.TDFA
 import qualified Text.Regex.TDFA.Text as TDFA
 
 import Emacs.Module.Assert (WithCallStack)
 import Emacs.Module.Errors
 
-globsToRegex
+fileGlobsToRegex
   :: (WithCallStack, Throws UserError, MonadThrow m, Foldable f, Functor f)
   => f Text -> m Regex
-globsToRegex =
-  compileReWithOpts compOpts . mkStartEnd . mkGroup . T.intercalate "|" . toList . fmap (mkGroup . T.concatMap f)
+fileGlobsToRegex
+  = compileReWithOpts compOpts
+  . mkStartEnd
+  . mkGroup
+  . T.intercalate "|"
+  . toList
+  . fmap (mkGroup . T.concatMap f)
   where
     mkGroup :: Text -> Text
     mkGroup = T.cons '(' . (`T.snoc` ')')
@@ -63,7 +69,12 @@ globsToRegex =
     f '^'  = "\\^"
     f '$'  = "\\$"
     f '?'  = "\\?"
+#ifdef mingw32_HOST_OS
+    f '\\' = "[\\/]"
+    f '/'  = "[\\/]"
+#else
     f '\\' = "\\\\"
+#endif
     f c    = T.singleton c
 
     compOpts = defaultCompOpt
@@ -71,7 +82,12 @@ globsToRegex =
       , caseSensitive  = isLinux
       , lastStarGreedy = True
       }
-    isLinux = System.FilePath.pathSeparator == '/'
+    isLinux =
+#ifdef mingw32_HOST_OS
+      False
+#else
+      True
+#endif
 
 compileRe :: (WithCallStack, MonadThrow m, Throws UserError) => Text -> m Regex
 compileRe = compileReWithOpts compOpts
