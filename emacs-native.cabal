@@ -36,6 +36,7 @@ library
     cpp-options: -DRUNTIME_CHECKS
   exposed-modules:
     Data.ByteString.Char8.Ext
+    Data.Emacs.Path
     Data.Eproj
     Data.Filesystem
     Data.FuzzyMatch
@@ -64,7 +65,7 @@ library
     monad-control,
     monad-par,
     mtl,
-    path >=0.6.1,
+    path >= 0.6.1,
     path-io,
     prettyprinter,
     radix-tree,

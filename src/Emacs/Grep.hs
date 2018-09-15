@@ -48,6 +48,7 @@ import Emacs.Module
 import Emacs.Module.Assert
 import Emacs.Module.Errors
 
+import Data.Emacs.Path
 import Data.Filesystem
 import Data.Regex
 import Path

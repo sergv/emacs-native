@@ -12,13 +12,12 @@
 --
 ----------------------------------------------------------------------------
 
-{-# LANGUAGE DataKinds                #-}
-{-# LANGUAGE FlexibleContexts         #-}
-{-# LANGUAGE ForeignFunctionInterface #-}
-{-# LANGUAGE MultiParamTypeClasses    #-}
-{-# LANGUAGE OverloadedStrings        #-}
-{-# LANGUAGE QuasiQuotes              #-}
-{-# LANGUAGE ScopedTypeVariables      #-}
+{-# LANGUAGE DataKinds             #-}
+{-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE QuasiQuotes           #-}
+{-# LANGUAGE ScopedTypeVariables   #-}
 
 module Emacs.FastFileSearch (initialise) where
 
@@ -41,6 +40,7 @@ import Emacs.Module
 import Emacs.Module.Assert
 import Emacs.Module.Errors
 
+import Data.Emacs.Path
 import Data.Filesystem
 import Data.Regex
 import Path
@@ -97,7 +97,7 @@ emacsFindRec (R roots (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs Stop
         case res of
           Nothing -> pure ()
           Just x  -> do
-            filepath    <- makeText $ T.pack $ toFilePath x
+            filepath    <- makeString $ pathForEmacs x
             resultList' <- cons filepath nil'
             _           <- setcdr resultList resultList'
             rewriteResultsAsEmacsList resultList'
