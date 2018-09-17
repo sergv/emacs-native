@@ -14,20 +14,19 @@ extern HsBool initialise(struct emacs_runtime *ert);
 }
 #endif
 
+#define ARR_SIZE(x) (sizeof(x) / sizeof(x[0]))
+
 int plugin_is_GPL_compatible = 1;
 
 HsBool init(void) {
-  int argc = 0;
-  char *argv[] = { NULL };
+  char *argv[] = { "emacs_native", "+RTS", "-N", "-A32m", "-RTS", NULL };
+  int argc = ARR_SIZE(argv) - 1;
   char **pargv = argv;
 
   // Initialize Haskell runtime
-  {
-      RtsConfig conf = defaultRtsConfig;
-      conf.rts_opts_enabled = RtsOptsAll;
-      hs_init_ghc(&argc, &pargv, conf);
-  }
-  // hs_init(NULL, NULL);
+  RtsConfig conf = defaultRtsConfig;
+  conf.rts_opts_enabled = RtsOptsAll;
+  hs_init_ghc(&argc, &pargv, conf);
 
   return HS_BOOL_TRUE;
 }
@@ -36,8 +35,7 @@ void deinit(void) {
   hs_exit();
 }
 
-int
-emacs_module_init(struct emacs_runtime *ert)
+int emacs_module_init(struct emacs_runtime *ert)
 {
   return !(init() && initialise(ert));
 }

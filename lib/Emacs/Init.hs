@@ -20,11 +20,8 @@
 
 module Emacs.Init (initialise) where
 
-import Control.Monad.IO.Class
-
 import Foreign
 import Foreign.C
-import GHC.Conc
 
 import Data.Emacs.Module.Runtime (Runtime)
 import qualified Data.Emacs.Module.Runtime as Runtime
@@ -58,7 +55,6 @@ initialise'
   :: (WithCallStack, Throws EmacsThrow, Throws EmacsError, Throws EmacsInternalError)
   => EmacsM s Bool
 initialise' = do
-  liftIO $ setNumCapabilities 4
   Emacs.FastFileSearch.initialise
   Emacs.FuzzyMatch.initialise
   Emacs.Grep.initialise
