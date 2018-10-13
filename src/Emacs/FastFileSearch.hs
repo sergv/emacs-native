@@ -24,6 +24,7 @@ module Emacs.FastFileSearch (initialise) where
 import Control.Concurrent.Async.Lifted.Safe
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TMQueue
+import qualified Control.Exception
 import qualified Control.Exception.Safe.Checked as Checked
 import Control.Monad.Base
 import Control.Monad.Trans.Control
@@ -109,7 +110,7 @@ emacsFindRec (R roots (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs Stop
           collect
           roots''
 
-  withAsync (liftBase (doFind *> atomically (closeTMQueue results))) $ \searchAsync -> do
+  withAsync (liftBase (doFind `Control.Exception.finally` atomically (closeTMQueue results))) $ \searchAsync -> do
     rewriteResultsAsEmacsList result
     liftBase (wait searchAsync)
     produceRef =<< cdr result
