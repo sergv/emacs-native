@@ -8,7 +8,6 @@
 
 {-# LANGUAGE CPP               #-}
 {-# LANGUAGE FlexibleContexts  #-}
-{-# LANGUAGE LambdaCase        #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Data.Regex

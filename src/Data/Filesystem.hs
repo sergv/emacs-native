@@ -20,6 +20,7 @@ import Control.Monad.Base
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.Trans.Control
+
 import Data.Foldable
 import Data.NBSem
 import qualified Data.Streaming.Filesystem as Streaming

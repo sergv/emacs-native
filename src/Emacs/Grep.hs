@@ -6,6 +6,7 @@
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
 
+{-# LANGUAGE BangPatterns        #-}
 {-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE LambdaCase          #-}
@@ -27,14 +28,12 @@ import Control.Monad.Base
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Control
 
-import Data.ByteString.Lex.Integral (packDecimal)
 import qualified Data.ByteString.Char8 as C8
 import qualified Data.ByteString.Char8.Ext as C8.Ext
 import Data.Foldable
 import qualified Data.List as L
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
-import Data.Maybe
 import Data.Ord
 import Data.Semigroup as Semi
 import qualified Data.Text as T
@@ -113,28 +112,31 @@ emacsGrepRec (R roots (R regexp (R extsGlobs (R ignoredFileGlobs (R ignoredDirGl
               AllMatches ms -> makeMatches root path ms contents
         | otherwise = pure []
 
-  nil' <- nil
-
   let collectEntries :: TMQueue MatchEntry -> m s (EmacsRef m s)
       collectEntries results = go mempty
         where
           -- Accumulator is a map from file names and positions within file
           -- to Emacs strings that could be presented to the user.
           go :: Map (C8.ByteString, Word) (EmacsRef m s) -> m s (EmacsRef m s)
-          go acc = do
+          go !acc = do
             res <- liftBase $ atomically $ readTMQueue results
             case res of
               Nothing ->
                 makeVector $ toList acc
-              Just x@MatchEntry{matchPos, matchLineNum, matchColumn} -> do
-                (pathBS, pathEmacs, formatted) <- formatMatchEntry x
+              Just MatchEntry{matchAbsPath, matchRelPath, matchPos, matchLineNum, matchColumn, matchLinePrefix, matchLineStr, matchLineSuffix} -> do
+                let relPathBS = pathForEmacs matchRelPath
+                pathEmacs        <- makeString $ pathForEmacs matchAbsPath
+                shortPathEmacs   <- makeString relPathBS
                 matchLineNum'    <- makeInt (fromIntegral matchLineNum)
                 matchColumn'     <- makeInt (fromIntegral matchColumn)
+                matchLinePrefix' <- makeString matchLinePrefix
+                matchLineStr'    <- makeString matchLineStr
+                matchLineSuffix' <- makeString matchLineSuffix
                 emacsMatchStruct <-
                   funcallPrimitive
                     [esym|make-egrep-match|]
-                    [pathEmacs, nil', matchLineNum', matchColumn', formatted]
-                go $! M.insert (pathBS, matchPos) emacsMatchStruct acc
+                    [pathEmacs, shortPathEmacs, matchLineNum', matchColumn', matchLinePrefix', matchLineStr', matchLineSuffix']
+                go $ M.insert (relPathBS, matchPos) emacsMatchStruct acc
 
   results <- liftBase newTMQueueIO
   let collect :: MatchEntry -> IO ()
@@ -166,65 +168,6 @@ data MatchEntry = MatchEntry
     -- Contains no newlines.
     matchLineSuffix :: !C8.ByteString
   } deriving (Show)
-
--- Connect last element of the first list and head of the second list.
-connectTailHeadWith :: (a -> a -> a) -> [a] -> [a] -> [a]
-connectTailHeadWith f xs ys = go xs
-  where
-    go = \case
-      []      -> ys
-      xs'@[x] ->
-        case ys of
-          []      -> xs'
-          y : ys' -> f x y : ys'
-      (x:xs') -> x : go xs'
-
--- | Create a string from a match entry that will present a match to
--- the user.
-formatMatchEntry
-  :: forall m s. (Monad (m s), MonadThrow (m s), MonadEmacs m, Throws UserError)
-  => MatchEntry -> m s (C8.ByteString, EmacsRef m s, EmacsRef m s)
-formatMatchEntry MatchEntry{matchAbsPath, matchRelPath, matchLineNum, matchLinePrefix, matchLineStr, matchLineSuffix} = do
-  let matchPath'    = pathForEmacs matchRelPath
-      matchLineNum' = packWord matchLineNum
-  emacsPath <- makeString $ pathForEmacs matchAbsPath
-  fileName  <- (`addFaceProp` [esym|compilation-info|])        =<< makeString matchPath'
-  lineNum   <- (`addFaceProp` [esym|compilation-line-number|]) =<< makeString matchLineNum'
-  colon     <- makeString ":"
-
-  lineNum' <- addFaceProp lineNum [esym|compilation-line-number|]
-
-  let prefixLines, matchedLines, suffixLines :: [m s (EmacsRef m s)]
-      prefixLines  = [makeString matchLinePrefix | not $ C8.null matchLinePrefix ]
-      matchedLines = [ (`addFaceProp` [esym|lazy-highlight|]) =<< makeString line
-                     | line <- C8.lines matchLineStr
-                     ]
-      suffixLines  = [makeString (C8.snoc matchLineSuffix '\n')]
-
-      connect
-        :: [m s (EmacsRef m s)]
-        -> [m s (EmacsRef m s)]
-        -> [m s (EmacsRef m s)]
-      connect = connectTailHeadWith $ \x y -> do
-        x' <- x
-        y' <- y
-        concat2 x' y'
-
-  matchedTextLines <- sequence $ connect prefixLines $ connect matchedLines suffixLines
-
-  let paddingSize = C8.length matchPath' + 1 + C8.length matchLineNum'
-  headerPadding <- makeString $ C8.replicate paddingSize ' '
-
-  let body = L.intersperse headerPadding matchedTextLines
-  formatted <- funcallPrimitive [esym|concat|] $ [fileName, colon, lineNum', colon] ++ body
-  pure (matchPath', emacsPath, formatted)
-
-
-{-# INLINE packWord #-}
-packWord :: Word -> C8.ByteString
-packWord = fromMaybe err . packDecimal
-  where
-    err = error "Impossible: a Word value cannot be negative"
 
 data MatchState = MatchState
   { msPos     :: !Word
