@@ -3,15 +3,11 @@
 -- Module      :  Data.NBSem
 -- Copyright   :  (c) Sergey Vinokurov 2018
 -- License     :  BSD3-style (see LICENSE)
---
 -- Maintainer  :  serg.foo@gmail.com
 -- Created     :   5 March 2018
--- Stability   :
--- Portability :
---
---
 ----------------------------------------------------------------------------
 
+{-# LANGUAGE BangPatterns     #-}
 {-# LANGUAGE FlexibleContexts #-}
 
 module Data.NBSem
