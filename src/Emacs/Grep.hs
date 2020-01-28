@@ -12,6 +12,7 @@
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE PatternGuards       #-}
 {-# LANGUAGE QuasiQuotes         #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -105,7 +106,8 @@ emacsGrepRec (R roots (R regexp (R extsGlobs (R ignoredFileGlobs (R ignoredDirGl
       shouldCollect :: Path Abs Dir -> Path Abs File -> IO [MatchEntry]
       shouldCollect root path
         | reMatchesPath ignoredFilesRE path = pure []
-        | reMatchesString extsToFindRE (fileExtension path) = do
+        | Just ext <- fileExtension path
+        , reMatchesString extsToFindRE ext = do
             contents <- C8.readFile $ toFilePath path
             case reAllByteStringMatches regexp'' contents of
               AllMatches [] -> pure []
