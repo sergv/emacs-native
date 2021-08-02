@@ -125,19 +125,19 @@ emacsGrepRec (R roots (R regexp (R extsGlobs (R ignoredFileGlobs (R ignoredDirGl
             case res of
               Nothing ->
                 makeVector $ toList acc
-              Just MatchEntry{matchAbsPath, matchRelPath, matchPos, matchLineNum, matchColumn, matchLinePrefix, matchLineStr, matchLineSuffix} -> do
+              Just MatchEntry{matchAbsPath, matchRelPath, matchPos, matchLineNum, matchLinePrefix, matchLineStr, matchLineSuffix} -> do
                 let relPathBS = pathForEmacs matchRelPath
                 pathEmacs        <- makeString $ pathForEmacs matchAbsPath
                 shortPathEmacs   <- makeString relPathBS
                 matchLineNum'    <- makeInt (fromIntegral matchLineNum)
-                matchColumn'     <- makeInt (fromIntegral matchColumn)
+                matchPos'        <- makeInt (fromIntegral matchPos)
                 matchLinePrefix' <- makeString matchLinePrefix
                 matchLineStr'    <- makeString matchLineStr
                 matchLineSuffix' <- makeString matchLineSuffix
                 emacsMatchStruct <-
                   funcallPrimitive
                     [esym|make-egrep-match|]
-                    [pathEmacs, shortPathEmacs, matchLineNum', matchColumn', matchLinePrefix', matchLineStr', matchLineSuffix']
+                    [pathEmacs, shortPathEmacs, matchLineNum', matchPos', matchLinePrefix', matchLineStr', matchLineSuffix']
                 go $ M.insert (relPathBS, matchPos) emacsMatchStruct acc
 
   results <- liftBase newTMQueueIO
@@ -159,7 +159,6 @@ data MatchEntry = MatchEntry
   , matchRelPath    :: !(Path Rel File)
   , matchPos        :: !Word
   , matchLineNum    :: !Word
-  , matchColumn     :: !Word
   , -- | What comes before the matched text on the relevant line.
     -- Contains no newlines.
     matchLinePrefix :: !C8.ByteString
@@ -230,7 +229,6 @@ makeMatches searchRoot fileAbsPath ms str =
                  , matchRelPath    = relPath
                  , matchPos        = msPos
                  , matchLineNum    = msLine
-                 , matchColumn     = msCol
                  , matchLinePrefix = C8.copy prefix
                  , matchLineStr    = C8.copy matched
                  , matchLineSuffix = C8.copy suffix

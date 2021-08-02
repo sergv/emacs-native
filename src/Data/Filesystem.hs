@@ -42,7 +42,7 @@ findRec
   :: forall a f ff. (WithCallStack, Foldable f, Foldable ff)
   => FollowSymlinks a
   -> Int                     -- ^ Extra search threads to run in parallel.
-  -> (Path Abs Dir  -> Bool) -- ^ Whether to visit a directory.
+  -> (Path Abs Dir -> Bool)  -- ^ Whether to visit a directory.
   -> (Path Abs Dir -> Path Abs File -> IO (f a))
                              -- ^ What to do with a file.
   -> (a -> IO ())            -- ^ Consume output

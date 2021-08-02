@@ -316,7 +316,7 @@ computeHeatMapFromGroups fullStr (groupsCount, groups) = runST $ do
     initScoreAdjustment = case groups of
       []  -> 0
       [_] -> 0
-      _   -> (-2) * length groups
+      _   -> (-2) * groupsCount
 
     update :: StrIdx -> Int -> UM.MVector s Int -> ST s ()
     update (StrIdx idx) val vec = do

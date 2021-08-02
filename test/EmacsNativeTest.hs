@@ -75,6 +75,11 @@ fuzzyMatchTests = testGroup "fuzzy match"
       { mScore     = 865
       , mPositions = NE.fromList [StrIdx 190..StrIdx 199]
       }
+  , let haystack = "sys/dev/acpica/Osd/OsdTable.c" in
+      mkTestCase "cat.c" haystack (computeHeatMap haystack mempty) Match
+        { mScore     = 142
+        , mPositions = NE.fromList (map StrIdx [12, 13, 22, 27, 28])
+        }
   ]
   where
     mkTestCase :: Text -> Text -> U.Vector Int -> Match -> TestTree
@@ -91,8 +96,36 @@ heatMap = testGroup "Heatmap"
   , mkTestCase "foo/bar/baz" (IS.singleton (ord '/')) [41, -45, -46, -47, 39, -47, -48, -49, 79, -7, -7]
   , mkTestCase
       "foo/bar+quux/fizz.buzz/frobnicate/frobulate"
+      mempty
+      [78, -8, -9, -10, 75, -11, -12, -13, 72, -14, -15, -16, -17, 69, -17, -18, -19, -20, 21, -20, -21, -22, -23, 63, -23, -24, -25, -26, -27, -28, -29, -30, -31, -32, 60, -26, -27, -28, -29, -30, -31, -32, -32]
+  , mkTestCase
+      "foo/bar+quux/fizz.buzz"
+      (IS.singleton (ord '/'))
+      [41, -45, -46, -47, 39, -47, -48, -49, 36, -50, -51, -52, -53, 78, -8, -9, -10, -11, 30, -11, -12, -12]
+  , mkTestCase
+      "foo/bar+quux/fizz.buzz/frobnicate/frobulate"
       (IS.singleton (ord '/'))
       [37, -49, -50, -51, 35, -51, -52, -53, 32, -54, -55, -56, -57, 36, -50, -51, -52, -53, -12, -53, -54, -55, -56, 37, -49, -50, -51, -52, -53, -54, -55, -56, -57, -58, 77, -9, -10, -11, -12, -13, -14, -15, -15]
+  , mkTestCase
+      "foo/bar+quux/fizz.buzz//frobnicate/frobulate"
+      (IS.singleton (ord '/'))
+      [35, -51, -52, -53, 33, -53, -54, -55, 30, -56, -57, -58, -59, 34, -52, -53, -54, -55, -14, -55, -56, -57, -58, -50, 36, -50, -51, -52, -53, -54, -55, -56, -57, -58, -59, 76, -10, -11, -12, -13, -14, -15, -16, -16]
+  , mkTestCase
+      "foo/bar+quux/fizz.buzz//frobnicate/frobulate"
+      (IS.fromList [ord '/', ord 'u'])
+      [27, -59, -60, -61, 25, -61, -62, -63, 22, -64, -59, -58, -58, 28, -58, -59, -60, -61, -20, -61, -56, -56, -56, -55, 31, -55, -56, -57, -58, -59, -60, -61, -62, -63, -64, 72, -14, -15, -16, -17, -52, -52, -52, -51]
+  , mkTestCase
+      "foo/barQuux/fizzBuzz//frobnicate/frobulate"
+      mempty
+      [80, -6, -7, -8, 77, -9, -10, 74, -12, -13, -14, -15, 71, -15, -16, -17, 68, -18, -19, -20, -21, -22, 65, -21, -22, -23, -24, -25, -26, -27, -28, -29, -30, 62, -24, -25, -26, -27, -28, -29, -30, -30]
+  , mkTestCase
+      "foo//bar"
+      mempty
+      [83, -3, -4, -5, -6, 80, -6, -6]
+  , mkTestCase
+      "foo//bar"
+      (IS.singleton (ord '/'))
+      [41, -45, -46, -47, -46, 79, -7, -7]
   ]
   where
     mkTestCase :: Text -> IntSet -> [Int] -> TestTree
