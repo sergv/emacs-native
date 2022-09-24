@@ -14,28 +14,32 @@
 
 {-# LANGUAGE DataKinds             #-}
 {-# LANGUAGE FlexibleContexts      #-}
+{-# LANGUAGE ImportQualifiedPost   #-}
+{-# LANGUAGE MagicHash             #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE QuasiQuotes           #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE TypeApplications      #-}
 
 module Emacs.FastFileSearch (initialise) where
 
 import Control.Concurrent.Async.Lifted.Safe
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TMQueue
-import qualified Control.Exception
-import qualified Control.Exception.Safe.Checked as Checked
+import Control.Exception qualified
+import Control.Exception.Safe.Checked qualified as Checked
 import Control.Monad.Base
 import Control.Monad.Trans.Control
-
-import qualified Data.ByteString.Char8 as C8
-import qualified Data.Text as T
-import Data.Text.Prettyprint.Doc
+import Data.Text qualified as T
+import Prettyprinter
 import Data.Traversable
+import Data.Vector (Vector)
+import Data.Vector.Unboxed qualified as U
 import GHC.Conc (getNumCapabilities)
 
 import Data.Emacs.Module.Args
+import Data.Emacs.Module.Doc qualified as Doc
 import Data.Emacs.Module.SymbolName.TH
 import Emacs.Module
 import Emacs.Module.Assert
@@ -53,18 +57,18 @@ initialise =
   bindFunction [esym|haskell-native-find-rec|] =<<
     makeFunction emacsFindRec emacsFindRecDoc
 
-emacsFindRecDoc :: C8.ByteString
-emacsFindRecDoc =
-  "Recursively find files leveraging multiple cores."
+emacsFindRecDoc :: Doc.Doc
+emacsFindRecDoc = Doc.mkLiteralDoc
+  "Recursively find files leveraging multiple cores."#
 
 emacsFindRec
-  :: forall m s. (WithCallStack, MonadEmacs m, Monad (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)))
+  :: forall m s. (WithCallStack, MonadEmacs m, MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)), U.Unbox (EmacsRef m s), Throws UserError)
   => EmacsFunction ('S ('S ('S ('S 'Z)))) 'Z 'False s m
 emacsFindRec (R roots (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs Stop)))) = do
-  roots'              <- extractVectorWith extractText roots
-  globsToFind'        <- extractVectorWith extractText globsToFind
-  ignoredFileGlobs'   <- extractVectorWith extractText ignoredFileGlobs
-  ignoredDirGlobs'    <- extractVectorWith extractText ignoredDirGlobs
+  roots'              <- traverse extractText . U.convert @_ @_ @Vector =<< extractVector roots
+  globsToFind'        <- traverse extractText . U.convert @_ @_ @Vector =<< extractVector globsToFind
+  ignoredFileGlobs'   <- traverse extractText . U.convert @_ @_ @Vector =<< extractVector ignoredFileGlobs
+  ignoredDirGlobs'    <- traverse extractText . U.convert @_ @_ @Vector =<< extractVector ignoredDirGlobs
 
   jobs <- liftBase getNumCapabilities
 

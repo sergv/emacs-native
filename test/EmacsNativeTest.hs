@@ -84,7 +84,7 @@ fuzzyMatchTests = testGroup "fuzzy match"
   where
     mkTestCase :: Text -> Text -> U.Vector Int -> Match -> TestTree
     mkTestCase needle haystack haystackHeatmap result =
-      testCase ("match '" <> T.unpack needle <> "' against '" <> T.unpack haystack <> "'") $
+      testCase (T.unpack $ "match '" <> needle <> "' against '" <> haystack <> "'") $
         fuzzyMatch haystackHeatmap needle haystack @?= result
 
 heatMap :: TestTree

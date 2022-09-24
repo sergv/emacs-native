@@ -7,6 +7,7 @@
 ----------------------------------------------------------------------------
 
 {-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE MultiWayIf          #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -23,10 +24,10 @@ import Control.Monad.Trans.Control
 
 import Data.Foldable
 import Data.NBSem
-import qualified Data.Streaming.Filesystem as Streaming
+import Data.Streaming.Filesystem qualified as Streaming
 import Path
-import qualified Path.Internal
-import qualified System.FilePath as FilePath
+import Path.Internal qualified
+import System.FilePath qualified as FilePath
 
 import Emacs.Module.Assert
 

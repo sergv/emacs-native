@@ -9,12 +9,15 @@
 {-# LANGUAGE BangPatterns        #-}
 {-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE MagicHash           #-}
 {-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE PatternGuards       #-}
 {-# LANGUAGE QuasiQuotes         #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications    #-}
 
 module Emacs.Grep (initialise) where
 
@@ -23,24 +26,25 @@ import Control.Concurrent.Async.Lifted.Safe
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TMQueue
 import Control.Exception (finally)
-import qualified Control.Exception.Safe.Checked as Checked
+import Control.Exception.Safe.Checked qualified as Checked
 import Control.Monad
 import Control.Monad.Base
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Control
-
-import qualified Data.ByteString.Char8 as C8
-import qualified Data.ByteString.Char8.Ext as C8.Ext
+import Data.ByteString.Char8 qualified as C8
+import Data.ByteString.Char8.Ext qualified as C8.Ext
 import Data.Foldable
-import qualified Data.List as L
+import Data.List qualified as L
 import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as M
+import Data.Map.Strict qualified as M
 import Data.Ord
 import Data.Semigroup as Semi
-import qualified Data.Text as T
-import Data.Text.Prettyprint.Doc (pretty, (<+>))
+import Data.Text qualified as T
 import Data.Traversable
+import Data.Vector (Vector)
+import Data.Vector.Unboxed qualified as U
 import GHC.Conc (getNumCapabilities)
+import Prettyprinter (pretty, (<+>))
 
 import Data.Emacs.Module.Args
 import Data.Emacs.Module.SymbolName.TH
@@ -48,6 +52,7 @@ import Emacs.Module
 import Emacs.Module.Assert
 import Emacs.Module.Errors
 
+import Data.Emacs.Module.Doc qualified as Doc
 import Data.Emacs.Path
 import Data.Filesystem
 import Data.Regex
@@ -61,19 +66,19 @@ initialise =
   bindFunction [esym|haskell-native-grep-rec|] =<<
     makeFunction emacsGrepRec emacsGrepRecDoc
 
-emacsGrepRecDoc :: C8.ByteString
-emacsGrepRecDoc =
-  "Recursively find files leveraging multiple cores."
+emacsGrepRecDoc :: Doc.Doc
+emacsGrepRecDoc = Doc.mkLiteralDoc
+  "Recursively find files leveraging multiple cores."#
 
 emacsGrepRec
-  :: forall m s. (WithCallStack, MonadEmacs m, Monad (m s), MonadIO (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)))
+  :: forall m s. (WithCallStack, MonadEmacs m, MonadIO (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)), U.Unbox (EmacsRef m s), Throws UserError)
   => EmacsFunction ('S ('S ('S ('S ('S ('S 'Z)))))) 'Z 'False s m
 emacsGrepRec (R roots (R regexp (R extsGlobs (R ignoredFileGlobs (R ignoredDirGlobs (R ignoreCase Stop)))))) = do
-  roots'            <- extractVectorWith extractText roots
+  roots'            <- traverse extractText . U.convert @_ @_ @Vector =<< extractVector roots
   regexp'           <- extractText regexp
-  extsGlobs'        <- extractVectorWith extractText extsGlobs
-  ignoredFileGlobs' <- extractVectorWith extractText ignoredFileGlobs
-  ignoredDirGlobs'  <- extractVectorWith extractText ignoredDirGlobs
+  extsGlobs'        <- traverse extractText . U.convert @_ @_ @Vector =<< extractVector extsGlobs
+  ignoredFileGlobs' <- traverse extractText . U.convert @_ @_ @Vector =<< extractVector ignoredFileGlobs
+  ignoredDirGlobs'  <- traverse extractText . U.convert @_ @_ @Vector =<< extractVector ignoredDirGlobs
   ignoreCase'       <- extractBool ignoreCase
 
   roots'' <- for roots' $ \root ->
@@ -238,4 +243,5 @@ makeMatches searchRoot fileAbsPath ms str =
               , let (matched, rest') = C8.Ext.splitAt len rest
               , let suffix           = C8.takeWhile (not . isNewline) rest'
               ]
+            fi :: Word -> Int
             fi = fromIntegral
