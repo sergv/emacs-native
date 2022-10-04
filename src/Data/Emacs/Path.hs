@@ -6,12 +6,13 @@
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
 
-{-# LANGUAGE CPP        #-}
-{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE CPP                 #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE LambdaCase          #-}
 
 module Data.Emacs.Path (pathForEmacs) where
 
-import qualified Data.ByteString.Char8 as C8
+import Data.ByteString.Char8 qualified as C8
 import Path
 
 pathForEmacs :: Path a b -> C8.ByteString

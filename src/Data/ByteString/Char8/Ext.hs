@@ -6,7 +6,8 @@
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
 
-{-# LANGUAGE CPP #-}
+{-# LANGUAGE CPP                 #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 
 module Data.ByteString.Char8.Ext
   ( take
@@ -14,10 +15,10 @@ module Data.ByteString.Char8.Ext
   , splitAt
   ) where
 
-import qualified Data.ByteString.Char8 as C8
+import Data.ByteString.Char8 qualified as C8
 
 #if !defined(RUNTIME_CHECKS)
-import qualified Data.ByteString.Unsafe as Unsafe
+import Data.ByteString.Unsafe qualified as Unsafe
 #endif
 
 import Prelude (Int)

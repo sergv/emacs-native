@@ -8,6 +8,7 @@
 
 {-# LANGUAGE DeriveFunctor       #-}
 {-# LANGUAGE DeriveGeneric       #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
@@ -30,18 +31,18 @@ import Prelude hiding (lookup)
 
 import Control.Arrow (second)
 import Data.Bimap (Bimap)
-import qualified Data.Bimap as BM
+import Data.Bimap qualified as BM
 import Data.ByteString.Short (ShortByteString)
 import Data.Foldable
 import Data.List.NonEmpty (NonEmpty(..))
-import qualified Data.Map.Strict as M
+import Data.Map.Strict qualified as M
 import Data.Monoid (Sum(..))
 import Data.Set (Set)
-import qualified Data.Set as S
+import Data.Set qualified as S
 import GHC.Generics (Generic)
 
 import Data.RadixTree (RadixTree)
-import qualified Data.RadixTree as RadixTree
+import Data.RadixTree qualified as RadixTree
 
 import Data.Regex (Regex, reMatchesShortByteString)
 

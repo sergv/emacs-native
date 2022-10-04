@@ -15,12 +15,12 @@
 {-# LANGUAGE DataKinds             #-}
 {-# LANGUAGE FlexibleContexts      #-}
 {-# LANGUAGE ImportQualifiedPost   #-}
-{-# LANGUAGE MagicHash             #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings     #-}
-{-# LANGUAGE QuasiQuotes           #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE TypeApplications      #-}
+
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 module Emacs.FastFileSearch (initialise) where
 
@@ -28,7 +28,6 @@ import Control.Concurrent.Async.Lifted.Safe
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TMQueue
 import Control.Exception qualified
-import Control.Exception.Safe.Checked qualified as Checked
 import Control.Monad.Base
 import Control.Monad.Trans.Control
 import Data.Text qualified as T
@@ -40,7 +39,6 @@ import GHC.Conc (getNumCapabilities)
 
 import Data.Emacs.Module.Args
 import Data.Emacs.Module.Doc qualified as Doc
-import Data.Emacs.Module.SymbolName.TH
 import Emacs.Module
 import Emacs.Module.Assert
 import Emacs.Module.Errors
@@ -51,18 +49,18 @@ import Data.Regex
 import Path
 
 initialise
-  :: (WithCallStack, Throws EmacsThrow, Throws EmacsError, Throws EmacsInternalError)
+  :: WithCallStack
   => EmacsM s ()
 initialise =
-  bindFunction [esym|haskell-native-find-rec|] =<<
+  bindFunction "haskell-native-find-rec" =<<
     makeFunction emacsFindRec emacsFindRecDoc
 
 emacsFindRecDoc :: Doc.Doc
-emacsFindRecDoc = Doc.mkLiteralDoc
-  "Recursively find files leveraging multiple cores."#
+emacsFindRecDoc =
+  "Recursively find files leveraging multiple cores."
 
 emacsFindRec
-  :: forall m s. (WithCallStack, MonadEmacs m, MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)), U.Unbox (EmacsRef m s), Throws UserError)
+  :: forall m s. (WithCallStack, MonadEmacs m, MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)), U.Unbox (EmacsRef m s))
   => EmacsFunction ('S ('S ('S ('S 'Z)))) 'Z 'False s m
 emacsFindRec (R roots (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs Stop)))) = do
   roots'              <- traverse extractText . U.convert @_ @_ @Vector =<< extractVector roots
@@ -74,7 +72,7 @@ emacsFindRec (R roots (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs Stop
 
   roots'' <- for roots' $ \root ->
     case parseAbsDir $ T.unpack root of
-      Nothing -> Checked.throw $ mkUserError "emacsFindRec" $
+      Nothing -> throwM $ mkUserError "emacsFindRec" $
         "One of the search roots is not a valid absolute directory:" <+> pretty root
       Just x  -> pure x
 
@@ -117,4 +115,4 @@ emacsFindRec (R roots (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs Stop
   withAsync (liftBase (doFind `Control.Exception.finally` atomically (closeTMQueue results))) $ \searchAsync -> do
     rewriteResultsAsEmacsList result
     liftBase (wait searchAsync)
-    produceRef =<< cdr result
+    cdr result

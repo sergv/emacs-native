@@ -6,9 +6,10 @@
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
 
-{-# LANGUAGE CPP               #-}
-{-# LANGUAGE FlexibleContexts  #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE CPP                 #-}
+{-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE OverloadedStrings   #-}
 
 module Data.Regex
   ( fileGlobsToRegex
@@ -25,25 +26,23 @@ module Data.Regex
   , module Text.Regex.TDFA
   ) where
 
-import Control.Exception.Safe.Checked (Throws, MonadThrow)
-import qualified Control.Exception.Safe.Checked as Checked
-
-import qualified Data.ByteString.Char8 as C8
+import Control.Monad.Catch (MonadThrow(..))
+import Data.ByteString.Char8 qualified as C8
 import Data.ByteString.Short (ShortByteString)
-import qualified Data.ByteString.Short as BSS
+import Data.ByteString.Short qualified as BSS
 import Data.Foldable
 import Data.Text (Text)
-import qualified Data.Text as T
-import Data.Text.Prettyprint.Doc
+import Data.Text qualified as T
 import Path
+import Prettyprinter
 import Text.Regex.TDFA
-import qualified Text.Regex.TDFA.Text as TDFA
+import Text.Regex.TDFA.Text qualified as TDFA
 
 import Emacs.Module.Assert (WithCallStack)
 import Emacs.Module.Errors
 
 fileGlobsToRegex
-  :: (WithCallStack, Throws UserError, MonadThrow m, Foldable f, Functor f)
+  :: (WithCallStack, MonadThrow m, Foldable f, Functor f)
   => f Text -> m Regex
 fileGlobsToRegex
   = compileReWithOpts compOpts
@@ -88,7 +87,7 @@ fileGlobsToRegex
       True
 #endif
 
-compileRe :: (WithCallStack, MonadThrow m, Throws UserError) => Text -> m Regex
+compileRe :: (WithCallStack, MonadThrow m) => Text -> m Regex
 compileRe = compileReWithOpts compOpts
   where
     compOpts = defaultCompOpt
@@ -97,11 +96,11 @@ compileRe = compileReWithOpts compOpts
       }
 
 compileReWithOpts
-  :: (WithCallStack, MonadThrow m, Throws UserError)
+  :: (WithCallStack, MonadThrow m)
   => CompOption -> Text -> m Regex
 compileReWithOpts compOpts re =
   case TDFA.compile compOpts execOpts re of
-    Left err -> Checked.throw $ mkUserError "compileRe" $
+    Left err -> throwM $ mkUserError "compileRe" $
       "Failed to compile regular expression:" <+> pretty err <> ":" <> line <> pretty re
     Right x  -> pure x
   where

@@ -9,12 +9,12 @@
 {-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE ImportQualifiedPost #-}
-{-# LANGUAGE MagicHash           #-}
 {-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE QuasiQuotes         #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections       #-}
+
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 module Emacs.FuzzyMatch (initialise) where
 
@@ -22,33 +22,30 @@ import Control.Concurrent.Async.Lifted.Safe
 import Control.Monad.IO.Class
 import Control.Monad.Par
 import Control.Monad.Trans.Control
-
 import Data.Foldable
 import Data.List qualified as L
 import Data.Ord
 import Data.Text qualified as T
 
-import Data.Emacs.Module.SymbolName.TH
 import Emacs.Module
 import Emacs.Module.Assert (WithCallStack)
-import Emacs.Module.Errors
 import Data.Emacs.Module.Doc qualified as Doc
 
 import Data.FuzzyMatch
 
 initialise
-  :: (WithCallStack, Throws EmacsThrow, Throws EmacsError, Throws EmacsInternalError)
+  :: WithCallStack
   => EmacsM s ()
 initialise = do
-  bindFunction [esym|haskell-native-score-matches|] =<<
+  bindFunction "haskell-native-score-matches" =<<
     makeFunction scoreMatches scoreMatchesDoc
-  bindFunction [esym|haskell-native-score-single-match|] =<<
+  bindFunction "haskell-native-score-single-match" =<<
     makeFunction scoreSingleMatch scoreSingleMatchDoc
 
 scoreMatchesDoc :: Doc.Doc
-scoreMatchesDoc = Doc.mkLiteralDoc
+scoreMatchesDoc =
   "Given a query string and a list of strings to match against, \
-  \sort the strings according to score of fuzzy matching them against the query."#
+  \sort the strings according to score of fuzzy matching them against the query."
 
 scoreMatches
   :: forall m s. (WithCallStack, MonadEmacs m, Monad (m s), MonadIO (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)), NFData (EmacsRef m s))
@@ -61,12 +58,12 @@ scoreMatches (R needle (R haystacks Stop)) = do
         $ L.sortOn (\(score, str, _emacsStr) -> (Down score, T.length str))
         $ runPar
         $ parMap (\(str, emacsStr) -> (mScore $ fuzzyMatch (computeHeatMap str mempty) needle' str, str, emacsStr)) haystacks'
-  produceRef =<< makeList matches
+  makeList matches
 
 scoreSingleMatchDoc :: Doc.Doc
-scoreSingleMatchDoc = Doc.mkLiteralDoc
+scoreSingleMatchDoc =
   "Fuzzy match a single string against another. Returns match score and \
-  \positions where the match occured."#
+  \positions where the match occured."
 
 scoreSingleMatch
   :: forall m s. (WithCallStack, MonadEmacs m, Monad (m s), MonadIO (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)))
@@ -77,4 +74,4 @@ scoreSingleMatch (R needle (R haystack Stop)) = do
   let Match{mScore, mPositions} = fuzzyMatch (computeHeatMap haystack' mempty) needle' haystack'
   score     <- makeInt mScore
   positions <- makeList =<< traverse (makeInt . unStrIdx) (toList mPositions)
-  produceRef =<< cons score positions
+  cons score positions

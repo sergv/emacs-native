@@ -11,13 +11,13 @@
 {-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE LambdaCase          #-}
-{-# LANGUAGE MagicHash           #-}
 {-# LANGUAGE NamedFieldPuns      #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE PatternGuards       #-}
-{-# LANGUAGE QuasiQuotes         #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications    #-}
+
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 module Emacs.Grep (initialise) where
 
@@ -26,7 +26,6 @@ import Control.Concurrent.Async.Lifted.Safe
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TMQueue
 import Control.Exception (finally)
-import Control.Exception.Safe.Checked qualified as Checked
 import Control.Monad
 import Control.Monad.Base
 import Control.Monad.IO.Class
@@ -41,13 +40,13 @@ import Data.Ord
 import Data.Semigroup as Semi
 import Data.Text qualified as T
 import Data.Traversable
+import Data.Tuple.Homogenous
 import Data.Vector (Vector)
 import Data.Vector.Unboxed qualified as U
 import GHC.Conc (getNumCapabilities)
 import Prettyprinter (pretty, (<+>))
 
 import Data.Emacs.Module.Args
-import Data.Emacs.Module.SymbolName.TH
 import Emacs.Module
 import Emacs.Module.Assert
 import Emacs.Module.Errors
@@ -60,18 +59,18 @@ import Path
 import Path.IO
 
 initialise
-  :: (WithCallStack, Throws EmacsThrow, Throws EmacsError, Throws EmacsInternalError)
+  :: WithCallStack
   => EmacsM s ()
 initialise =
-  bindFunction [esym|haskell-native-grep-rec|] =<<
+  bindFunction "haskell-native-grep-rec" =<<
     makeFunction emacsGrepRec emacsGrepRecDoc
 
 emacsGrepRecDoc :: Doc.Doc
-emacsGrepRecDoc = Doc.mkLiteralDoc
-  "Recursively find files leveraging multiple cores."#
+emacsGrepRecDoc =
+  "Recursively find files leveraging multiple cores."
 
 emacsGrepRec
-  :: forall m s. (WithCallStack, MonadEmacs m, MonadIO (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)), U.Unbox (EmacsRef m s), Throws UserError)
+  :: forall m s. (WithCallStack, MonadEmacs m, MonadIO (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)), U.Unbox (EmacsRef m s))
   => EmacsFunction ('S ('S ('S ('S ('S ('S 'Z)))))) 'Z 'False s m
 emacsGrepRec (R roots (R regexp (R extsGlobs (R ignoredFileGlobs (R ignoredDirGlobs (R ignoreCase Stop)))))) = do
   roots'            <- traverse extractText . U.convert @_ @_ @Vector =<< extractVector roots
@@ -83,12 +82,12 @@ emacsGrepRec (R roots (R regexp (R extsGlobs (R ignoredFileGlobs (R ignoredDirGl
 
   roots'' <- for roots' $ \root ->
     case parseAbsDir $ T.unpack root of
-      Nothing -> Checked.throw $ mkUserError "emacsGrepRec" $
+      Nothing -> throwM $ mkUserError "emacsGrepRec" $
         "One of the search roots is not a valid absolute directory:" <+> pretty root
       Just x  -> do
         exists <- doesDirExist x
         unless exists $
-          Checked.throw $ mkUserError "emacsGrepRec" $
+          throwM $ mkUserError "emacsGrepRec" $
             "Search root does not exist:" <+> pretty root
         pure x
 
@@ -140,9 +139,9 @@ emacsGrepRec (R roots (R regexp (R extsGlobs (R ignoredFileGlobs (R ignoredDirGl
                 matchLineStr'    <- makeString matchLineStr
                 matchLineSuffix' <- makeString matchLineSuffix
                 emacsMatchStruct <-
-                  funcallPrimitive
-                    [esym|make-egrep-match|]
-                    [pathEmacs, shortPathEmacs, matchLineNum', matchPos', matchLinePrefix', matchLineStr', matchLineSuffix']
+                  funcallPrimitiveSym
+                    "make-egrep-match"
+                    (Tuple7 (pathEmacs, shortPathEmacs, matchLineNum', matchPos', matchLinePrefix', matchLineStr', matchLineSuffix'))
                 go $ M.insert (relPathBS, matchPos) emacsMatchStruct acc
 
   results <- liftBase newTMQueueIO
@@ -157,7 +156,7 @@ emacsGrepRec (R roots (R regexp (R extsGlobs (R ignoredFileGlobs (R ignoredDirGl
           roots''
 
   withAsync (liftBase (doFind `finally` atomically (closeTMQueue results))) $ \searchAsync ->
-    (produceRef =<< collectEntries results) <* wait searchAsync
+    collectEntries results <* wait searchAsync
 
 data MatchEntry = MatchEntry
   { matchAbsPath    :: !(Path Abs File)
@@ -190,7 +189,7 @@ isNewline = \case
   _    -> False
 
 makeMatches
-  :: (Throws UserError, MonadThrow m)
+  :: MonadThrow m
   => Path Abs Dir  -- ^ Directory where recursive search was initiated
   -> Path Abs File -- ^ Matched file under the directory
   -> [(MatchOffset, MatchLength)]
@@ -198,7 +197,7 @@ makeMatches
   -> m [MatchEntry]
 makeMatches searchRoot fileAbsPath ms str =
   case stripProperPrefix searchRoot fileAbsPath of
-    Nothing -> Checked.throw $ mkUserError "emacsGrepRec" $
+    Nothing -> throwM $ mkUserError "emacsGrepRec" $
       "Internal error: findRec produced wrong root for path" <+> pretty (toFilePath fileAbsPath) Semi.<>
       ". The root is" <+> pretty (toFilePath searchRoot)
     Just relPath ->

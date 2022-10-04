@@ -35,6 +35,7 @@ common ghc-options
 
   ghc-options:
     -Weverything
+    -Wno-redundant-constraints
     -Wno-type-defaults
     -Wno-implicit-prelude
     -Wno-missing-local-signatures
@@ -79,7 +80,7 @@ library
     , bimap
     , bytestring
     , containers
-    , emacs-module
+    , emacs-module >= 0.2
     , exceptions
     , filepath
     , lifted-async
@@ -91,14 +92,14 @@ library
     , prettyprinter >= 1.7
     , radix-tree
     , regex-tdfa
-    -- , regex-tdfa-text
-    , safe-exceptions-checked
     , stm
     , stm-chans
     , streaming-commons
     , text
     , transformers-base
+    , tuples-homogenous-h98
     , vector
+    -- , regex-tdfa-text
 
 foreign-library emacs-native
   import: ghc-options
@@ -125,7 +126,7 @@ foreign-library emacs-native
     , bytestring
     , emacs-module
     , emacs-native
-    , safe-exceptions-checked
+    , exceptions
   hs-source-dirs:
     lib
   ghc-options:
@@ -140,13 +141,11 @@ test-suite emacs-native-test
   hs-source-dirs:
     . test
   build-depends:
-    , QuickCheck
     , base
     , containers
     , emacs-native
     , tasty
     , tasty-hunit
-    , tasty-quickcheck
     , text
     , vector
   ghc-options:

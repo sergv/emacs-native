@@ -6,18 +6,19 @@
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
 
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE OverloadedStrings   #-}
 
 module EmacsNativeTest (main) where
 
 import Data.Char
 import Data.IntSet (IntSet)
-import qualified Data.IntSet as IS
+import Data.IntSet qualified as IS
 import Data.List.NonEmpty (NonEmpty(..))
-import qualified Data.List.NonEmpty as NE
+import Data.List.NonEmpty qualified as NE
 import Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Vector.Unboxed as U
+import Data.Text qualified as T
+import Data.Vector.Unboxed qualified as U
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -75,7 +76,7 @@ fuzzyMatchTests = testGroup "fuzzy match"
       { mScore     = 865
       , mPositions = NE.fromList [StrIdx 190..StrIdx 199]
       }
-  , let haystack = "sys/dev/acpica/Osd/OsdTable.c" in
+  , let haystack = "sys/dev/acpica/Osd/OsdTable.c" :: Text in
       mkTestCase "cat.c" haystack (computeHeatMap haystack mempty) Match
         { mScore     = 142
         , mPositions = NE.fromList (map StrIdx [12, 13, 22, 27, 28])
