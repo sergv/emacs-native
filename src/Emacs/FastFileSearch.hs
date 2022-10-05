@@ -33,8 +33,6 @@ import Control.Monad.Trans.Control
 import Data.Text qualified as T
 import Prettyprinter
 import Data.Traversable
-import Data.Vector (Vector)
-import Data.Vector.Unboxed qualified as U
 import GHC.Conc (getNumCapabilities)
 
 import Data.Emacs.Module.Args
@@ -61,13 +59,13 @@ emacsFindRecDoc =
   "Recursively find files leveraging multiple cores."
 
 emacsFindRec
-  :: forall m s. (WithCallStack, MonadEmacs m, MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)), U.Unbox (EmacsRef m s))
-  => EmacsFunction ('S ('S ('S ('S 'Z)))) 'Z 'False s m
+  :: forall m v s. (WithCallStack, MonadEmacs m v, MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)))
+  => EmacsFunction ('S ('S ('S ('S 'Z)))) 'Z 'False m v s
 emacsFindRec (R roots (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs Stop)))) = do
-  roots'              <- traverse extractText . U.convert @_ @_ @Vector =<< extractVector roots
-  globsToFind'        <- traverse extractText . U.convert @_ @_ @Vector =<< extractVector globsToFind
-  ignoredFileGlobs'   <- traverse extractText . U.convert @_ @_ @Vector =<< extractVector ignoredFileGlobs
-  ignoredDirGlobs'    <- traverse extractText . U.convert @_ @_ @Vector =<< extractVector ignoredDirGlobs
+  roots'            <- extractListWith extractText roots
+  globsToFind'      <- extractListWith extractText globsToFind
+  ignoredFileGlobs' <- extractListWith extractText ignoredFileGlobs
+  ignoredDirGlobs'  <- extractListWith extractText ignoredDirGlobs
 
   jobs <- liftBase getNumCapabilities
 
@@ -95,7 +93,7 @@ emacsFindRec (R roots (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs Stop
 
   nil'   <- nil
   result <- cons nil' nil'
-  let rewriteResultsAsEmacsList :: EmacsRef m s -> m s ()
+  let rewriteResultsAsEmacsList :: v s -> m s ()
       rewriteResultsAsEmacsList resultList = do
         res <- liftBase $ atomically $ readTMQueue results
         case res of

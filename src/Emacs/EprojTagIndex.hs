@@ -68,13 +68,13 @@ initialise = do
     makeFunction emacsEprojTagIndexMapUnion emacsEprojTagIndexUnionDoc
 
 eprojTagIndexType
-  :: forall m s. (WithCallStack, MonadEmacs m)
-  => m s (EmacsRef m s)
+  :: forall m v s. (WithCallStack, MonadEmacs m v)
+  => m s (v s)
 eprojTagIndexType = intern "haskell-native--eproj-tag-index"
 
 isEprojTagIndex
-  :: forall m s. (WithCallStack, MonadEmacs m)
-  => EmacsRef m s -> m s Bool
+  :: forall m v s. (WithCallStack, MonadEmacs m v)
+  => v s -> m s Bool
 isEprojTagIndex x = do
   typ    <- typeOf x
   isCons <- eq typ =<< intern "cons"
@@ -85,8 +85,8 @@ isEprojTagIndex x = do
     else pure False
 
 unpackEmacsEprojTagIndex
-  :: forall m s. (WithCallStack, MonadEmacs m, MonadIO (m s), MonadThrow (m s))
-  => EmacsRef m s -> m s EmacsEprojTagIndex
+  :: forall m v s. (WithCallStack, MonadEmacs m v, MonadIO (m s), MonadThrow (m s))
+  => v s -> m s EmacsEprojTagIndex
 unpackEmacsEprojTagIndex x = do
   isTrie <- isEprojTagIndex x
   if isTrie
@@ -98,8 +98,8 @@ unpackEmacsEprojTagIndex x = do
       throwM $ mkUserError "unpackEmacsEprojTagIndex" $ "Invalid native eproj tag index:" <+> pretty str
 
 unpackEprojTagIndex
-  :: forall m s. (WithCallStack, MonadEmacs m, MonadIO (m s), MonadThrow (m s))
-  => EmacsRef m s -> m s EprojTagIndex
+  :: forall m v s. (WithCallStack, MonadEmacs m v, MonadIO (m s), MonadThrow (m s))
+  => v s -> m s EprojTagIndex
 unpackEprojTagIndex =
   liftIO . readIORef . unEmacsEprojTagIndex <=< unpackEmacsEprojTagIndex
 
@@ -108,8 +108,8 @@ newtype EmacsEprojTagIndex = EmacsEprojTagIndex
   { unEmacsEprojTagIndex :: IORef EprojTagIndex }
 
 emacsEprojTagIndex
-  :: forall m s. (WithCallStack, MonadEmacs m)
-  => EmacsFunction ('S 'Z) 'Z 'False s m
+  :: forall m v s. (WithCallStack, MonadEmacs m v)
+  => EmacsFunction ('S 'Z) 'Z 'False m v s
 emacsEprojTagIndex (R x Stop) = do
   isIndex <- isEprojTagIndex x
   if isIndex then intern "t" else nil
@@ -119,8 +119,8 @@ emacsIsEprojTagIndexDoc =
   "Check whether an Elisp value is a native eproj tag index."
 
 emacsEmptyEprojTagIndex
-  :: forall m s. (WithCallStack, MonadEmacs m, MonadIO (m s))
-  => EmacsFunction 'Z 'Z 'False s m
+  :: forall m v s. (WithCallStack, MonadEmacs m v, MonadIO (m s))
+  => EmacsFunction 'Z 'Z 'False m v s
 emacsEmptyEprojTagIndex Stop = do
   typ <- eprojTagIndexType
   (radixTreePtr :: StablePtr EmacsEprojTagIndex) <- liftIO $ do
@@ -134,8 +134,8 @@ emacsEmptyEprojTagIndexDoc =
   "Create an empty native eproj tag index."
 
 emacsEprojTagIndexSize
-  :: forall m s. (WithCallStack, MonadEmacs m, MonadIO (m s), MonadThrow (m s))
-  => EmacsFunction ('S 'Z) 'Z 'False s m
+  :: forall m v s. (WithCallStack, MonadEmacs m v, MonadIO (m s), MonadThrow (m s))
+  => EmacsFunction ('S 'Z) 'Z 'False m v s
 emacsEprojTagIndexSize (R index Stop) = do
   index' <- unpackEprojTagIndex index
   makeInt (Eproj.size index')
@@ -145,8 +145,8 @@ emacsEprojTagIndexSizeDoc =
   "Get number of elements in a native eproj tag index."
 
 emacsEprojTagIndexAdd
-  :: forall m s. (WithCallStack, MonadEmacs m, MonadIO (m s), MonadThrow (m s), MonadCatch (m s))
-  => EmacsFunction ('S ('S ('S ('S ('S 'Z))))) 'Z 'False s m
+  :: forall m v s. (WithCallStack, MonadEmacs m v, MonadIO (m s), MonadThrow (m s), MonadCatch (m s))
+  => EmacsFunction ('S ('S ('S ('S ('S 'Z))))) 'Z 'False m v s
 emacsEprojTagIndexAdd (R sym (R file (R line (R props (R index Stop))))) = do
   index'  <- unpackEmacsEprojTagIndex index
   sym'    <- extractShortByteString sym
@@ -166,8 +166,8 @@ emacsEprojTagIndexAddDoc =
   "Add an item to a native eproj tag index."
 
 emacsEprojTagIndexLookup
-  :: forall m s. (WithCallStack, MonadEmacs m, MonadIO (m s), MonadThrow (m s), MonadCatch (m s))
-  => EmacsFunction ('S ('S 'Z)) ('S 'Z) 'False s m
+  :: forall m v s. (WithCallStack, MonadEmacs m v, MonadIO (m s), MonadThrow (m s), MonadCatch (m s))
+  => EmacsFunction ('S ('S 'Z)) ('S 'Z) 'False m v s
 emacsEprojTagIndexLookup (R key (R index (O def Stop))) = do
   index' <- unpackEprojTagIndex index
   key'   <- extractShortByteString key
@@ -180,9 +180,9 @@ emacsEprojTagIndexLookupDoc =
   "Lookup a tag within a native eproj tag index."
 
 tagPropsToEmacs
-  :: MonadEmacs m
+  :: MonadEmacs m v
   => EprojTagProps
-  -> m s (EmacsRef m s)
+  -> m s (v s)
 tagPropsToEmacs = unfoldEmacsListWith $ \case
   Nil         -> pure Nothing
   Cons x y rest -> do
@@ -192,9 +192,9 @@ tagPropsToEmacs = unfoldEmacsListWith $ \case
     pure $ Just (z, rest)
 
 eprojTagToEmacs
-  :: MonadEmacs m
+  :: MonadEmacs m v
   => EprojTag ShortByteString
-  -> m s (EmacsRef m s)
+  -> m s (v s)
 eprojTagToEmacs EprojTag{etFile, etLine, etProps} = do
   etFile'  <- makeShortByteString etFile
   etLine'  <- makeInt etLine
@@ -202,8 +202,8 @@ eprojTagToEmacs EprojTag{etFile, etLine, etProps} = do
   funcallPrimitiveSym "make-eproj-tag" (Tuple3 (etFile', etLine', etProps'))
 
 emacsEprojTagIndexEntriesMatchinRE
-  :: forall m s. (WithCallStack, MonadEmacs m, MonadIO (m s), MonadThrow (m s), MonadCatch (m s))
-  => EmacsFunction ('S ('S ('S 'Z))) 'Z 'False s m
+  :: forall m v s. (WithCallStack, MonadEmacs m v, MonadIO (m s), MonadThrow (m s), MonadCatch (m s))
+  => EmacsFunction ('S ('S ('S 'Z))) 'Z 'False m v s
 emacsEprojTagIndexEntriesMatchinRE (R regexp (R index (R ignoreCase Stop))) = do
   index'      <- unpackEprojTagIndex index
   ignoreCase' <- extractBool ignoreCase
@@ -223,8 +223,8 @@ emacsEprojTagIndexEntriesMatchinREDoc =
   "Get all tag entries whose key matches a regexp."
 
 emacsEprojTagIndexKeys
-  :: forall m s. (WithCallStack, MonadEmacs m, MonadIO (m s), MonadThrow (m s), MonadCatch (m s))
-  => EmacsFunction ('S 'Z) 'Z 'False s m
+  :: forall m v s. (WithCallStack, MonadEmacs m v, MonadIO (m s), MonadThrow (m s), MonadCatch (m s))
+  => EmacsFunction ('S 'Z) 'Z 'False m v s
 emacsEprojTagIndexKeys (R index Stop) = do
   index' <- unpackEprojTagIndex index
   makeList =<< traverse makeShortByteString (Eproj.keys index')
@@ -234,8 +234,8 @@ emacsEprojTagIndexKeysDoc =
   "Get all keys of a native eproj tag index."
 
 emacsEprojTagIndexEntries
-  :: forall m s. (WithCallStack, MonadEmacs m, MonadIO (m s), MonadThrow (m s), MonadCatch (m s))
-  => EmacsFunction ('S 'Z) 'Z 'False s m
+  :: forall m v s. (WithCallStack, MonadEmacs m v, MonadIO (m s), MonadThrow (m s), MonadCatch (m s))
+  => EmacsFunction ('S 'Z) 'Z 'False m v s
 emacsEprojTagIndexEntries (R index Stop) = do
   index' <- unpackEprojTagIndex index
   items  <- for (Eproj.toAscList index') $ \(key, vals) -> do
@@ -248,8 +248,8 @@ emacsEprojTagIndexEntriesDoc =
   "Get all entries from a native eproj tag index in the form of (string . tags)."
 
 emacsEprojTagIndexDropTagsFromFile
-  :: forall m s. (WithCallStack, MonadEmacs m, MonadIO (m s), MonadThrow (m s), MonadCatch (m s))
-  => EmacsFunction ('S ('S 'Z)) 'Z 'False s m
+  :: forall m v s. (WithCallStack, MonadEmacs m v, MonadIO (m s), MonadThrow (m s), MonadCatch (m s))
+  => EmacsFunction ('S ('S 'Z)) 'Z 'False m v s
 emacsEprojTagIndexDropTagsFromFile (R file (R index Stop)) = do
   file'  <- extractShortByteString file
   index' <- unpackEmacsEprojTagIndex index
@@ -262,8 +262,8 @@ emacsEprojTagIndexDropTagsFromFileDoc =
   "Remove all tags that come from the specified file."
 
 emacsEprojTagIndexMapUnion
-  :: forall m s. (WithCallStack, MonadEmacs m, MonadIO (m s), MonadThrow (m s), MonadCatch (m s))
-  => EmacsFunction ('S ('S 'Z)) 'Z 'False s m
+  :: forall m v s. (WithCallStack, MonadEmacs m v, MonadIO (m s), MonadThrow (m s), MonadCatch (m s))
+  => EmacsFunction ('S ('S 'Z)) 'Z 'False m v s
 emacsEprojTagIndexMapUnion (R index (R auxIndex Stop)) = do
   index'    <- unpackEmacsEprojTagIndex index
   auxIndex' <- unpackEprojTagIndex auxIndex

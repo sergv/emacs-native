@@ -22,6 +22,7 @@
 module Emacs.Grep (initialise) where
 
 import Control.Arrow (first)
+import Control.Concurrent
 import Control.Concurrent.Async.Lifted.Safe
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TMQueue
@@ -41,9 +42,6 @@ import Data.Semigroup as Semi
 import Data.Text qualified as T
 import Data.Traversable
 import Data.Tuple.Homogenous
-import Data.Vector (Vector)
-import Data.Vector.Unboxed qualified as U
-import GHC.Conc (getNumCapabilities)
 import Prettyprinter (pretty, (<+>))
 
 import Data.Emacs.Module.Args
@@ -71,14 +69,14 @@ emacsGrepRecDoc =
   "Recursively find files leveraging multiple cores."
 
 emacsGrepRec
-  :: forall m s. (WithCallStack, MonadEmacs m, MonadIO (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)), U.Unbox (EmacsRef m s))
-  => EmacsFunction ('S ('S ('S ('S ('S ('S 'Z)))))) 'Z 'False s m
+  :: forall m v s. (WithCallStack, MonadEmacs m v, MonadIO (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)))
+  => EmacsFunction ('S ('S ('S ('S ('S ('S 'Z)))))) 'Z 'False m v s
 emacsGrepRec (R roots (R regexp (R extsGlobs (R ignoredFileGlobs (R ignoredDirGlobs (R ignoreCase Stop)))))) = do
-  roots'            <- traverse extractText . U.convert @_ @_ @Vector =<< extractVector roots
+  roots'            <- extractListWith extractText roots
   regexp'           <- extractText regexp
-  extsGlobs'        <- traverse extractText . U.convert @_ @_ @Vector =<< extractVector extsGlobs
-  ignoredFileGlobs' <- traverse extractText . U.convert @_ @_ @Vector =<< extractVector ignoredFileGlobs
-  ignoredDirGlobs'  <- traverse extractText . U.convert @_ @_ @Vector =<< extractVector ignoredDirGlobs
+  extsGlobs'        <- extractListWith extractText extsGlobs
+  ignoredFileGlobs' <- extractListWith extractText ignoredFileGlobs
+  ignoredDirGlobs'  <- extractListWith extractText ignoredDirGlobs
   ignoreCase'       <- extractBool ignoreCase
 
   roots'' <- for roots' $ \root ->
@@ -119,12 +117,12 @@ emacsGrepRec (R roots (R regexp (R extsGlobs (R ignoredFileGlobs (R ignoredDirGl
               AllMatches ms -> makeMatches root path ms contents
         | otherwise = pure []
 
-  let collectEntries :: TMQueue MatchEntry -> m s (EmacsRef m s)
+  let collectEntries :: TMQueue MatchEntry -> m s (v s)
       collectEntries results = go mempty
         where
           -- Accumulator is a map from file names and positions within file
           -- to Emacs strings that could be presented to the user.
-          go :: Map (C8.ByteString, Word) (EmacsRef m s) -> m s (EmacsRef m s)
+          go :: Map (C8.ByteString, Word) (v s) -> m s (v s)
           go !acc = do
             res <- liftBase $ atomically $ readTMQueue results
             case res of
@@ -149,6 +147,7 @@ emacsGrepRec (R roots (R regexp (R extsGlobs (R ignoredFileGlobs (R ignoredDirGl
   let collect :: MatchEntry -> IO ()
       collect = atomically . writeTMQueue results
 
+      doFind :: IO ()
       doFind =
         findRec FollowSymlinks jobs
           shouldVisit

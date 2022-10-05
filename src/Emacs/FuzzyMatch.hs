@@ -22,7 +22,6 @@ import Control.Concurrent.Async.Lifted.Safe
 import Control.Monad.IO.Class
 import Control.Monad.Par
 import Control.Monad.Trans.Control
-import Data.Foldable
 import Data.List qualified as L
 import Data.Ord
 import Data.Text qualified as T
@@ -49,11 +48,11 @@ scoreMatchesDoc =
   \sort the strings according to score of fuzzy matching them against the query."
 
 scoreMatches
-  :: forall m s. (WithCallStack, MonadEmacs m, Monad (m s), MonadIO (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)), NFData (EmacsRef m s))
-  => EmacsFunction ('S ('S 'Z)) 'Z 'False s m
+  :: forall m v s. (WithCallStack, MonadEmacs m v, MonadIO (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)), NFData (v s))
+  => EmacsFunction ('S ('S 'Z)) 'Z 'False m v s
 scoreMatches (R needle (R haystacks Stop)) = do
   needle'    <- extractText needle
-  haystacks' <- extractListRevWith (\str -> (, str) <$> extractText str) haystacks
+  haystacks' <- extractListWith (\str -> (, str) <$> extractText str) haystacks
   let matches
         = map (\(_, _, emacsStr) -> emacsStr)
         $ L.sortOn (\(score, str, _emacsStr) -> (Down score, T.length str))
@@ -67,12 +66,12 @@ scoreSingleMatchDoc =
   \positions where the match occured."
 
 scoreSingleMatch
-  :: forall m s. (WithCallStack, MonadEmacs m, Monad (m s), MonadIO (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)))
-  => EmacsFunction ('S ('S 'Z)) 'Z 'False s m
+  :: forall m v s. (WithCallStack, MonadEmacs m v, MonadIO (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)))
+  => EmacsFunction ('S ('S 'Z)) 'Z 'False m v s
 scoreSingleMatch (R needle (R haystack Stop)) = do
   needle'   <- extractText needle
   haystack' <- extractText haystack
   let Match{mScore, mPositions} = fuzzyMatch (computeHeatMap haystack' mempty) needle' haystack'
   score     <- makeInt mScore
-  positions <- makeList =<< traverse (makeInt . unStrIdx) (toList mPositions)
+  positions <- makeList =<< traverse (makeInt . unStrIdx) mPositions
   cons score positions
