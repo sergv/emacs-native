@@ -33,7 +33,6 @@ import Control.Monad.IO.Class
 import Control.Monad.Trans.Control
 import Data.ByteString.Char8 qualified as C8
 import Data.ByteString.Char8.Ext qualified as C8.Ext
-import Data.Foldable
 import Data.List qualified as L
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as M
@@ -61,7 +60,7 @@ initialise
   :: WithCallStack
   => Sync.EmacsM s ()
 initialise =
-  bindFunction "haskell-native-grep-rec" =<<
+  bindFunction "haskell-native-grep" =<<
     makeFunction emacsGrepRec emacsGrepRecDoc
 
 emacsGrepRecDoc :: Doc.Doc
@@ -70,14 +69,15 @@ emacsGrepRecDoc =
 
 emacsGrepRec
   :: forall m v s. (WithCallStack, MonadEmacs m v, MonadIO (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)))
-  => EmacsFunction ('S ('S ('S ('S ('S ('S 'Z)))))) 'Z 'False m v s
-emacsGrepRec (R roots (R regexp (R extsGlobs (R ignoredFileGlobs (R ignoredDirGlobs (R ignoreCase Stop)))))) = do
-  roots'            <- extractListWith extractText roots
-  regexp'           <- extractText regexp
-  extsGlobs'        <- extractListWith extractText extsGlobs
-  ignoredFileGlobs' <- extractListWith extractText ignoredFileGlobs
-  ignoredDirGlobs'  <- extractListWith extractText ignoredDirGlobs
-  ignoreCase'       <- extractBool ignoreCase
+  => EmacsFunction ('S ('S ('S ('S ('S ('S ('S ('S 'Z)))))))) 'Z 'False m v s
+emacsGrepRec (R roots (R regexp (R extsGlobs (R ignoredFileGlobs (R ignoredDirGlobs (R ignoredDirPrefixes (R _ignoredAbsDirs (R ignoreCase Stop)))))))) = do
+  roots'              <- extractListWith extractText roots
+  regexp'             <- extractText regexp
+  extsGlobs'          <- extractListWith extractText extsGlobs
+  ignoredFileGlobs'   <- extractListWith extractText ignoredFileGlobs
+  ignoredDirGlobs'    <- extractListWith extractText ignoredDirGlobs
+  ignoredDirPrefixes' <- extractListWith extractText ignoredDirPrefixes
+  ignoreCase'         <- extractBool ignoreCase
 
   roots'' <- for roots' $ \root ->
     case parseAbsDir $ T.unpack root of
@@ -102,7 +102,7 @@ emacsGrepRec (R roots (R regexp (R extsGlobs (R ignoredFileGlobs (R ignoredDirGl
 
   extsToFindRE   <- fileGlobsToRegex extsGlobs'
   ignoredFilesRE <- fileGlobsToRegex ignoredFileGlobs'
-  ignoredDirsRE  <- fileGlobsToRegex ignoredDirGlobs'
+  ignoredDirsRE  <- fileGlobsToRegex (ignoredDirGlobs' ++ map (<> "*") ignoredDirPrefixes')
 
   let shouldVisit :: Path Abs Dir -> Bool
       shouldVisit = not . reMatchesPath ignoredDirsRE
@@ -127,7 +127,7 @@ emacsGrepRec (R roots (R regexp (R extsGlobs (R ignoredFileGlobs (R ignoredDirGl
             res <- liftBase $ atomically $ readTMQueue results
             case res of
               Nothing ->
-                makeVector $ toList acc
+                makeList acc
               Just MatchEntry{matchAbsPath, matchRelPath, matchPos, matchLineNum, matchLinePrefix, matchLineStr, matchLineSuffix} -> do
                 let relPathBS = pathForEmacs matchRelPath
                 pathEmacs        <- makeString $ pathForEmacs matchAbsPath
