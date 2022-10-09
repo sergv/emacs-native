@@ -19,15 +19,16 @@
 module Emacs.FuzzyMatch (initialise) where
 
 import Control.Concurrent.Async.Lifted.Safe
-import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Par
+import Control.Monad.ST
 import Control.Monad.Trans.Control
 import Data.List qualified as L
 import Data.Ord
+import Data.Primitive.PrimArray
+import Data.Primitive.Sort
+import Data.Primitive.Types
 import Data.Text qualified as T
-import Data.Vector.Algorithms.Tim qualified as VSort
-import Data.Vector.Unboxed qualified as U
 
 import Data.Emacs.Module.Doc qualified as Doc
 import Emacs.Module
@@ -50,12 +51,13 @@ scoreMatchesDoc =
   "Given a query string and a list of strings to match against, \
   \sort the strings according to score of fuzzy matching them against the query."
 
-extractSeps :: MonadEmacs m v => v s -> m s (U.Vector Int)
-extractSeps =
-  U.unsafeFreeze <=< VSort.sortUniq <=< U.unsafeThaw <=< U.mapM extractInt <=< extractVector
+extractSeps :: (MonadEmacs m v, Prim (v s)) => v s -> m s (PrimArray Int)
+extractSeps xs = do
+  ys <- traversePrimArray extractInt =<< extractVectorAsPrimArray xs
+  pure $ runST $ unsafeFreezePrimArray =<< sortUniqueMutable =<< unsafeThawPrimArray ys
 
 scoreMatches
-  :: forall m v s. (WithCallStack, MonadEmacs m v, MonadIO (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)), NFData (v s))
+  :: forall m v s. (WithCallStack, MonadEmacs m v, MonadIO (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)), NFData (v s), Prim (v s))
   => EmacsFunction ('S ('S ('S 'Z))) 'Z 'False m v s
 scoreMatches (R seps (R needle (R haystacks Stop))) = do
   seps'      <- extractSeps seps
@@ -74,7 +76,7 @@ scoreSingleMatchDoc =
   \positions where the match occured."
 
 scoreSingleMatch
-  :: forall m v s. (WithCallStack, MonadEmacs m v, MonadIO (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)))
+  :: forall m v s. (WithCallStack, MonadEmacs m v, MonadIO (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)), Prim (v s))
   => EmacsFunction ('S ('S ('S 'Z))) 'Z 'False m v s
 scoreSingleMatch (R seps (R needle (R haystack Stop))) = do
   seps'     <- extractSeps seps

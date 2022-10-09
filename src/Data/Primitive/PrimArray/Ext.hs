@@ -1,6 +1,6 @@
 ----------------------------------------------------------------------------
 -- |
--- Module      :  Data.Vector.Algorithms.Search.Ext
+-- Module      :  Data.Primitive.PrimArray.Ext
 -- Copyright   :  (c) Sergey Vinokurov 2022
 -- License     :  Apache-2.0 (see LICENSE)
 -- Maintainer  :  serg.foo@gmail.com
@@ -9,22 +9,23 @@
 {-# LANGUAGE BangPatterns        #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 
-module Data.Vector.Algorithms.Search.Ext (binSearchMember) where
+module Data.Primitive.PrimArray.Ext (binSearchMember) where
 
-import Data.Vector.Unboxed qualified as U
+import Data.Primitive.PrimArray
+import Data.Primitive.Types
 
 {-# INLINE binSearchMember #-}
 binSearchMember
-  :: (Ord e, U.Unbox e)
-  => U.Vector e
+  :: (Ord e, Prim e)
+  => PrimArray e
   -> e
   -> Bool
-binSearchMember xs x = binarySearchMemberByBounds xs x 0 (U.length xs)
+binSearchMember xs x = binarySearchMemberByBounds xs x 0 (sizeofPrimArray xs)
 
 {-# INLINE binarySearchMemberByBounds #-}
 binarySearchMemberByBounds
-  :: (Ord e, U.Unbox e)
-  => U.Vector e
+  :: (Ord e, Prim e)
+  => PrimArray e
   -> e
   -> Int
   -> Int
@@ -34,7 +35,7 @@ binarySearchMemberByBounds xs e = go
     go !l !u
       | u <= l    = False
       | otherwise =
-        case compare (U.unsafeIndex xs m) e of
+        case compare (indexPrimArray xs m) e of
           LT -> go (m + 1) u
           EQ -> True
           GT -> go l m

@@ -42,14 +42,13 @@ import Data.List qualified as L
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.List.NonEmpty qualified as NE
 import Data.Ord
+import Data.Primitive.PrimArray
+import Data.Primitive.PrimArray.Ext
 import Data.Text (Text)
 import Data.Text qualified as T
-import Prettyprinter (Pretty(..))
 import Data.Traversable
-import Data.Vector.Algorithms.Search.Ext
-import Data.Vector.Unboxed qualified as U
-import Data.Vector.Unboxed.Mutable qualified as UM
 import GHC.Generics (Generic)
+import Prettyprinter (Pretty(..))
 
 import Emacs.Module.Assert (WithCallStack)
 
@@ -125,9 +124,9 @@ submatchToMatch Submatch{smScore, smPositions} = Match
 
 fuzzyMatch
   :: WithCallStack
-  => U.Vector Int -- ^ Heatmap mapping characters to scores
-  -> Text         -- ^ Needle
-  -> Text         -- ^ Haystack
+  => PrimArray Int -- ^ Heatmap mapping characters to scores
+  -> Text          -- ^ Needle
+  -> Text          -- ^ Haystack
   -> Match
 fuzzyMatch heatmap needle haystack =
   case T.unpack needle of
@@ -167,7 +166,7 @@ fuzzyMatch heatmap needle haystack =
           pure $
             flip map (IS.toList remainingOccurrences) $ \idx ->
             Submatch
-              { smScore           = heatmap `U.unsafeIndex` idx
+              { smScore           = heatmap `indexPrimArray` idx
               , smPositions       = StrIdx idx :| []
               , smContiguousCount = 0
               }
@@ -178,7 +177,7 @@ fuzzyMatch heatmap needle haystack =
             let idx' = StrIdx idx
             submatches <- recur (idxs' :| idxss, idx')
             pure $ getMaximum $ flip map submatches $ \submatch ->
-              let score'          = smScore submatch + (heatmap `U.unsafeIndex` unStrIdx idx')
+              let score'          = smScore submatch + (heatmap `indexPrimArray` unStrIdx idx')
                   contiguousBonus = 60 + 15 * min 3 (smContiguousCount submatch)
                   isContiguous    = NE.head (smPositions submatch) == succ idx'
                   score
@@ -236,7 +235,7 @@ data HeatMapGroup = HeatMapGroup
 
 splitWithSeps
   :: Char -- ^ Fake separator to add at the start
-  -> U.Vector Int
+  -> PrimArray Int
   -> Text
   -> [(Char, Text)]
 splitWithSeps firstSep seps = go firstSep
@@ -249,18 +248,20 @@ splitWithSeps firstSep seps = go firstSep
           Nothing         -> []
           Just (c', str') -> go c' str'
 
-computeHeatMap :: Text -> U.Vector Int -> U.Vector Int
+computeHeatMap :: Text -> PrimArray Int -> PrimArray Int
 computeHeatMap str seps =
   computeHeatMapFromGroups str (computeGroupsAndInitScores str seps)
 
-computeHeatMapFromGroups :: Text -> (Int, [HeatMapGroup]) -> U.Vector Int
-computeHeatMapFromGroups fullStr (groupsCount, groups) = runST $ do
-  scores <- UM.replicate len (initScore + initScoreAdjustment)
+computeHeatMapFromGroups :: Text -> (Int, [HeatMapGroup]) -> PrimArray Int
+computeHeatMapFromGroups fullStr (groupsCount, groups) = runPrimArray $ do
+  scores <- newPrimArray len
+  setPrimArray scores 0 len (initScore + initScoreAdjustment)
+  -- scores <- UM.replicate len (initScore + initScoreAdjustment)
   update lastCharIdx lastCharBonus scores
   for_ groupScores' $ \(idx, val) -> update idx val scores
   for_ wordScores   $ \(idx, val) -> update idx val scores
   for_ penalties    $ \(idx, val) -> update idx val scores
-  U.freeze scores
+  pure scores
   where
     groupScores :: [(HeatMapGroup, Int)]
     groupScores =
@@ -320,10 +321,10 @@ computeHeatMapFromGroups fullStr (groupsCount, groups) = runST $ do
       [_] -> 0
       _   -> (-2) * groupsCount
 
-    update :: StrIdx -> Int -> UM.MVector s Int -> ST s ()
+    update :: StrIdx -> Int -> MutablePrimArray s Int -> ST s ()
     update (StrIdx idx) val vec = do
-      val' <- UM.unsafeRead vec idx
-      UM.unsafeWrite vec idx (val' + val)
+      val' <- readPrimArray vec idx
+      writePrimArray vec idx (val' + val)
 
     initScore, lastCharBonus :: Int
     initScore     = (-35)
@@ -344,7 +345,7 @@ data GroupState = GroupState
   , gsWordCount       :: !Int
   }
 
-computeGroupsAndInitScores :: Text -> U.Vector Int -> (Int, [HeatMapGroup])
+computeGroupsAndInitScores :: Text -> PrimArray Int -> (Int, [HeatMapGroup])
 computeGroupsAndInitScores fullStr groupSeparators
   | T.null fullStr = (0, [])
   | otherwise
