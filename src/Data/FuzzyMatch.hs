@@ -167,7 +167,7 @@ fuzzyMatch heatmap needle haystack =
           pure $
             flip map (IS.toList remainingOccurrences) $ \idx ->
             Submatch
-              { smScore           = heatmap U.! idx
+              { smScore           = heatmap `U.unsafeIndex` idx
               , smPositions       = StrIdx idx :| []
               , smContiguousCount = 0
               }
@@ -178,7 +178,7 @@ fuzzyMatch heatmap needle haystack =
             let idx' = StrIdx idx
             submatches <- recur (idxs' :| idxss, idx')
             pure $ getMaximum $ flip map submatches $ \submatch ->
-              let score'          = smScore submatch + heatmap U.! unStrIdx idx'
+              let score'          = smScore submatch + (heatmap `U.unsafeIndex` unStrIdx idx')
                   contiguousBonus = 60 + 15 * min 3 (smContiguousCount submatch)
                   isContiguous    = NE.head (smPositions submatch) == succ idx'
                   score
