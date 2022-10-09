@@ -10,6 +10,7 @@
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ImportQualifiedPost        #-}
 {-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE MultiWayIf                 #-}
 {-# LANGUAGE NamedFieldPuns             #-}
@@ -34,19 +35,20 @@ import Data.Bits
 import Data.Char
 import Data.Foldable
 import Data.IntMap (IntMap)
-import qualified Data.IntMap as IM
+import Data.IntMap qualified as IM
 import Data.IntSet (IntSet)
-import qualified Data.IntSet as IS
-import qualified Data.List as L
+import Data.IntSet qualified as IS
+import Data.List qualified as L
 import Data.List.NonEmpty (NonEmpty(..))
-import qualified Data.List.NonEmpty as NE
+import Data.List.NonEmpty qualified as NE
 import Data.Ord
 import Data.Text (Text)
-import qualified Data.Text as T
-import Data.Text.Prettyprint.Doc (Pretty(..))
+import Data.Text qualified as T
+import Prettyprinter (Pretty(..))
 import Data.Traversable
-import qualified Data.Vector.Unboxed as U
-import qualified Data.Vector.Unboxed.Mutable as UM
+import Data.Vector.Algorithms.Search.Ext
+import Data.Vector.Unboxed qualified as U
+import Data.Vector.Unboxed.Mutable qualified as UM
 import GHC.Generics (Generic)
 
 import Emacs.Module.Assert (WithCallStack)
@@ -235,7 +237,7 @@ data HeatMapGroup = HeatMapGroup
 
 splitWithSeps
   :: Char -- ^ Fake separator to add at the start
-  -> IntSet
+  -> U.Vector Int
   -> Text
   -> [(Char, Text)]
 splitWithSeps firstSep seps = go firstSep
@@ -243,12 +245,12 @@ splitWithSeps firstSep seps = go firstSep
     go :: Char -> Text -> [(Char, Text)]
     go c str = (c, prefix) : rest
       where
-        (prefix, suffix) = T.span ((`IS.notMember` seps) . ord) str
+        (prefix, suffix) = T.span (not . binSearchMember seps . ord) str
         rest = case T.uncons suffix of
           Nothing         -> []
           Just (c', str') -> go c' str'
 
-computeHeatMap :: Text -> IntSet -> U.Vector Int
+computeHeatMap :: Text -> U.Vector Int -> U.Vector Int
 computeHeatMap str seps =
   computeHeatMapFromGroups str (computeGroupsAndInitScores str seps)
 
@@ -263,7 +265,7 @@ computeHeatMapFromGroups fullStr (groupsCount, groups) = runST $ do
   where
     groupScores :: [(HeatMapGroup, Int)]
     groupScores =
-      zipWith (\d g -> (g, groupBasicScore d g)) (-3 : iterate (+1) (-5)) groups
+      zipWith (\d g -> (g, groupBasicScore d g)) (-3 : iterate (+ 1) (-5)) groups
 
     groupScores' :: [(StrIdx, Int)]
     groupScores' = flip concatMap groupScores $ \(HeatMapGroup{hmgStart, hmgEnd}, score) ->
@@ -274,7 +276,8 @@ computeHeatMapFromGroups fullStr (groupsCount, groups) = runST $ do
       fst $
       foldr
         (\HeatMapGroup{hmgWordIndices, hmgStart} (results, end) ->
-          let newIndices =
+          let newIndices :: [(StrIdx, StrIdx, Int)]
+              newIndices =
                 zipWith (\n (start, end') -> (start, end', n)) [0..]
                   $ fst
                   $ foldr
@@ -323,6 +326,7 @@ computeHeatMapFromGroups fullStr (groupsCount, groups) = runST $ do
       val' <- UM.unsafeRead vec idx
       UM.unsafeWrite vec idx (val' + val)
 
+    initScore, lastCharBonus :: Int
     initScore     = (-35)
     lastCharBonus = 1
     len           = T.length fullStr
@@ -341,7 +345,7 @@ data GroupState = GroupState
   , gsWordCount       :: !Int
   }
 
-computeGroupsAndInitScores :: Text -> IntSet -> (Int, [HeatMapGroup])
+computeGroupsAndInitScores :: Text -> U.Vector Int -> (Int, [HeatMapGroup])
 computeGroupsAndInitScores fullStr groupSeparators
   | T.null fullStr = (0, [])
   | otherwise

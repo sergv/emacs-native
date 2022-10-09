@@ -19,13 +19,14 @@
 module Emacs.FuzzyMatch (initialise) where
 
 import Control.Concurrent.Async.Lifted.Safe
+import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Par
 import Control.Monad.Trans.Control
-import Data.IntSet qualified as IS
 import Data.List qualified as L
 import Data.Ord
 import Data.Text qualified as T
+import Data.Vector.Algorithms.Tim qualified as VSort
 import Data.Vector.Unboxed qualified as U
 
 import Data.Emacs.Module.Doc qualified as Doc
@@ -49,11 +50,15 @@ scoreMatchesDoc =
   "Given a query string and a list of strings to match against, \
   \sort the strings according to score of fuzzy matching them against the query."
 
+extractSeps :: MonadEmacs m v => v s -> m s (U.Vector Int)
+extractSeps =
+  U.unsafeFreeze <=< VSort.sortUniq <=< U.unsafeThaw <=< U.mapM extractInt <=< extractVector
+
 scoreMatches
   :: forall m v s. (WithCallStack, MonadEmacs m v, MonadIO (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)), NFData (v s))
   => EmacsFunction ('S ('S ('S 'Z))) 'Z 'False m v s
 scoreMatches (R seps (R needle (R haystacks Stop))) = do
-  seps'      <- IS.fromList . U.toList <$> (U.mapM extractInt =<< extractVector seps)
+  seps'      <- extractSeps seps
   needle'    <- extractText needle
   haystacks' <- extractListWith (\str -> (, str) <$> extractText str) haystacks
   let matches
@@ -72,7 +77,7 @@ scoreSingleMatch
   :: forall m v s. (WithCallStack, MonadEmacs m v, MonadIO (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)))
   => EmacsFunction ('S ('S ('S 'Z))) 'Z 'False m v s
 scoreSingleMatch (R seps (R needle (R haystack Stop))) = do
-  seps'     <- IS.fromList . U.toList <$> (U.mapM extractInt =<< extractVector seps)
+  seps'     <- extractSeps seps
   needle'   <- extractText needle
   haystack' <- extractText haystack
   let Match{mScore, mPositions} = fuzzyMatch (computeHeatMap haystack' seps') needle' haystack'
