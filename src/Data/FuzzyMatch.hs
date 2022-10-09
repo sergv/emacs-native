@@ -307,12 +307,12 @@ computeHeatMapFromGroups fullStr (groupsCount, groups) = runST $ do
     penalties :: [(StrIdx, Int)]
     penalties
       = map (\(idx, _) -> (idx, -45))
-      $ filter ((`IS.member` penalisedIfLeading) . ord . snd)
+      $ filter (penalisedIfLeading . snd)
       $ zip [StrIdx 1..]
       $ T.unpack (T.init fullStr)
 
-    penalisedIfLeading :: IntSet
-    penalisedIfLeading = IS.fromList $ map ord ['.']
+    penalisedIfLeading :: Char -> Bool
+    penalisedIfLeading = (== '.')
 
     initScoreAdjustment :: Int
     initScoreAdjustment = case groups of
