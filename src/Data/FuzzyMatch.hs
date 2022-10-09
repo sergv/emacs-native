@@ -75,9 +75,6 @@ isWordSeparator = \case
 isWord :: Char -> Bool
 isWord = not . isWordSeparator
 
-isCapital :: Char -> Bool
-isCapital c = not (isWordSeparator c) && isUpper c
-
 -- | For each character in the argument string compute the set of positions
 -- it occurs in.
 --
@@ -99,10 +96,12 @@ characterOccurrences = osIndices . T.foldl' recordIndex initState
       OccurrencesState
         { osCharIndex = osCharIndex + 1
         , osIndices   =
-            if isCapital c
-            then IM.insertWith (<>) (ord c)           pos $
-                 IM.insertWith (<>) (ord (toLower c)) pos osIndices
-            else IM.insertWith (<>) (ord c)           pos osIndices
+            let !c'  = ord c
+                !cl' = ord $ toLower c
+            in if c' == cl'
+            then IM.insertWith (<>) c'  pos osIndices
+            else IM.insertWith (<>) c'  pos $
+                 IM.insertWith (<>) cl' pos osIndices
         }
       where
         pos = IS.singleton osCharIndex
@@ -132,7 +131,7 @@ fuzzyMatch
   -> Match
 fuzzyMatch heatmap needle haystack =
   case T.unpack needle of
-    [] -> noMatch
+    []     -> noMatch
     n : ns ->
       case traverse (\c -> IM.lookup (ord c) occurs) (n :| ns) of
         Nothing      -> noMatch
