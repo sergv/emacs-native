@@ -58,18 +58,7 @@ data OccurrencesState = OccurrencesState
   }
 
 isWordSeparator :: Char -> Bool
-isWordSeparator = \case
-  ' '  -> True
-  '*'  -> True
-  '+'  -> True
-  '-'  -> True
-  '_'  -> True
-  ':'  -> True
-  ';'  -> True
-  '.'  -> True
-  '/'  -> True
-  '\\' -> True
-  _    -> False
+isWordSeparator c = not $ '0' <= c && c <= '9' || 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z'
 
 isWord :: Char -> Bool
 isWord = not . isWordSeparator
