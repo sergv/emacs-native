@@ -63,10 +63,13 @@ library
     Data.Emacs.Path
     Data.Eproj
     Data.Filesystem
+    Data.FuzzyMatchBaseline
     Data.FuzzyMatch
     Data.NBSem
     Data.Regex
-    Data.Vector.Algorithms.Search.Ext
+    Data.Primitive.PrimArray.Ext
+    Data.Vector.Ext
+    Data.Vector.Growable
 
     Emacs.EprojTagIndex
     Emacs.FastFileSearch
@@ -91,6 +94,8 @@ library
     , path >= 0.6.1
     , path-io
     , prettyprinter >= 1.7
+    , primitive
+    , primitive-sort
     -- , radix-tree
     , regex-tdfa
     , stm
@@ -99,8 +104,7 @@ library
     , text
     , transformers-base
     , tuples-homogenous-h98
-    , vector
-    , vector-algorithms
+    , vector >= 0.13
     -- , regex-tdfa-text
 
 foreign-library emacs-native
@@ -146,10 +150,33 @@ test-suite emacs-native-test
     , base
     , containers
     , emacs-native
+    , primitive
     , tasty
     , tasty-hunit
+    , text
+  ghc-options:
+    -rtsopts
+    -main-is EmacsNativeTest
+
+benchmark fuzzybench
+  import: ghc-options
+  type:
+    exitcode-stdio-1.0
+  main-is:
+    bench/FuzzyBench.hs
+  hs-source-dirs:
+    .
+    bench
+  build-depends:
+    , base >= 4.9
+    , deepseq
+    , emacs-native
+    , primitive
+    , tasty-bench
     , text
     , vector
   ghc-options:
     -rtsopts
-    -main-is EmacsNativeTest
+--     -threaded
+--     "-with-rts-opts=-N -A32M"
+    -main-is FuzzyBench

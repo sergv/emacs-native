@@ -65,6 +65,10 @@ fuzzyMatchTests = testGroup "fuzzy match"
       { mScore     = 50
       , mPositions = StrIdx 1 :| [StrIdx 2, StrIdx 5]
       }
+  , mkTestCase "vector" "/home/user/projects/Data/Vector.hs" foobarHeatmap Match
+      { mScore     = 379
+      , mPositions = StrIdx 25 :| [StrIdx 26, StrIdx 27, StrIdx 28, StrIdx 29, StrIdx 30]
+      }
   , mkTestCase "x" "foobar" foobarHeatmap noMatch
   , mkTestCase "fooxar" "foobar" foobarHeatmap noMatch
 
@@ -274,4 +278,3 @@ heatMapGrouping = testGroup "Grouping for heatmap computation"
           | sizeofPrimArray groupSeps == 0 = mempty
           | otherwise                      =
             " with seps " <> T.intercalate ", " (map (T.singleton . chr) $ primArrayToList groupSeps)
-
