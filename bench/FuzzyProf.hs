@@ -39,9 +39,9 @@ fm seps needle haystack =
       needle
       haystack)
 
-{-# NOINLINE doMatchSline #-}
-doMatchSline :: Int -> PrimArray Int -> Text -> [Text] -> [(Int, Text)]
-doMatchSline _ seps needle
+{-# NOINLINE _doMatchSline #-}
+_doMatchSline :: Int -> PrimArray Int -> Text -> [Text] -> [(Int, Text)]
+_doMatchSline _ seps needle
   = L.sortOn (\(score, str) -> (Down score, T.length str))
   . map (\str -> (fmSline seps needle str, str))
 
