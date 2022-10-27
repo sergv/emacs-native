@@ -41,10 +41,14 @@ import Data.Set (Set)
 import Data.Set qualified as S
 import GHC.Generics (Generic)
 
-import Data.RadixTree (RadixTree)
-import Data.RadixTree qualified as RadixTree
+import Data.Map.Strict (Map)
+import Data.Map.Strict qualified as RadixTree
+-- import Data.RadixTree (RadixTree)
+-- import Data.RadixTree qualified as RadixTree
 
 import Data.Regex (Regex, reMatchesShortByteString)
+
+type RadixTree = Map ShortByteString
 
 data EprojTagProps
   = Nil

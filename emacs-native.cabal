@@ -91,7 +91,7 @@ library
     , path >= 0.6.1
     , path-io
     , prettyprinter >= 1.7
-    , radix-tree
+    -- , radix-tree
     , regex-tdfa
     , stm
     , stm-chans
