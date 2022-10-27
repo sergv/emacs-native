@@ -157,6 +157,29 @@ test-suite emacs-native-test
     -rtsopts
     -main-is EmacsNativeTest
 
+benchmark fuzzyprof
+  import: ghc-options
+  type:
+    exitcode-stdio-1.0
+  main-is:
+    bench/FuzzyProf.hs
+  hs-source-dirs:
+    .
+    bench
+  build-depends:
+    , base >= 4.9
+    , deepseq
+    , emacs-native
+    , primitive
+    , text
+  ghc-options:
+    -rtsopts
+--     -threaded
+--     "-with-rts-opts=-N -A32M"
+    -main-is FuzzyProf
+  ghc-prof-options:
+    -fprof-late
+
 benchmark fuzzybench
   import: ghc-options
   type:

@@ -62,10 +62,8 @@ import Data.Vector.Unboxed.Mutable qualified as UM
 import GHC.Generics (Generic)
 import Prettyprinter (Pretty(..))
 
-import Data.Text.Internal.Unsafe.Char qualified as TUC
-import Data.Text.Array qualified as TA
 import Data.Text.Internal qualified as TI
-import Data.Text.Internal.Encoding.Utf8 qualified as TU8
+import Data.Text.Unsafe qualified as TU
 
 import Emacs.Module.Assert (WithCallStack)
 
@@ -105,26 +103,18 @@ mkHaystack (TI.Text arr off len) = do
     !end = off + len
 
     go :: VG.GrowableVector (UM.MVector s Int64) -> Int -> Int -> ST s (UM.MVector s Int64)
-    -- go acc _  _ []       = VG.unsafeFreeze acc
-    go acc !i j
+    go acc !i !j
       | j >= end  = pure $ VG.finalise acc
       | otherwise = do
-        let !n0 = TA.unsafeIndex arr i
-            !l = TU8.utf8LengthByLeader n0
-            !c = case l of
-              1 -> TUC.unsafeChr8 n0
-              2 -> TU8.chr2 n0 (TA.unsafeIndex arr (i + 1))
-              3 -> TU8.chr3 n0 (TA.unsafeIndex arr (i + 1)) (TA.unsafeIndex arr (i + 2))
-              _ -> TU8.chr4 n0 (TA.unsafeIndex arr (i + 1)) (TA.unsafeIndex arr (i + 2)) (TA.unsafeIndex arr (i + 3))
-
-            !c' = toLower c
+        let TU.Iter c delta = TU.iterArray arr j
+            !c'             = toLower c
         acc' <-
           if c == c'
           then do
             VG.push (combineCharIdx c i) acc
           else do
             VG.push (combineCharIdx c i) acc >>= VG.push (combineCharIdx c' i)
-        go acc' (i + 1) (j + l)
+        go acc' (i + 1) (j + delta)
 
 combineCharIdx :: Char -> Int -> Int64
 combineCharIdx c idx = (fi64 (ord c) `unsafeShiftL` 32) .|. fi64 idx
@@ -151,17 +141,6 @@ characterOccurrences needle haystack =
       VExt.qsort xs
       U.unsafeFreeze xs
 
-    -- runST $ do
-    --   xs
-    --     <- U.unsafeThaw
-    --     -- $  U.map (\(idx, c) -> combineCharIdx c idx)
-    --     $  U.concatMap (\(idx, c) -> let !c' = toLower c in if c == c' then U.singleton (combineCharIdx c idx) else U.fromList [combineCharIdx c idx, combineCharIdx c' idx])
-    --     $  U.indexed
-    --     $  U.fromList
-    --     $  T.unpack haystack
-    --   VExt.qsort xs
-    --   U.unsafeFreeze xs
-
     haystackChars :: U.Vector Int32
     haystackChars = U.map (fromIntegral . (`unsafeShiftR` 32)) haystack'
 
@@ -172,12 +151,12 @@ characterOccurrences needle haystack =
 
     findOccurs :: Int32 -> U.Vector StrIdx
     findOccurs !c
-      | isMember  =
-        let !end = skipSameChars start
-        in U.unsafeSlice start (end - start) haystackIdx
-      | otherwise = U.empty
+      | isMember
+      = U.unsafeSlice start (skipSameChars start - start) haystackIdx
+      | otherwise
+      = U.empty
       where
-        (isMember, !start) = VExt.binSearchMemberIdx c haystackChars
+        (isMember, !start) =  VExt.binSearchMemberL c haystackChars
 
         skipSameChars :: Int -> Int
         skipSameChars !j
@@ -187,30 +166,6 @@ characterOccurrences needle haystack =
           = skipSameChars $ j + 1
           | otherwise
           = j
-
-
--- characterOccurrences str =
---   osIndices . T.foldl' recordIndex initState
---   where
---     initState = OccurrencesState
---       { osCharIndex = 0
---       , osIndices   = mempty
---       }
---
---     recordIndex :: OccurrencesState -> Char -> OccurrencesState
---     recordIndex OccurrencesState{osCharIndex, osIndices} c =
---       OccurrencesState
---         { osCharIndex = osCharIndex + 1
---         , osIndices   =
---             let !c'  = ord c
---                 !cl' = ord $ toLower c
---             in if c' == cl'
---             then IM.insertWith (<>) c'  pos osIndices
---             else IM.insertWith (<>) c'  pos $
---                  IM.insertWith (<>) cl' pos osIndices
---         }
---       where
---         pos = IS.singleton osCharIndex
 
 data Match = Match
   { mScore     :: !Int
@@ -239,20 +194,14 @@ fuzzyMatch heatmap needle haystack
   | T.null needle     = noMatch
   | any U.null occurs = noMatch
   | otherwise         =
-  -- case T.unpack needle of
-  --   []     -> noMatch
-  --   n : ns ->
-  --     case traverse (\c -> IM.lookup (ord c) occurs) (n :| ns) of
-  --       Nothing      -> noMatch
-  --       Just needle' ->
-  case evalState (memoizeBy makeKey computeScore occurs (StrIdx (-1))) mempty of
-    []  -> noMatch
-    [m] -> submatchToMatch m
-    ms  -> submatchToMatch $ maximumBy (comparing smScore) ms
+    case evalState (memoizeBy makeKey computeScore occurs (StrIdx (-1))) mempty of
+      []  -> noMatch
+      [m] -> submatchToMatch m
+      ms  -> submatchToMatch $ maximumBy (comparing smScore) ms
   where
     noMatch = Match
-      { mScore     = 0
-      , mPositions = StrIdx 0 :| []
+      { mScore     = (-1)
+      , mPositions = StrIdx (-1) :| []
       }
 
     occurs :: V.Vector (U.Vector StrIdx)
@@ -260,13 +209,13 @@ fuzzyMatch heatmap needle haystack
 
     bigger :: StrIdx -> U.Vector StrIdx -> U.Vector StrIdx
     bigger x xs
-      | isMember  = U.unsafeSlice i' (U.length xs - i') xs
-      | otherwise = U.unsafeSlice i (U.length xs - i) xs
-      -- U.unsafeTail $ VExt.binSearchGTSlice x xs
+      | isMember  =
+        let !i' = i + 1
+        in U.unsafeSlice i' (U.length xs - i') xs
+      | otherwise =
+        U.unsafeSlice i (U.length xs - i) xs
       where
-        (isMember, i) = VExt.binSearchMemberIdx x xs
-        !i' = i + 1
-      -- snd . IS.split (unStrIdx x)
+        (isMember, !i) = VExt.binSearchMemberIdx x xs
 
     makeKey :: V.Vector (U.Vector StrIdx) -> StrIdx -> Int
     makeKey !occs !k =
@@ -285,8 +234,7 @@ fuzzyMatch heatmap needle haystack
       case V.length needleOccursInHaystack of
         -- Last character, already checke that vector is never empty
         1 ->
-          pure $
-            flip map (U.toList remainingOccurrences) $ \(StrIdx idx) ->
+          pure $ flip map (U.toList remainingOccurrences) $ \(StrIdx idx) ->
             Submatch
               { smScore           = heatmap `indexPrimArray` idx
               , smPositions       = StrIdx idx :| []
@@ -339,7 +287,10 @@ memoizeBy key f = g
           pure c
 
 newtype StrIdx = StrIdx { unStrIdx :: Int }
-  deriving (Eq, Ord, Show, Enum, Pretty)
+  deriving (Eq, Ord, Enum, Pretty)
+
+instance Show StrIdx where
+  show = show . unStrIdx
 
 newtype instance U.MVector s StrIdx = MV_StrIdx (U.MVector s Int)
 newtype instance U.Vector    StrIdx = V_StrIdx  (U.Vector    Int)

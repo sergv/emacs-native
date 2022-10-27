@@ -16,8 +16,6 @@
 
 module FuzzyBench (main) where
 
-import System.Exit
-import System.Environment
 import GHC.IO
 
 import Prelude hiding (pi, last)
@@ -37,10 +35,11 @@ import Data.Vector.Unboxed qualified as U
 import Data.Vector.Unboxed.Mutable qualified as UM
 -- import System.Environment
 
-import Data.Text.Internal.Unsafe.Char qualified as TUC
 import Data.Text.Array qualified as TA
 import Data.Text.Internal qualified as TI
 import Data.Text.Internal.Encoding.Utf8 qualified as TU8
+import Data.Text.Internal.Unsafe.Char qualified as TUC
+import Data.Text.Unsafe qualified as TU
 
 import Data.FuzzyMatch qualified
 import Data.FuzzyMatchBaseline qualified as Sline
@@ -48,39 +47,6 @@ import Data.FuzzyMatchBaseline qualified as Sline
 import Data.Vector.Growable qualified as VG
 
 import Test.Tasty.Bench
-
-{-# NOINLINE doMatch #-}
-doMatch :: Int -> PrimArray Int -> Text -> [Text] -> [(Int, Text)]
-doMatch _ seps needle
-  = L.sortOn (\(score, str) -> (Down score, T.length str))
-  . map (\str -> (fm seps needle str, str))
-
--- {-# NOINLINE fm #-}
-fm :: PrimArray Int -> Text -> Text -> Int
-fm seps needle haystack =
-  Data.FuzzyMatch.mScore
-    (Data.FuzzyMatch.fuzzyMatch
-      (Data.FuzzyMatch.computeHeatMap haystack seps)
-      needle
-      haystack)
-
-{-# NOINLINE doMatchSline #-}
-doMatchSline :: Int -> PrimArray Int -> Text -> [Text] -> [(Int, Text)]
-doMatchSline _ seps needle
-  = L.sortOn (\(score, str) -> (Down score, T.length str))
-  . map (\str -> (fmSline seps needle str, str))
-
--- {-# NOINLINE fm #-}
-fmSline :: PrimArray Int -> Text -> Text -> Int
-fmSline seps needle haystack =
-  Sline.mScore
-    (Sline.fuzzyMatch
-      (Sline.computeHeatMap haystack seps)
-      needle
-      haystack)
-
-
-
 
 {-# NOINLINE mkHaystackVector #-}
 mkHaystackVector :: [Text] -> [U.Vector Int64]
@@ -126,7 +92,6 @@ mkHaystackGrowableVectorIterateTextManually1 (TI.Text arr off len) = runST $ do
     !end = off + len
 
     go :: VG.GrowableVector (UM.MVector s Int64) -> Int -> Int -> ST s (U.Vector Int64)
-    -- go acc _  _ []       = VG.unsafeFreeze acc
     go acc !i j
       | j >= end  = VG.unsafeFreeze acc
       | otherwise = do
@@ -146,6 +111,33 @@ mkHaystackGrowableVectorIterateTextManually1 (TI.Text arr off len) = runST $ do
           else do
             VG.push (combineCharIdx c i) acc >>= VG.push (combineCharIdx c' i)
         go acc' (i + 1) (j + l)
+
+
+
+{-# NOINLINE mkHaystackGrowableVectorIterateTextWithIter #-}
+mkHaystackGrowableVectorIterateTextWithIter :: [Text] -> [U.Vector Int64]
+mkHaystackGrowableVectorIterateTextWithIter = map mkHaystackGrowableVectorIterateTextWithIter1
+
+mkHaystackGrowableVectorIterateTextWithIter1 :: Text -> U.Vector Int64
+mkHaystackGrowableVectorIterateTextWithIter1 (TI.Text arr off len) = runST $ do
+  store <- VG.new (len + len `unsafeShiftR` 2)
+  go store 0 off
+  where
+    !end = off + len
+
+    go :: VG.GrowableVector (UM.MVector s Int64) -> Int -> Int -> ST s (U.Vector Int64)
+    go acc !i j
+      | j >= end  = VG.unsafeFreeze acc
+      | otherwise = do
+        let TU.Iter c delta = TU.iterArray arr j
+            !c'             = toLower c
+        acc' <-
+          if c == c'
+          then do
+            VG.push (combineCharIdx c i) acc
+          else do
+            VG.push (combineCharIdx c i) acc >>= VG.push (combineCharIdx c' i)
+        go acc' (i + 1) (j + delta)
 
 
 -- stream (Text arr off len) = Stream next off (betweenSize (len `shiftR` 2) len)
@@ -228,7 +220,7 @@ mkHaystackList
 
 main :: IO ()
 main = do
-  [n] <- getArgs
+  -- [n] <- getArgs
 
   let needle :: Text
       needle = "vector.hs"
@@ -238,12 +230,12 @@ main = do
   evaluate $ rnf candidates
   putStrLn $ "Number of candidates = " ++ show (length candidates)
 
-  let !kSline = sum $ map (\i -> sum $ map fst $ doMatchSline i seps needle candidates) [0..read n]
-  putStrLn $ "kSline = " ++ show kSline
-  let !k = sum $ map (\i -> sum $ map fst $ doMatch i seps needle candidates) [0..read n]
-  putStrLn $ "k = " ++ show k
-
-  _ <- die "We're done"
+  -- let !kSline = sum $ map (\i -> sum $ map fst $ doMatchSline i seps needle candidates) [0..read n]
+  -- putStrLn $ "kSline = " ++ show kSline
+  -- let !k = sum $ map (\i -> sum $ map fst $ doMatch i seps needle candidates) [0..read n]
+  -- putStrLn $ "k = " ++ show k
+  --
+  -- _ <- die "We're done"
 
   let origScore str = Sline.mScore $ Sline.fuzzyMatch (Sline.computeHeatMap str seps) needle str
 
@@ -258,6 +250,7 @@ main = do
     , bench "mkHaystackVector"                                 $ nf mkHaystackVector candidates
     , bench "mkHaystackGrowableVectorUnpackText"               $ nf mkHaystackGrowableVectorUnpackText candidates
     , bench "mkHaystackGrowableVectorIterateTextManually"      $ nf mkHaystackGrowableVectorIterateTextManually candidates
+    , bench "mkHaystackGrowableVectorIterateTextWithIter"      $ nf mkHaystackGrowableVectorIterateTextWithIter candidates
     , bench "mkHaystackGrowableVectorIterateTextManuallyReuse" $ nf mkHaystackGrowableVectorIterateTextManuallyReuse candidates
 
     , bench "Original Haskell fuzzy match"  $ nf (fuzzyMatch origScore) candidates

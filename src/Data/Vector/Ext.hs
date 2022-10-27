@@ -13,7 +13,7 @@
 module Data.Vector.Ext
   ( binSearchMember
   , binSearchMemberIdx
-  , binSearchGTSlice
+  , binSearchMemberL
   , qsort
   ) where
 
@@ -32,17 +32,17 @@ binSearchMember
   -> v a
   -> Bool
 binSearchMember a as =
-  binarySearchMemberByBounds a as 0 (G.length as)
+  binSearchMemberByBounds a as 0 (G.length as)
 
-{-# INLINE binarySearchMemberByBounds #-}
-binarySearchMemberByBounds
+{-# INLINE binSearchMemberByBounds #-}
+binSearchMemberByBounds
   :: (Ord a, G.Vector v a)
   => a
   -> v a
   -> Int
   -> Int
   -> Bool
-binarySearchMemberByBounds a as = go
+binSearchMemberByBounds a as = go
   where
     go !l !u
       | u <= l    = False
@@ -63,17 +63,17 @@ binSearchMemberIdx
   -> v a
   -> (Bool, Int)
 binSearchMemberIdx x as =
-  binarySearchMemberIdxByBounds x as 0 (G.length as)
+  binSearchMemberIdxByBounds x as 0 (G.length as)
 
-{-# INLINE binarySearchMemberIdxByBounds #-}
-binarySearchMemberIdxByBounds
+{-# INLINE binSearchMemberIdxByBounds #-}
+binSearchMemberIdxByBounds
   :: (Ord a, G.Vector v a)
   => a
   -> v a
   -> Int
   -> Int
   -> (Bool, Int)
-binarySearchMemberIdxByBounds a as = go
+binSearchMemberIdxByBounds a as = go
   where
     go !l !u
       | u <= l    = (False, m)
@@ -86,45 +86,38 @@ binarySearchMemberIdxByBounds a as = go
        m :: Int
        !m = (u + l) `div` 2
 
+{-# INLINE binSearchMemberL #-}
+binSearchMemberL
+  :: (G.Vector v e, Ord e)
+  => e
+  -> v e
+  -> (Bool, Int)
+binSearchMemberL target as =
+  binSearchMemberLByBounds target as 0 (G.length as)
 
-{-# INLINE binSearchGTSlice #-}
-binSearchGTSlice
-  :: (Ord a, G.Vector v a)
-  => a
-  -> v a
-  -> v a
-binSearchGTSlice a as =
-  G.unsafeSlice i (len - i) as
+{-# INLINE binSearchMemberLByBounds #-}
+binSearchMemberLByBounds
+  :: (G.Vector v e, Ord e)
+  => e -> v e -> Int -> Int -> (Bool, Int)
+binSearchMemberLByBounds target as =
+  go False
   where
-    i   = binarySearchInsertionPointByBounds a as 0 len
-    len = G.length as
-
-{-# INLINE binarySearchInsertionPointByBounds #-}
-binarySearchInsertionPointByBounds
-  :: (Ord a, G.Vector v a)
-  => a
-  -> v a
-  -> Int
-  -> Int
-  -> Int
-binarySearchInsertionPointByBounds a as = go
-  where
-    go !l !u
-      | u <= l    = l
-      | otherwise =
-        case compare (as `G.unsafeIndex` m) a of
-          LT -> go (m + 1) u
-          EQ -> m
-          GT -> go l m
-     where
-       m = (u + l) `div` 2
+    go found !l !u
+      | u <= l    = (found, l)
+      | otherwise = do
+        case compare (as `G.unsafeIndex` k) target of
+          LT -> go found (k + 1) u
+          EQ -> go True l k
+          GT -> go found l k
+      where
+        k = (u + l) `div` 2
 
 {-# INLINE qsort #-}
 qsort :: (PrimMonad m, Ord a, GM.MVector v a) => v (PrimState m) a -> m ()
 qsort vector = go vector threshold
   where
     threshold = binlog2 (GM.length vector)
-    go v cutoff
+    go v !cutoff
       | len < 17
       = bitonicSort len v
       | cutoff == 0
@@ -132,7 +125,7 @@ qsort vector = go vector threshold
       | otherwise = do
         let pi0, pi1, pi2 :: Int
             !pi0  = 0
-            !pi1  = len `div` 2
+            !pi1  = len `unsafeShiftR` 1
             !last = len - 1
             !pi2  = last
         pv0 <- GM.unsafeRead v pi0

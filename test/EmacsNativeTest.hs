@@ -35,8 +35,8 @@ foobarHeatmap = primArrayFromList [84, -2, -3, -4, -5, -5]
 
 noMatch :: Match
 noMatch = Match
-  { mScore     = 0
-  , mPositions = StrIdx 0 :| []
+  { mScore     = (-1)
+  , mPositions = StrIdx (-1) :| []
   }
 
 fuzzyMatchTests :: TestTree
@@ -65,10 +65,6 @@ fuzzyMatchTests = testGroup "fuzzy match"
       { mScore     = 50
       , mPositions = StrIdx 1 :| [StrIdx 2, StrIdx 5]
       }
-  , mkTestCase "vector" "/home/user/projects/Data/Vector.hs" foobarHeatmap Match
-      { mScore     = 379
-      , mPositions = StrIdx 25 :| [StrIdx 26, StrIdx 27, StrIdx 28, StrIdx 29, StrIdx 30]
-      }
   , mkTestCase "x" "foobar" foobarHeatmap noMatch
   , mkTestCase "fooxar" "foobar" foobarHeatmap noMatch
 
@@ -85,6 +81,16 @@ fuzzyMatchTests = testGroup "fuzzy match"
         { mScore     = 142
         , mPositions = NE.fromList (map StrIdx [12, 13, 22, 27, 28])
         }
+  , let haystack = "/home/user/projects/Data/Vector.hs" :: Text in
+    mkTestCase "vector" haystack (computeHeatMap haystack mempty) Match
+      { mScore     = 397
+      , mPositions = fmap StrIdx $ 25 :| [26, 27, 28, 29, 30]
+      }
+  , let haystack = "all-packages/vector-th-unbox-0.2.2/Data/Vector/Unboxed/Deriving.hs" :: Text in
+    mkTestCase "vector.hs" haystack (computeHeatMap haystack mempty) Match
+      { mScore     = 414
+      , mPositions = fmap StrIdx $ 13 :| [14, 15, 16, 17, 18, 63, 64, 65]
+      }
   ]
   where
     mkTestCase :: Text -> Text -> PrimArray Int -> Match -> TestTree
