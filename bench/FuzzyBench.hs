@@ -139,6 +139,45 @@ mkHaystackGrowableVectorIterateTextWithIter1 (TI.Text arr off len) = runST $ do
             VG.push (combineCharIdx c i) acc >>= VG.push (combineCharIdx c' i)
         go acc' (i + 1) (j + delta)
 
+textFoldM :: forall m a. Monad m => (Char -> a -> m a) -> a -> Text -> m a
+textFoldM f seed (TI.Text arr off len) = foldImpl seed off
+  where
+    !end = off + len
+    foldImpl :: a -> Int -> m a
+    foldImpl !x !j
+      | j >= end  = pure x
+      | otherwise = do
+        let TU.Iter c delta = TU.iterArray arr j
+        x' <- f c x
+        foldImpl x' (j + delta)
+
+{-# NOINLINE mkHaystackGrowableVectorIterateTextWithTextFold #-}
+mkHaystackGrowableVectorIterateTextWithTextFold :: [Text] -> [U.Vector Int64]
+mkHaystackGrowableVectorIterateTextWithTextFold = map mkHaystackGrowableVectorIterateTextWithTextFold1
+
+mkHaystackGrowableVectorIterateTextWithTextFold1 :: Text -> U.Vector Int64
+mkHaystackGrowableVectorIterateTextWithTextFold1 str = runST $ do
+  store <- VG.new (len + len `unsafeShiftR` 2)
+  textFoldM go (0, store) str >>= VG.unsafeFreeze . snd
+  where
+    !len = T.length str
+
+    go
+      :: Char
+      -> (Int, VG.GrowableVector (UM.MVector s Int64))
+      -> ST s (Int, VG.GrowableVector (UM.MVector s Int64))
+    go !c (!i, !acc) = do
+      let !c' = toLower c
+      acc' <-
+        if c == c'
+        then do
+          VG.push (combineCharIdx c i) acc
+        else do
+          VG.push (combineCharIdx c i) acc >>= VG.push (combineCharIdx c' i)
+      pure (i + 1, acc')
+
+
+
 
 -- stream (Text arr off len) = Stream next off (betweenSize (len `shiftR` 2) len)
 --     where
@@ -252,6 +291,7 @@ main = do
     , bench "mkHaystackGrowableVectorIterateTextManually"      $ nf mkHaystackGrowableVectorIterateTextManually candidates
     , bench "mkHaystackGrowableVectorIterateTextWithIter"      $ nf mkHaystackGrowableVectorIterateTextWithIter candidates
     , bench "mkHaystackGrowableVectorIterateTextManuallyReuse" $ nf mkHaystackGrowableVectorIterateTextManuallyReuse candidates
+    , bench "mkHaystackGrowableVectorIterateTextWithTextFold"  $ nf mkHaystackGrowableVectorIterateTextWithTextFold candidates
 
     , bench "Original Haskell fuzzy match"  $ nf (fuzzyMatch origScore) candidates
     , bench "Optimized Haskell fuzzy match" $ nf (fuzzyMatch optScore) candidates

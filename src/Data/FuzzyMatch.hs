@@ -94,27 +94,62 @@ isWord = not . isWordSeparator
 -- instance Ord PackedCharAndIdx where
 --   compare = compare `on` ((`unsafeShiftR` 32) . unPackedCharAndIdx)
 
-
-mkHaystack :: Text -> ST s (UM.MVector s Int64)
-mkHaystack (TI.Text arr off len) = do
-  store <- VG.new (len + len `unsafeShiftR` 2)
-  go store 0 off
+{-# INLINE textFoldM #-}
+textFoldM :: forall m a. Monad m => (Char -> a -> m a) -> a -> Text -> m a
+textFoldM f !seed (TI.Text arr off len) = go seed off
   where
     !end = off + len
-
-    go :: VG.GrowableVector (UM.MVector s Int64) -> Int -> Int -> ST s (UM.MVector s Int64)
-    go acc !i !j
-      | j >= end  = pure $ VG.finalise acc
+    go :: a -> Int -> m a
+    go !x !j
+      | j >= end  = pure x
       | otherwise = do
         let TU.Iter c delta = TU.iterArray arr j
-            !c'             = toLower c
-        acc' <-
-          if c == c'
-          then do
-            VG.push (combineCharIdx c i) acc
-          else do
-            VG.push (combineCharIdx c i) acc >>= VG.push (combineCharIdx c' i)
-        go acc' (i + 1) (j + delta)
+        x' <- f c x
+        go x' (j + delta)
+
+-- mkHaystack :: Text -> ST s (UM.MVector s Int64)
+-- mkHaystack (TI.Text arr off len) = do
+--   store <- VG.new (len + len `unsafeShiftR` 2)
+--   go store 0 off
+--   where
+--     !end = off + len
+--
+--     go :: VG.GrowableVector (UM.MVector s Int64) -> Int -> Int -> ST s (UM.MVector s Int64)
+--     go acc !i !j
+--       | j >= end  = pure $ VG.finalise acc
+--       | otherwise = do
+--         let TU.Iter c delta = TU.iterArray arr j
+--             !c'             = toLower c
+--         acc' <-
+--           if c == c'
+--           then do
+--             VG.push (combineCharIdx c i) acc
+--           else do
+--             VG.push (combineCharIdx c i) acc >>= VG.push (combineCharIdx c' i)
+--         go acc' (i + 1) (j + delta)
+
+mkHaystack :: forall s. Text -> ST s (UM.MVector s Int64)
+mkHaystack str = do
+  store <- VG.new (len + len `unsafeShiftR` 2)
+  VG.finalise . snd <$> textFoldM go (0, store) str
+  where
+    !len = T.length str
+
+    go
+      :: Char
+      -> (Int, VG.GrowableVector (UM.MVector s Int64))
+      -> ST s (Int, VG.GrowableVector (UM.MVector s Int64))
+    go !c (!i, !acc) = do
+      let !c' = toLower c
+      acc' <-
+        if c == c'
+        then do
+          VG.push (combineCharIdx c i) acc
+        else do
+          VG.push (combineCharIdx c i) acc >>= VG.push (combineCharIdx c' i)
+      pure (i + 1, acc')
+
+
 
 combineCharIdx :: Char -> Int -> Int64
 combineCharIdx c idx = (fi64 (ord c) `unsafeShiftL` 32) .|. fi64 idx
@@ -217,10 +252,10 @@ fuzzyMatch heatmap needle haystack
       where
         (isMember, !i) = VExt.binSearchMemberIdx x xs
 
-    makeKey :: V.Vector (U.Vector StrIdx) -> StrIdx -> Int
+    makeKey :: V.Vector (U.Vector StrIdx) -> StrIdx -> Int64
     makeKey !occs !k =
       -- Todo: try Cantor and real hash tables
-      j `unsafeShiftL` 32 .|. unStrIdx k
+      fi64 j `unsafeShiftL` 32 .|. fi64 (unStrIdx k)
       where
         !j = V.length occs
 
@@ -236,7 +271,7 @@ fuzzyMatch heatmap needle haystack
         1 ->
           pure $ flip map (U.toList remainingOccurrences) $ \(StrIdx idx) ->
             Submatch
-              { smScore           = heatmap `indexPrimArray` idx
+              { smScore           = heatmap `indexPrimArray` fromIntegral idx
               , smPositions       = StrIdx idx :| []
               , smContiguousCount = 0
               }
@@ -247,7 +282,7 @@ fuzzyMatch heatmap needle haystack
             let idx' = StrIdx idx
             submatches <- recur (V.unsafeTail needleOccursInHaystack) idx'
             pure $ getMaximum $ flip map submatches $ \submatch ->
-              let score'          = smScore submatch + (heatmap `indexPrimArray` unStrIdx idx')
+              let score'          = smScore submatch + (heatmap `indexPrimArray` fromIntegral (unStrIdx idx'))
                   contiguousBonus = 60 + 15 * min 3 (smContiguousCount submatch)
                   isContiguous    = NE.head (smPositions submatch) == succ idx'
                   score
@@ -270,7 +305,7 @@ fuzzyMatch heatmap needle haystack
 
 memoizeBy
   :: forall a b c m. MonadState (IntMap c) m
-  => (a -> b -> Int)
+  => (a -> b -> Int64)
   -> ((a -> b -> m c) -> a -> b -> m c)
   -> (a -> b -> m c)
 memoizeBy key f = g
@@ -278,7 +313,7 @@ memoizeBy key f = g
     g :: a -> b -> m c
     g a b = do
       store <- get
-      let k = key a b
+      let !k = fromIntegral $ key a b
       case IM.lookup k store of
         Just c  -> pure c
         Nothing -> do
@@ -286,14 +321,14 @@ memoizeBy key f = g
           modify $! IM.insert k c
           pure c
 
-newtype StrIdx = StrIdx { unStrIdx :: Int }
+newtype StrIdx = StrIdx { unStrIdx :: Int32 }
   deriving (Eq, Ord, Enum, Pretty)
 
 instance Show StrIdx where
   show = show . unStrIdx
 
-newtype instance U.MVector s StrIdx = MV_StrIdx (U.MVector s Int)
-newtype instance U.Vector    StrIdx = V_StrIdx  (U.Vector    Int)
+newtype instance U.MVector s StrIdx = MV_StrIdx (U.MVector s Int32)
+newtype instance U.Vector    StrIdx = V_StrIdx  (U.Vector    Int32)
 deriving instance GM.MVector U.MVector StrIdx
 deriving instance G.Vector   U.Vector  StrIdx
 instance U.Unbox StrIdx
@@ -361,7 +396,7 @@ computeHeatMapFromGroups fullStr (groupsCount, groups) = runPrimArray $ do
                   $ fst
                   $ foldr
                       (\wordStart (xs, end') ->
-                        let wordStart' = StrIdx wordStart in
+                        let wordStart' = StrIdx (fromIntegral wordStart) in
                         ((wordStart', end') : xs, pred wordStart'))
                       ([], end)
                       (IS.toList hmgWordIndices)
@@ -402,14 +437,14 @@ computeHeatMapFromGroups fullStr (groupsCount, groups) = runPrimArray $ do
 
     update :: StrIdx -> Int -> MutablePrimArray s Int -> ST s ()
     update (StrIdx idx) val vec = do
-      val' <- readPrimArray vec idx
-      writePrimArray vec idx (val' + val)
+      val' <- readPrimArray vec (fromIntegral idx)
+      writePrimArray vec (fromIntegral idx) (val' + val)
 
     initScore, lastCharBonus :: Int
     initScore     = (-35)
     lastCharBonus = 1
     len           = T.length fullStr
-    lastCharIdx   = StrIdx $ len - 1
+    lastCharIdx   = StrIdx $ fromIntegral $ len - 1
     -- initScores :: [(StrIdx, Int)]
     -- initScores =
     --   (lastCharIdx, lastCharBonus) -- : map (, initScore) [StrIdx 0..pred lastCharIdx]
@@ -462,7 +497,7 @@ computeGroupsAndInitScores fullStr groupSeparators
           GroupState
             { gsBoundaryIndices =
               if haveBoundary prev current
-              then IS.insert (unStrIdx idxCurrent) gsBoundaryIndices
+              then IS.insert (fromIntegral (unStrIdx idxCurrent)) gsBoundaryIndices
               else gsBoundaryIndices
             , gsWordCount       =
               if not (isWord prev) && isWord current
@@ -477,7 +512,7 @@ computeGroupsAndInitScores fullStr groupSeparators
         mapAccumL
           (\(!idx, !len) (sep, str') ->
             let next = idx + T.length str' in
-            ((next + 1, len + 1), (StrIdx idx, sep, StrIdx next, str')))
+            ((next + 1, len + 1), (StrIdx (fromIntegral idx), sep, StrIdx (fromIntegral next), str')))
           ((-1) -- To account for fake separator at the beginning
           , 0
           )

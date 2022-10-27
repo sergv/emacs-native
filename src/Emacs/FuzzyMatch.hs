@@ -84,5 +84,5 @@ scoreSingleMatch (R seps (R needle (R haystack Stop))) = do
   haystack' <- extractText haystack
   let Match{mScore, mPositions} = fuzzyMatch (computeHeatMap haystack' seps') needle' haystack'
   score     <- makeInt mScore
-  positions <- makeList =<< traverse (makeInt . unStrIdx) mPositions
+  positions <- makeList =<< traverse (makeInt . fromIntegral . unStrIdx) mPositions
   cons score positions
