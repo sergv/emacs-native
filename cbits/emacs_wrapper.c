@@ -35,7 +35,46 @@ void deinit(void) {
   hs_exit();
 }
 
-int emacs_module_init(struct emacs_runtime *ert)
-{
+
+static emacs_value Fdeinit (emacs_env *env, ptrdiff_t nargs, emacs_value args[], void *data) {
+  deinit();
+  return env->intern(env, "nil");
+}
+
+/* Bind NAME to FUN.  */
+static void
+bind_function (emacs_env *env, const char *name, emacs_value Sfun) {
+  /* Set the function cell of the symbol named NAME to SFUN using the 'fset' function.  */
+
+  /* Convert the strings to symbols by interning them */
+  emacs_value Qfset = env->intern(env, "fset");
+  emacs_value Qsym = env->intern(env, name);
+
+  /* Prepare the arguments array */
+  emacs_value args[] = { Qsym, Sfun };
+
+  /* Make the call (2 == nb of arguments) */
+  env->funcall(env, Qfset, 2, args);
+}
+
+int emacs_module_init(struct emacs_runtime *ert) {
+  emacs_env *env = ert->get_environment(ert);
+
+  const char* deinit_doc =
+    "Finalise haskell-native module, no functions from it may be called after calling this function.";
+
+  /* create a lambda (returns an emacs_value) */
+  emacs_value fun =
+    env->make_function(
+      env,
+      0,                        // min. number of arguments
+      0,                        // max. number of arguments
+      Fdeinit,                  // actual function pointer
+      deinit_doc,               // docstring
+      NULL                      // user pointer of your choice (data param in Fmymod_test)
+    );
+
+  bind_function (env, "haskell-native-deinit", fun);
+
   return !(init() && initialise(ert));
 }
