@@ -19,6 +19,9 @@
 {-# LANGUAGE StandaloneDeriving         #-}
 {-# LANGUAGE TupleSections              #-}
 {-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE ViewPatterns               #-}
+
+{-# OPTIONS_GHC -Wno-overflowed-literals #-}
 
 module Data.FuzzyMatch
   ( fuzzyMatch
@@ -31,23 +34,27 @@ module Data.FuzzyMatch
   , StrIdx(..)
   ) where
 
-import Control.Monad.State
 import Control.Monad.ST
+
+import Data.Coerce
+import Data.Function
+import Data.HashTable.ST.Linear qualified as HT
+import Data.Vector.Unboxed.Base qualified as U
 
 import Data.Bits
 import Data.Char
 import Data.Foldable
 import Data.Int
-import Data.IntMap (IntMap)
-import Data.IntMap qualified as IM
 import Data.IntSet (IntSet)
 import Data.IntSet qualified as IS
 import Data.List qualified as L
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.List.NonEmpty qualified as NE
 import Data.Ord
+import Data.Primitive.ByteArray
 import Data.Primitive.PrimArray
 import Data.Primitive.PrimArray.Ext
+import Data.Primitive.PrimArray.Growable qualified as PG
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Traversable
@@ -55,10 +62,10 @@ import Data.Vector qualified as V
 import Data.Vector.Ext qualified as VExt
 import Data.Vector.Generic qualified as G
 import Data.Vector.Generic.Mutable qualified as GM
-import Data.Vector.Growable qualified as VG
+import Data.Vector.Mutable qualified as VM
+import Data.Vector.Primitive qualified as P
+import Data.Vector.Primitive.Mutable qualified as PM
 import Data.Vector.Unboxed qualified as U
-import Data.Vector.Unboxed.Base qualified as U
-import Data.Vector.Unboxed.Mutable qualified as UM
 import GHC.Generics (Generic)
 import Prettyprinter (Pretty(..))
 
@@ -72,27 +79,66 @@ import Emacs.Module.Assert (WithCallStack)
 --   , osIndices   :: !(IntMap IntSet)
 --   }
 
+{-# INLINE isWordSeparator #-}
 isWordSeparator :: Char -> Bool
 isWordSeparator c = not $ '0' <= c && c <= '9' || 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z'
 
+{-# INLINE isWord #-}
 isWord :: Char -> Bool
 isWord = not . isWordSeparator
 
 
 
--- newtype PackedCharAndIdx = PackedCharAndIdx { unPackedCharAndIdx :: Int64 }
---
--- newtype instance U.MVector s PackedCharAndIdx = MV_PackedCharAndIdx (U.MVector s Int64)
--- newtype instance U.Vector    PackedCharAndIdx = V_PackedCharAndIdx  (U.Vector    Int64)
--- deriving instance GM.MVector U.MVector PackedCharAndIdx
--- deriving instance G.Vector   U.Vector  PackedCharAndIdx
--- instance U.Unbox PackedCharAndIdx
---
--- instance Eq PackedCharAndIdx where
---   (==) = (==) `on` ((`unsafeShiftR` 32) . unPackedCharAndIdx)
---
--- instance Ord PackedCharAndIdx where
---   compare = compare `on` ((`unsafeShiftR` 32) . unPackedCharAndIdx)
+newtype PackedChar = PackedChar { unPackedChar :: Int64 }
+
+newtype instance U.MVector s PackedChar = MV_PackedChar (U.MVector s Int64)
+newtype instance U.Vector    PackedChar = V_PackedChar  (U.Vector    Int64)
+deriving instance GM.MVector U.MVector PackedChar
+deriving instance G.Vector   U.Vector  PackedChar
+instance U.Unbox PackedChar
+
+mkPackedChar :: Char -> PackedChar
+mkPackedChar = PackedChar . (`unsafeShiftL` 32) . fi64 . ord
+
+keepChar :: PackedChar -> Int64
+keepChar =
+  (.&. 0xFFFFFFFF00000000) . unPackedChar
+  -- (`unsafeShiftR` 32)
+
+instance Eq PackedChar where
+  (==) = (==) `on` keepChar
+
+instance Ord PackedChar where
+  compare = compare `on` keepChar
+
+
+newtype PackedIdx = PackedIdx { unPackedIdx :: Int64 }
+
+{-# INLINE keepIdx #-}
+keepIdx :: PackedIdx -> StrIdx
+keepIdx = StrIdx . fromIntegral . (.&. 0x00000000FFFFFFFF) . unPackedIdx
+
+{-# INLINE mkPackedIdx #-}
+mkPackedIdx :: StrIdx -> PackedIdx
+mkPackedIdx = PackedIdx . fi64 . unStrIdx
+
+{-# INLINE getStrIdx #-}
+getStrIdx :: PackedIdx -> StrIdx
+getStrIdx = keepIdx
+
+newtype instance U.MVector s PackedIdx = MV_PackedIdx (U.MVector s Int64)
+newtype instance U.Vector    PackedIdx = V_PackedIdx  (U.Vector    Int64)
+deriving instance GM.MVector U.MVector PackedIdx
+deriving instance G.Vector   U.Vector  PackedIdx
+instance U.Unbox PackedIdx
+
+instance Eq PackedIdx where
+  (==) = (==) `on` keepIdx
+
+instance Ord PackedIdx where
+  compare = compare `on` keepIdx
+
+
 
 {-# INLINE textFoldM #-}
 textFoldM :: forall m a. Monad m => (Char -> a -> m a) -> a -> Text -> m a
@@ -128,32 +174,62 @@ textFoldM f !seed (TI.Text arr off len) = go seed off
 --             VG.push (combineCharIdx c i) acc >>= VG.push (combineCharIdx c' i)
 --         go acc' (i + 1) (j + delta)
 
-mkHaystack :: forall s. Text -> ST s (UM.MVector s Int64)
+-- mkHaystack :: forall s. Text -> ST s (UM.MVector s Int64)
+-- mkHaystack str = do
+--   store <- VG.new (len + (len `unsafeShiftR` 2))
+--   VG.finalise . snd <$> textFoldM go (0, store) str
+--   where
+--     !len = T.length str
+--
+--     go
+--       :: Char
+--       -> (Int, VG.GrowableVector (UM.MVector s Int64))
+--       -> ST s (Int, VG.GrowableVector (UM.MVector s Int64))
+--     go !c (!i, !acc) = do
+--       let !c' = toLower c
+--       acc' <-
+--         if c == c'
+--         then do
+--           VG.push (combineCharIdx c i) acc
+--         else do
+--           VG.push (combineCharIdx c i) acc >>= VG.push (combineCharIdx c' i)
+--       pure (i + 1, acc')
+
+{-# INLINE primToByteArr #-}
+primToByteArr :: MutablePrimArray s a -> MutableByteArray s
+primToByteArr (MutablePrimArray arr) = MutableByteArray arr
+
+mkHaystack :: forall s. Text -> ST s (PM.MVector s Int64)
 mkHaystack str = do
-  store <- VG.new (len + len `unsafeShiftR` 2)
-  VG.finalise . snd <$> textFoldM go (0, store) str
+  store  <- PG.new (len + (len `unsafeShiftR` 2))
+  arr    <- PG.finalise . snd =<< textFoldM go (0, store) str
+  arrLen <- getSizeofMutablePrimArray arr
+  pure $ P.MVector 0 arrLen $ primToByteArr arr
   where
     !len = T.length str
 
     go
       :: Char
-      -> (Int, VG.GrowableVector (UM.MVector s Int64))
-      -> ST s (Int, VG.GrowableVector (UM.MVector s Int64))
+      -> (Int, PG.GrowablePrimArray s Int64)
+      -> ST s (Int, PG.GrowablePrimArray s Int64)
     go !c (!i, !acc) = do
       let !c' = toLower c
       acc' <-
         if c == c'
         then do
-          VG.push (combineCharIdx c i) acc
+          PG.push (combineCharIdx c i) acc
         else do
-          VG.push (combineCharIdx c i) acc >>= VG.push (combineCharIdx c' i)
+          PG.push (combineCharIdx c i) acc >>= PG.push (combineCharIdx c' i)
       pure (i + 1, acc')
 
 
 
+
+{-# INLINE combineCharIdx #-}
 combineCharIdx :: Char -> Int -> Int64
 combineCharIdx c idx = (fi64 (ord c) `unsafeShiftL` 32) .|. fi64 idx
 
+{-# INLINE fi64 #-}
 fi64 :: Integral a => a -> Int64
 fi64 = fromIntegral
 
@@ -163,41 +239,62 @@ fi64 = fromIntegral
 -- Upper-case characters are counted twice as an upper-case and a
 -- lower-case character. This is done in order to make lower-case
 -- charaters match upper-case ones.
+{-# NOINLINE characterOccurrences #-}
 characterOccurrences
   :: Text
   -> Text
-  -> V.Vector (U.Vector StrIdx)
+  -> V.Vector (U.Vector PackedIdx)
 characterOccurrences needle haystack =
-  V.map (findOccurs . fromIntegral . ord) $ V.fromList $ T.unpack needle
+  -- V.map (findOccurs . fromIntegral . ord) $ V.fromList $ T.unpack needle
+  runST $ do
+    xs <- VM.new (T.length needle)
+    _ <-
+      textFoldM
+        (\c i -> do
+          let occs = findOccurs c
+          VM.unsafeWrite xs i occs
+          pure $! i + 1)
+        0
+        needle
+    V.unsafeFreeze xs
   where
+    -- TODO: make do with only one vector here. Allocating extra vectors is costly!
     haystack' :: U.Vector Int64
     haystack' = runST $ do
       xs <- mkHaystack haystack
       VExt.qsort xs
-      U.unsafeFreeze xs
+      ys <- P.unsafeFreeze xs
+      pure $ U.V_Int64 ys
 
-    haystackChars :: U.Vector Int32
-    haystackChars = U.map (fromIntegral . (`unsafeShiftR` 32)) haystack'
+    haystackChars :: U.Vector PackedChar
+    haystackChars = coerce haystack'
 
-    haystackIdx :: U.Vector StrIdx
-    haystackIdx = U.map (StrIdx . fromIntegral . (.&. 0x00000000FFFFFFFF)) haystack'
+    haystackIdx :: U.Vector PackedIdx
+    haystackIdx = coerce haystack'
+
+    -- haystackChars :: U.Vector Int32
+    -- haystackChars = U.map (fromIntegral . (`unsafeShiftR` 32)) haystack'
+
+    -- haystackIdx :: U.Vector StrIdx
+    -- haystackIdx = U.map (StrIdx . fromIntegral . (.&. 0x00000000FFFFFFFF)) haystack'
 
     haystackLen = U.length haystack'
 
-    findOccurs :: Int32 -> U.Vector StrIdx
+    findOccurs :: Char -> U.Vector PackedIdx
     findOccurs !c
       | isMember
       = U.unsafeSlice start (skipSameChars start - start) haystackIdx
       | otherwise
       = U.empty
       where
-        (isMember, !start) =  VExt.binSearchMemberL c haystackChars
+        !c' = mkPackedChar c
+        (isMember, !start) = VExt.binSearchMemberL c' haystackChars
 
         skipSameChars :: Int -> Int
         skipSameChars !j
           | j == haystackLen
           = j
-          | haystackChars `U.unsafeIndex` j == c
+          | haystackChars `U.unsafeIndex` j == c'
           = skipSameChars $ j + 1
           | otherwise
           = j
@@ -228,8 +325,10 @@ fuzzyMatch
 fuzzyMatch heatmap needle haystack
   | T.null needle     = noMatch
   | any U.null occurs = noMatch
-  | otherwise         =
-    case evalState (memoizeBy makeKey computeScore occurs (StrIdx (-1))) mempty of
+  | otherwise         = runST $ do
+    cache <- HT.newSized (T.length needle * 2)
+    res   <- memoizeBy cache makeKey computeScore occurs (mkPackedIdx (StrIdx (-1)))
+    pure $ case res of
       []  -> noMatch
       [m] -> submatchToMatch m
       ms  -> submatchToMatch $ maximumBy (comparing smScore) ms
@@ -239,10 +338,10 @@ fuzzyMatch heatmap needle haystack
       , mPositions = StrIdx (-1) :| []
       }
 
-    occurs :: V.Vector (U.Vector StrIdx)
+    occurs :: V.Vector (U.Vector PackedIdx)
     occurs = characterOccurrences needle haystack
 
-    bigger :: StrIdx -> U.Vector StrIdx -> U.Vector StrIdx
+    bigger :: PackedIdx -> U.Vector PackedIdx -> U.Vector PackedIdx
     bigger x xs
       | isMember  =
         let !i' = i + 1
@@ -252,24 +351,26 @@ fuzzyMatch heatmap needle haystack
       where
         (isMember, !i) = VExt.binSearchMemberIdx x xs
 
-    makeKey :: V.Vector (U.Vector StrIdx) -> StrIdx -> Int64
+    makeKey :: V.Vector (U.Vector a) -> PackedIdx -> Int64
     makeKey !occs !k =
       -- Todo: try Cantor and real hash tables
-      fi64 j `unsafeShiftL` 32 .|. fi64 (unStrIdx k)
+      fi64 j `unsafeShiftL` 32 .|. fi64 (unStrIdx (keepIdx k))
       where
         !j = V.length occs
 
     computeScore
       :: Monad m
-      => (V.Vector (U.Vector StrIdx) -> StrIdx -> m [Submatch])
-      -> V.Vector (U.Vector StrIdx)
-      -> StrIdx
+      => (V.Vector (U.Vector PackedIdx) -> PackedIdx -> m [Submatch])
+      -> V.Vector (U.Vector PackedIdx)
+      -> PackedIdx
       -> m [Submatch]
     computeScore recur !needleOccursInHaystack !cutoffIndex =
       case V.length needleOccursInHaystack of
         -- Last character, already checke that vector is never empty
         1 ->
-          pure $ flip map (U.toList remainingOccurrences) $ \(StrIdx idx) ->
+          pure $ flip map (U.toList remainingOccurrences) $ \pidx ->
+            let StrIdx !idx = getStrIdx pidx
+            in
             Submatch
               { smScore           = heatmap `indexPrimArray` fromIntegral idx
               , smPositions       = StrIdx idx :| []
@@ -278,9 +379,9 @@ fuzzyMatch heatmap needle haystack
           where
             remainingOccurrences = bigger cutoffIndex $ V.unsafeHead needleOccursInHaystack
         _ ->
-          fmap (getMaximum . concat) $ for (U.toList remainingOccurrences) $ \(StrIdx idx) -> do
-            let idx' = StrIdx idx
-            submatches <- recur (V.unsafeTail needleOccursInHaystack) idx'
+          fmap (getMaximum . concat) $ for (U.toList remainingOccurrences) $ \pidx -> do
+            let !idx' = getStrIdx pidx
+            submatches <- recur (V.unsafeTail needleOccursInHaystack) pidx
             pure $ getMaximum $ flip map submatches $ \submatch ->
               let score'          = smScore submatch + (heatmap `indexPrimArray` fromIntegral (unStrIdx idx'))
                   contiguousBonus = 60 + 15 * min 3 (smContiguousCount submatch)
@@ -304,21 +405,22 @@ fuzzyMatch heatmap needle haystack
             getMaximum xs = (:[]) $ maximumBy (comparing smScore) xs
 
 memoizeBy
-  :: forall a b c m. MonadState (IntMap c) m
-  => (a -> b -> Int64)
-  -> ((a -> b -> m c) -> a -> b -> m c)
-  -> (a -> b -> m c)
-memoizeBy key f = g
+  :: forall a b c s.
+     HT.HashTable s Int64 c
+  -> (a -> b -> Int64)
+  -> ((a -> b -> ST s c) -> a -> b -> ST s c)
+  -> (a -> b -> ST s c)
+memoizeBy cache mkKey f = g
   where
-    g :: a -> b -> m c
+    g :: a -> b -> ST s c
     g a b = do
-      store <- get
-      let !k = fromIntegral $ key a b
-      case IM.lookup k store of
+      let !k = mkKey a b
+      res <- HT.lookup cache k
+      case res of
         Just c  -> pure c
         Nothing -> do
           c <- f g a b
-          modify $! IM.insert k c
+          HT.insert cache k c
           pure c
 
 newtype StrIdx = StrIdx { unStrIdx :: Int32 }

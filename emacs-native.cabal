@@ -68,6 +68,7 @@ library
     Data.NBSem
     Data.Regex
     Data.Primitive.PrimArray.Ext
+    Data.Primitive.PrimArray.Growable
     Data.Vector.Ext
     Data.Vector.Growable
 
@@ -85,6 +86,7 @@ library
     , emacs-module >= 0.2
     , exceptions
     , filepath
+    , hashtables
     , lifted-async
     , monad-control
     , monad-par
