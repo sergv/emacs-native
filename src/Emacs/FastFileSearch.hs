@@ -44,12 +44,12 @@ import Emacs.Module.Errors
 import Data.Emacs.Path
 import Data.Filesystem
 import Data.Regex
-import Emacs.Module.Monad.Sync qualified as Sync
+import Emacs.Module.Monad.Async qualified as Async
 import Path
 
 initialise
   :: WithCallStack
-  => Sync.EmacsM s ()
+  => Async.EmacsM s ()
 initialise =
   bindFunction "haskell-native-find-rec" =<<
     makeFunction emacsFindRec emacsFindRecDoc

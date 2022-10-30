@@ -52,13 +52,13 @@ import Data.Emacs.Module.Doc qualified as Doc
 import Data.Emacs.Path
 import Data.Filesystem
 import Data.Regex
-import Emacs.Module.Monad.Sync qualified as Sync
+import Emacs.Module.Monad.Async qualified as Async
 import Path
 import Path.IO
 
 initialise
   :: WithCallStack
-  => Sync.EmacsM s ()
+  => Async.EmacsM s ()
 initialise =
   bindFunction "haskell-native-grep" =<<
     makeFunction emacsGrepRec emacsGrepRecDoc

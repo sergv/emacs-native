@@ -40,11 +40,11 @@ import Data.Regex
 import Emacs.Module
 import Emacs.Module.Assert
 import Emacs.Module.Errors
-import Emacs.Module.Monad.Sync qualified as Sync
+import Emacs.Module.Monad.Async qualified as Async
 
 initialise
   :: WithCallStack
-  => Sync.EmacsM s ()
+  => Async.EmacsM s ()
 initialise = do
   bindFunction "haskell-native--eproj-tag-index-p" =<<
     makeFunction emacsEprojTagIndex emacsIsEprojTagIndexDoc
