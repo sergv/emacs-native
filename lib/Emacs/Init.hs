@@ -31,7 +31,7 @@ import Emacs.EprojTagIndex qualified
 import Emacs.FastFileSearch qualified
 import Emacs.FuzzyMatch qualified
 import Emacs.Grep qualified
-import Emacs.Module.Monad.Async qualified as Async
+import Emacs.Module.Monad qualified as Emacs
 
 foreign export ccall initialise :: Ptr Runtime -> IO CBool
 
@@ -46,12 +46,12 @@ initialise runtime = do
     Nothing        -> pure false
     Just runtime'' -> do
       env <- Runtime.getEnvironment runtime''
-      res <- reportAllErrorsToEmacs env (pure False) $ Async.runEmacsM env initialise'
+      res <- reportAllErrorsToEmacs env (pure False) $ Emacs.runEmacsM env initialise'
       pure $ if res then true else false
 
 initialise'
   :: WithCallStack
-  => Async.EmacsM s Bool
+  => Emacs.EmacsM s Bool
 initialise' = do
   Emacs.FastFileSearch.initialise
   Emacs.FuzzyMatch.initialise

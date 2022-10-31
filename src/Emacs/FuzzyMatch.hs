@@ -33,13 +33,13 @@ import Data.Text qualified as T
 import Data.Emacs.Module.Doc qualified as Doc
 import Emacs.Module
 import Emacs.Module.Assert (WithCallStack)
-import Emacs.Module.Monad.Async qualified as Async
+import Emacs.Module.Monad qualified as Emacs
 
 import Data.FuzzyMatch
 
 initialise
   :: WithCallStack
-  => Async.EmacsM s ()
+  => Emacs.EmacsM s ()
 initialise = do
   bindFunction "haskell-native-score-matches" =<<
     makeFunction scoreMatches scoreMatchesDoc
