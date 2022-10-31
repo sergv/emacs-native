@@ -75,10 +75,8 @@ library
     Emacs.FastFileSearch
     Emacs.FuzzyMatch
     Emacs.Grep
-    Emacs.Init
   hs-source-dirs:
     src
-    lib
   build-depends:
     , base >= 4.7
     , bimap
@@ -109,8 +107,10 @@ library
 
 foreign-library emacs-native
   import: ghc-options
-  type:                native-shared
-  lib-version-info:    0:0:0
+  type:
+    native-shared
+  lib-version-info:
+    0:0:0
   build-tool-depends:
     hsc2hs:hsc2hs
   c-sources:
@@ -122,6 +122,7 @@ foreign-library emacs-native
   include-dirs:
     cbits
   other-modules:
+    Emacs.Init
 
   if os(Windows)
     options: standalone
@@ -129,10 +130,8 @@ foreign-library emacs-native
 
   build-depends:
     , base >=4.7
-    , bytestring
     , emacs-module
     , emacs-native
-    , exceptions
   hs-source-dirs:
     lib
   ghc-options:
