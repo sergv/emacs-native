@@ -12,6 +12,7 @@
 module EmacsNativeTest (main) where
 
 import Data.Char
+import Data.Int
 import Data.IntSet qualified as IS
 import Data.List qualified as L
 import Data.List.NonEmpty (NonEmpty(..))
@@ -30,7 +31,7 @@ main = defaultMain tests
 tests :: TestTree
 tests = testGroup "Tests" [fuzzyMatchTests, heatMap, heatMapGrouping]
 
-foobarHeatmap :: PrimArray Int
+foobarHeatmap :: PrimArray Int32
 foobarHeatmap = primArrayFromList [84, -2, -3, -4, -5, -5]
 
 noMatch :: Match
@@ -93,10 +94,13 @@ fuzzyMatchTests = testGroup "fuzzy match"
       }
   ]
   where
-    mkTestCase :: Text -> Text -> PrimArray Int -> Match -> TestTree
+    mkTestCase :: Text -> Text -> PrimArray Int32 -> Match -> TestTree
     mkTestCase needle haystack haystackHeatmap result =
       testCase (T.unpack $ "match '" <> needle <> "' against '" <> haystack <> "'") $
-        fuzzyMatch haystackHeatmap needle haystack @?= result
+        fuzzyMatch haystackHeatmap needle (prepareNeedle needle) haystack @?= result
+
+fi32 :: Integral a => a -> Int32
+fi32 = fromIntegral
 
 heatMap :: TestTree
 heatMap = testGroup "Heatmap"
@@ -104,26 +108,26 @@ heatMap = testGroup "Heatmap"
   , mkTestCase "bar" mempty [84, - 2, - 2]
   , mkTestCase "foo.bar" mempty [83, -3, -4, -5, 35, -6, -6]
   , mkTestCase "foo/bar/baz" mempty [82, -4, -5, -6, 79, -7, -8, -9, 76, -10, -10]
-  , mkTestCase "foo/bar/baz" (primArrayFromList [ord '/']) [41, -45, -46, -47, 39, -47, -48, -49, 79, -7, -7]
+  , mkTestCase "foo/bar/baz" (primArrayFromList [fi32 $ ord '/']) [41, -45, -46, -47, 39, -47, -48, -49, 79, -7, -7]
   , mkTestCase
       "foo/bar+quux/fizz.buzz/frobnicate/frobulate"
       mempty
       [78, -8, -9, -10, 75, -11, -12, -13, 72, -14, -15, -16, -17, 69, -17, -18, -19, -20, 21, -20, -21, -22, -23, 63, -23, -24, -25, -26, -27, -28, -29, -30, -31, -32, 60, -26, -27, -28, -29, -30, -31, -32, -32]
   , mkTestCase
       "foo/bar+quux/fizz.buzz"
-      (primArrayFromList [ord '/'])
+      (primArrayFromList [fi32 $ ord '/'])
       [41, -45, -46, -47, 39, -47, -48, -49, 36, -50, -51, -52, -53, 78, -8, -9, -10, -11, 30, -11, -12, -12]
   , mkTestCase
       "foo/bar+quux/fizz.buzz/frobnicate/frobulate"
-      (primArrayFromList [ord '/'])
+      (primArrayFromList [fi32 $ ord '/'])
       [37, -49, -50, -51, 35, -51, -52, -53, 32, -54, -55, -56, -57, 36, -50, -51, -52, -53, -12, -53, -54, -55, -56, 37, -49, -50, -51, -52, -53, -54, -55, -56, -57, -58, 77, -9, -10, -11, -12, -13, -14, -15, -15]
   , mkTestCase
       "foo/bar+quux/fizz.buzz//frobnicate/frobulate"
-      (primArrayFromList [ord '/'])
+      (primArrayFromList [fi32 $ ord '/'])
       [35, -51, -52, -53, 33, -53, -54, -55, 30, -56, -57, -58, -59, 34, -52, -53, -54, -55, -14, -55, -56, -57, -58, -50, 36, -50, -51, -52, -53, -54, -55, -56, -57, -58, -59, 76, -10, -11, -12, -13, -14, -15, -16, -16]
   , mkTestCase
       "foo/bar+quux/fizz.buzz//frobnicate/frobulate"
-      (primArrayFromList (L.sort [ord '/', ord 'u']))
+      (primArrayFromList (L.sort [fi32 $ ord '/', fi32 $ ord 'u']))
       [27, -59, -60, -61, 25, -61, -62, -63, 22, -64, -59, -58, -58, 28, -58, -59, -60, -61, -20, -61, -56, -56, -56, -55, 31, -55, -56, -57, -58, -59, -60, -61, -62, -63, -64, 72, -14, -15, -16, -17, -52, -52, -52, -51]
   , mkTestCase
       "foo/barQuux/fizzBuzz//frobnicate/frobulate"
@@ -135,11 +139,11 @@ heatMap = testGroup "Heatmap"
       [83, -3, -4, -5, -6, 80, -6, -6]
   , mkTestCase
       "foo//bar"
-      (primArrayFromList [ord '/'])
+      (primArrayFromList [fi32 $ ord '/'])
       [41, -45, -46, -47, -46, 79, -7, -7]
   ]
   where
-    mkTestCase :: Text -> PrimArray Int -> [Int] -> TestTree
+    mkTestCase :: Text -> PrimArray Int32 -> [Int32] -> TestTree
     mkTestCase str groupSeps result =
       testCase (T.unpack $ "Heatmap of '" <> str <> "'" <> seps) $
         computeHeatMap str groupSeps @?= primArrayFromList result
@@ -147,7 +151,7 @@ heatMap = testGroup "Heatmap"
         seps
           | sizeofPrimArray groupSeps == 0 = mempty
           | otherwise                      =
-            " with seps " <> T.intercalate ", " (map (T.singleton . chr) $ primArrayToList groupSeps)
+            " with seps " <> T.intercalate ", " (map (T.singleton . chr . fromIntegral) $ primArrayToList groupSeps)
 
 heatMapGrouping :: TestTree
 heatMapGrouping = testGroup "Grouping for heatmap computation"
@@ -186,7 +190,7 @@ heatMapGrouping = testGroup "Grouping for heatmap computation"
     , hmgWordIndices = IS.fromList [8, 4, 0]
     , hmgIsBasePath  = True
     }
-  , mkTestCase "foo/bar" (primArrayFromList [ord '/'])
+  , mkTestCase "foo/bar" (primArrayFromList [fi32 $ ord '/'])
     [ HeatMapGroup
       { hmgStart       = StrIdx (-1)
       , hmgEnd         = StrIdx 2
@@ -202,7 +206,7 @@ heatMapGrouping = testGroup "Grouping for heatmap computation"
       , hmgIsBasePath  = True
       }
     ]
-  , mkTestCase "foo/bar/baz" (primArrayFromList [ord '/'])
+  , mkTestCase "foo/bar/baz" (primArrayFromList [fi32 $ ord '/'])
     [ HeatMapGroup
       { hmgStart       = StrIdx (-1)
       , hmgEnd         = StrIdx 2
@@ -236,7 +240,7 @@ heatMapGrouping = testGroup "Grouping for heatmap computation"
       ]
   , mkTestCase
       "foo/bar+quux/fizz.buzz/frobnicate/frobulate"
-      (primArrayFromList [ord '/'])
+      (primArrayFromList [fi32 $ ord '/'])
       [ HeatMapGroup
           { hmgStart       = StrIdx (-1)
           , hmgEnd         = StrIdx 2
@@ -275,12 +279,12 @@ heatMapGrouping = testGroup "Grouping for heatmap computation"
       ]
   ]
   where
-    mkTestCase :: Text -> PrimArray Int -> [HeatMapGroup] -> TestTree
+    mkTestCase :: Text -> PrimArray Int32 -> [HeatMapGroup] -> TestTree
     mkTestCase str groupSeps expectedRes =
       testCase (T.unpack ("groups of '" <> str <> "'" <> seps)) $
-        computeGroupsAndInitScores str groupSeps @?= (length expectedRes, expectedRes)
+        computeGroupsAndInitScores str groupSeps @?= (fromIntegral $ length expectedRes, expectedRes)
       where
         seps
           | sizeofPrimArray groupSeps == 0 = mempty
           | otherwise                      =
-            " with seps " <> T.intercalate ", " (map (T.singleton . chr) $ primArrayToList groupSeps)
+            " with seps " <> T.intercalate ", " (map (T.singleton . chr . fromIntegral) $ primArrayToList groupSeps)

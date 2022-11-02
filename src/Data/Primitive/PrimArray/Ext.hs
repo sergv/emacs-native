@@ -9,8 +9,12 @@
 {-# LANGUAGE BangPatterns        #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 
-module Data.Primitive.PrimArray.Ext (binSearchMember) where
+module Data.Primitive.PrimArray.Ext
+  ( binSearchMember
+  , primToByteArr
+  ) where
 
+import Data.Primitive.ByteArray
 import Data.Primitive.PrimArray
 import Data.Primitive.Types
 
@@ -41,3 +45,7 @@ binarySearchMemberByBounds xs e = go
           GT -> go l m
      where
        m = (u + l) `div` 2
+
+{-# INLINE primToByteArr #-}
+primToByteArr :: MutablePrimArray s a -> MutableByteArray s
+primToByteArr (MutablePrimArray arr) = MutableByteArray arr

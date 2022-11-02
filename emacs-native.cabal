@@ -34,6 +34,7 @@ common ghc-options
     Haskell2010
 
   ghc-options:
+    -funbox-strict-fields
     -Weverything
     -Wno-redundant-constraints
     -Wno-type-defaults
@@ -69,8 +70,10 @@ library
     Data.Regex
     Data.Primitive.PrimArray.Ext
     Data.Primitive.PrimArray.Growable
+    Data.Text.Ext
     Data.Vector.Ext
     Data.Vector.Growable
+    Data.Vector.GrowableMut
 
     Emacs.EprojTagIndex
     Emacs.FastFileSearch
@@ -86,7 +89,7 @@ library
     , emacs-module >= 0.2
     , exceptions
     , filepath
-    , hashtables
+    -- , hashtables
     , lifted-async
     , monad-control
     , monad-par
@@ -106,6 +109,8 @@ library
     , tuples-homogenous-h98
     , vector >= 0.13
     -- , regex-tdfa-text
+  ghc-prof-options:
+    -fprof-late
 
 foreign-library emacs-native
   import: ghc-options

@@ -14,6 +14,7 @@ module FuzzyProf (main) where
 
 import Control.DeepSeq
 import Control.Exception
+import Data.Int
 import Data.List qualified as L
 import Data.Ord
 import Data.Primitive.PrimArray
@@ -26,17 +27,19 @@ import Data.FuzzyMatch qualified
 import Data.FuzzyMatchBaseline qualified as Sline
 
 {-# NOINLINE doMatch #-}
-doMatch :: PrimArray Int -> Text -> [Text] -> [(Int, Text)]
+doMatch :: PrimArray Int32 -> Text -> [Text] -> [(Int, Text)]
 doMatch seps needle
   = map (\str -> (fm seps needle str, str))
 
 -- {-# NOINLINE fm #-}
-fm :: PrimArray Int -> Text -> Text -> Int
+fm :: PrimArray Int32 -> Text -> Text -> Int
 fm seps needle haystack =
+  fromIntegral $
   Data.FuzzyMatch.mScore
     (Data.FuzzyMatch.fuzzyMatch
       (Data.FuzzyMatch.computeHeatMap haystack seps)
       needle
+      (Data.FuzzyMatch.prepareNeedle needle)
       haystack)
 
 {-# NOINLINE _doMatchSline #-}
