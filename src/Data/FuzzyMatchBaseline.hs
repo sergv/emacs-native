@@ -21,6 +21,8 @@ module Data.FuzzyMatchBaseline
   ( fuzzyMatch
   , computeHeatMap
   , Match(..)
+  , NeedleChars
+  , prepareNeedle
 
   -- * Interface for testing
   , computeGroupsAndInitScores
@@ -34,6 +36,7 @@ import Control.Monad.ST
 import Data.Bits
 import Data.Char
 import Data.Foldable
+import Data.Int
 import Data.IntMap (IntMap)
 import Data.IntMap qualified as IM
 import Data.IntSet (IntSet)
@@ -46,7 +49,10 @@ import Data.Primitive.PrimArray
 import Data.Primitive.PrimArray.Ext
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Ext qualified as T
 import Data.Traversable
+import Data.Vector.Ext qualified as VExt
+import Data.Vector.Primitive qualified as P
 import GHC.Generics (Generic)
 import Prettyprinter (Pretty(..))
 
@@ -63,16 +69,35 @@ isWordSeparator c = not $ '0' <= c && c <= '9' || 'a' <= c && c <= 'z' || 'A' <=
 isWord :: Char -> Bool
 isWord = not . isWordSeparator
 
+newtype NeedleChars = NeedleChars { unNeedleChars :: P.Vector Char }
+
+_needleCharsCountHint :: NeedleChars -> Int
+_needleCharsCountHint = P.length . unNeedleChars
+
+prepareNeedle :: Text -> NeedleChars
+prepareNeedle str
+  = NeedleChars
+  $ VExt.uniq
+  $ VExt.sortVectorUnsafe
+  $ T.textToPrimVector
+  $ T.map toUpper str <> str
+
+needleMember :: Char -> NeedleChars -> Bool
+needleMember c = VExt.binSearchMember c . unNeedleChars
+
+
 -- | For each character in the argument string compute the set of positions
 -- it occurs in.
 --
 -- Upper-case characters are counted twice as an upper-case and a
 -- lower-case character. This is done in order to make lower-case
 -- charaters match upper-case ones.
+{-# NOINLINE characterOccurrences #-}
 characterOccurrences
-  :: Text
+  :: NeedleChars
+  -> Text
   -> IntMap IntSet
-characterOccurrences = osIndices . T.foldl' recordIndex initState
+characterOccurrences needleChars = osIndices . T.foldl' recordIndex initState
   where
     initState = OccurrencesState
       { osCharIndex = 0
@@ -84,12 +109,15 @@ characterOccurrences = osIndices . T.foldl' recordIndex initState
       OccurrencesState
         { osCharIndex = osCharIndex + 1
         , osIndices   =
+          if needleMember c needleChars
+          then
             let !c'  = ord c
                 !cl' = ord $ toLower c
             in if c' == cl'
             then IM.insertWith (<>) c'  pos osIndices
             else IM.insertWith (<>) c'  pos $
                  IM.insertWith (<>) cl' pos osIndices
+          else osIndices
         }
       where
         pos = IS.singleton osCharIndex
@@ -115,9 +143,10 @@ fuzzyMatch
   :: WithCallStack
   => PrimArray Int -- ^ Heatmap mapping characters to scores
   -> Text          -- ^ Needle
+  -> NeedleChars
   -> Text          -- ^ Haystack
   -> Match
-fuzzyMatch heatmap needle haystack =
+fuzzyMatch heatmap needle needleChars haystack =
   case T.unpack needle of
     []     -> noMatch
     n : ns ->
@@ -130,11 +159,11 @@ fuzzyMatch heatmap needle haystack =
             ms  -> submatchToMatch $ maximumBy (comparing smScore) ms
   where
     noMatch = Match
-      { mScore     = 0
-      , mPositions = StrIdx 0 :| []
+      { mScore     = (-1)
+      , mPositions = StrIdx (-1) :| []
       }
     occurs :: IntMap IntSet
-    occurs = characterOccurrences haystack
+    occurs = characterOccurrences needleChars haystack
 
     bigger :: StrIdx -> IntSet -> IntSet
     bigger x = snd . IS.split (unStrIdx x)
@@ -225,7 +254,7 @@ data HeatMapGroup = HeatMapGroup
 
 splitWithSeps
   :: Char -- ^ Fake separator to add at the start
-  -> PrimArray Int
+  -> PrimArray Int32
   -> Text
   -> [(Char, Text)]
 splitWithSeps firstSep seps = go firstSep
@@ -233,20 +262,19 @@ splitWithSeps firstSep seps = go firstSep
     go :: Char -> Text -> [(Char, Text)]
     go c str = (c, prefix) : rest
       where
-        (prefix, suffix) = T.span (not . binSearchMember seps . ord) str
+        (prefix, suffix) = T.span (not . binSearchMember seps . fromIntegral . ord) str
         rest = case T.uncons suffix of
           Nothing         -> []
           Just (c', str') -> go c' str'
 
-computeHeatMap :: Text -> PrimArray Int -> PrimArray Int
-computeHeatMap str seps =
-  computeHeatMapFromGroups str (computeGroupsAndInitScores str seps)
+computeHeatMap :: Text -> PrimArray Int32 -> PrimArray Int
+computeHeatMap str =
+  computeHeatMapFromGroups str . computeGroupsAndInitScores str
 
 computeHeatMapFromGroups :: Text -> (Int, [HeatMapGroup]) -> PrimArray Int
 computeHeatMapFromGroups fullStr (groupsCount, groups) = runPrimArray $ do
   scores <- newPrimArray len
   setPrimArray scores 0 len (initScore + initScoreAdjustment)
-  -- scores <- UM.replicate len (initScore + initScoreAdjustment)
   update lastCharIdx lastCharBonus scores
   for_ groupScores' $ \(idx, val) -> update idx val scores
   for_ wordScores   $ \(idx, val) -> update idx val scores
@@ -335,7 +363,7 @@ data GroupState = GroupState
   , gsWordCount       :: !Int
   }
 
-computeGroupsAndInitScores :: Text -> PrimArray Int -> (Int, [HeatMapGroup])
+computeGroupsAndInitScores :: Text -> PrimArray Int32 -> (Int, [HeatMapGroup])
 computeGroupsAndInitScores fullStr groupSeparators
   | T.null fullStr = (0, [])
   | otherwise

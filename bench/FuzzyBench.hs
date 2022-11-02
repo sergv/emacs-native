@@ -301,7 +301,6 @@ main = do
 
   let needle :: Text
       needle = "vector.hs"
-      seps = primArrayFromList [ord '/']
       seps32 :: PrimArray Int32
       seps32 = primArrayFromList [fromIntegral $ ord '/']
 
@@ -316,7 +315,7 @@ main = do
   --
   -- _ <- die "We're done"
 
-  let origScore str = Sline.mScore $ Sline.fuzzyMatch (Sline.computeHeatMap str seps) needle str
+  let origScore str = Sline.mScore $ Sline.fuzzyMatch (Sline.computeHeatMap str seps32) needle (Sline.prepareNeedle needle) str
 
       optScore str = Data.FuzzyMatch.mScore $ Data.FuzzyMatch.fuzzyMatch (Data.FuzzyMatch.computeHeatMap str seps32) needle (Data.FuzzyMatch.prepareNeedle needle) str
 
