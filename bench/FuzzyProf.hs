@@ -14,6 +14,8 @@ module FuzzyProf (main) where
 
 import Control.DeepSeq
 import Control.Exception
+import Data.Char
+import Data.Foldable
 import Data.Int
 import Data.List qualified as L
 import Data.Ord
@@ -29,7 +31,8 @@ import Data.FuzzyMatchBaseline qualified as Sline
 {-# NOINLINE doMatch #-}
 doMatch :: PrimArray Int32 -> Text -> [Text] -> [(Int, Text)]
 doMatch seps needle
-  = map (\str -> (fm seps needle needleChars str, str))
+  = L.sortOn (\(score, str) -> (Down score, str, T.length str))
+  . map (\str -> (fm seps needle needleChars str, str))
   where
     needleChars = Data.FuzzyMatch.prepareNeedle needle
 
@@ -45,15 +48,15 @@ fm seps needle needleChars haystack =
       haystack)
 
 {-# NOINLINE doMatchSline #-}
-doMatchSline :: Int -> PrimArray Int -> Text -> [Text] -> [(Int, Text)]
-doMatchSline _ seps needle
-  = L.sortOn (\(score, str) -> (Down score, T.length str))
+doMatchSline :: PrimArray Int32 -> Text -> [Text] -> [(Int, Text)]
+doMatchSline seps needle
+  = L.sortOn (\(score, str) -> (Down score, str, T.length str))
   . map (\str -> (fmSline seps needle needleChars str, str))
   where
-    needleChars = (Sline.prepareNeedle needle)
+    needleChars = Sline.prepareNeedle needle
 
 -- {-# NOINLINE fm #-}
-fmSline :: PrimArray Int -> Text -> Sline.NeedleChars -> Text -> Int
+fmSline :: PrimArray Int32 -> Text -> Sline.NeedleChars -> Text -> Int
 fmSline seps needle needleChars haystack =
   Sline.mScore
     (Sline.fuzzyMatch
@@ -68,6 +71,9 @@ main :: IO ()
 main = do
   [n] <- getArgs
 
+  let n' :: Int
+      n' = read n
+
   let needle :: Text
       needle = "vector.hs"
       -- seps = primArrayFromList [ord '/']
@@ -76,10 +82,21 @@ main = do
   evaluate $ rnf candidates
   putStrLn $ "Number of candidates = " ++ show (length candidates)
 
-  let !kSline = sum $ map (\i -> sum $ map fst $ doMatchSline i (primArrayFromList [i]) needle candidates) [0..read n]
-  putStrLn $ "kSline = " ++ show kSline
-  -- let !k = sum $ map (\i -> sum $ map fst $ doMatch (primArrayFromList [i]) needle candidates) [1..read n]
-  -- putStrLn $ "k = " ++ show k
+  -- let !kSline = sum $ map (\i -> sum $ map fst $ doMatchSline (primArrayFromList [fromIntegral i]) needle candidates) [1..n']
+  -- putStrLn $ "kSline = " ++ show kSline
+  let !k = sum $ map (\i -> sum $ map fst $ doMatch (primArrayFromList [fromIntegral i]) needle candidates) [1..n']
+  putStrLn $ "k = " ++ show k
+
+  -- let seps :: PrimArray Int32
+  --     seps = primArrayFromList [fromIntegral $ ord '/']
+  -- let old = doMatchSline seps needle candidates
+  -- let new = doMatch seps needle candidates
+  --
+  -- putStrLn $ "Old score: " ++ show (sum $ map fst old)
+  -- putStrLn $ "New score: " ++ show (sum $ map fst new)
+  --
+  -- for_ (L.take n' $ filter (\(x, y) -> x /= y) $ L.zip old new) $ \(old', new') ->
+  --   putStrLn $ show old' ++ " | " ++ show new'
 
   pure ()
 

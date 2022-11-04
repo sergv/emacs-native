@@ -40,6 +40,7 @@ module Data.FuzzyMatch
 
 import Control.Monad.ST
 
+import Control.Monad
 import Data.Coerce
 import Data.Function
 import Data.Vector.Unboxed.Base qualified as U
@@ -60,7 +61,7 @@ import Data.List.NonEmpty qualified as NE
 import Data.Ord
 import Data.Primitive.PrimArray
 import Data.Primitive.PrimArray.Ext qualified as PExt
-import Data.Primitive.PrimArray.Growable qualified as PG
+import Data.Primitive.PrimArray.GrowableMut qualified as PGM
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Ext qualified as T
@@ -193,28 +194,49 @@ instance Ord PackedIdx where
 --           VG.push (combineCharIdx c i) acc >>= VG.push (combineCharIdx c' i)
 --       pure (i + 1, acc')
 
+
+
+
+-- mkHaystack :: forall s. NeedleChars -> Text -> ST s (PM.MVector s Int64)
+-- mkHaystack needleChars str = do
+--   store  <- PG.new (needleCharsCountHint needleChars)
+--   arr    <- PG.finalise =<< T.textFoldIdxM go store str
+--   arrLen <- getSizeofMutablePrimArray arr
+--   pure $ P.MVector 0 arrLen $ PExt.primToByteArr arr
+--   where
+--     go
+--       :: Int
+--       -> Char
+--       -> PG.GrowablePrimArray s Int64
+--       -> ST s (PG.GrowablePrimArray s Int64)
+--     go !i !c !acc
+--       | needleMember c needleChars = do
+--         let !c' = toLower c
+--         if c == c'
+--         then do
+--           PG.push (combineCharIdx c i) acc
+--         else do
+--           PG.push (combineCharIdx c i) acc >>= PG.push (combineCharIdx c' i)
+--       | otherwise =
+--         pure acc
+
+-- TODO: reuse haystack state between different calls!
 mkHaystack :: forall s. NeedleChars -> Text -> ST s (PM.MVector s Int64)
 mkHaystack needleChars str = do
-  store  <- PG.new (needleCharsCountHint needleChars)
-  arr    <- PG.finalise =<< T.textFoldIdxM go store str
+  store  <- PGM.new (needleCharsCountHint needleChars)
+  let go :: Int -> Char -> ST s ()
+      go !i !c
+        | needleMember c needleChars = do
+          PGM.push (combineCharIdx c i) store
+          let !c' = toLower c
+          when (c /= c') $
+            PGM.push (combineCharIdx c' i) store
+        | otherwise =
+          pure ()
+  T.textTraverseIdx_ go str
+  arr    <- PGM.finalise store
   arrLen <- getSizeofMutablePrimArray arr
   pure $ P.MVector 0 arrLen $ PExt.primToByteArr arr
-  where
-    go
-      :: Int
-      -> Char
-      -> PG.GrowablePrimArray s Int64
-      -> ST s (PG.GrowablePrimArray s Int64)
-    go !i !c !acc
-      | needleMember c needleChars = do
-        let !c' = toLower c
-        if c == c'
-        then do
-          PG.push (combineCharIdx c i) acc
-        else do
-          PG.push (combineCharIdx c i) acc >>= PG.push (combineCharIdx c' i)
-      | otherwise =
-        pure acc
 
 
 {-# INLINE combineCharIdx #-}
@@ -242,7 +264,7 @@ characterOccurrences
   -> V.Vector (U.Vector PackedIdx)
 characterOccurrences needle needleChars haystack = runST $ do
   xs <- VM.new (T.length needle)
-  T.textTraverseIdx_ (\i c -> VM.unsafeWrite xs i ( {-# SCC "findOccurs" #-} findOccurs c)) needle
+  T.textTraverseIdx_ (\i c -> VM.unsafeWrite xs i (findOccurs c)) needle
   V.unsafeFreeze xs
   where
     -- TODO: make do with only one vector here. Allocating extra vectors is costly!

@@ -70,6 +70,7 @@ library
     Data.Regex
     Data.Primitive.PrimArray.Ext
     Data.Primitive.PrimArray.Growable
+    Data.Primitive.PrimArray.GrowableMut
     Data.Text.Ext
     Data.Vector.Ext
     Data.Vector.Growable

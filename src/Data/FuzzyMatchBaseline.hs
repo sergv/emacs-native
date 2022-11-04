@@ -83,7 +83,7 @@ prepareNeedle str
   $ T.map toUpper str <> str
 
 needleMember :: Char -> NeedleChars -> Bool
-needleMember c = VExt.binSearchMember c . unNeedleChars
+needleMember c xs = {-# SCC "needleMember" #-} VExt.binSearchMember c . unNeedleChars $ xs
 
 
 -- | For each character in the argument string compute the set of positions
