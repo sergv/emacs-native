@@ -24,6 +24,7 @@ import Control.DeepSeq
 import Control.Monad.ST
 import Data.Bits
 import Data.Char
+import Data.Coerce
 import Data.Int
 import Data.List qualified as L
 import Data.Ord
@@ -34,6 +35,8 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Ext qualified as T
 import Data.Text.IO qualified as T
+import Data.Traversable
+import Data.Vector qualified as V
 import Data.Vector.Ext qualified as VExt
 import Data.Vector.Primitive qualified as P
 import Data.Vector.Primitive.Mutable qualified as PM
@@ -294,6 +297,18 @@ mkHaystackList
     . T.unpack
     )
 
+newtype SortKey v = SortKey { _unSortKey :: (Int32, Int, v) }
+
+instance Eq (SortKey v) where
+  SortKey (a, b, _) == SortKey (a', b', _) = a == a' && b == b'
+
+instance Ord (SortKey v) where
+  SortKey (a, b, _) `compare` SortKey (a', b', _) = Down a `compare` Down a' <> b `compare` b'
+
+{-# INLINE fi32 #-}
+fi32 :: Integral a => a -> Int32
+fi32 = fromIntegral
+
 
 main :: IO ()
 main = do
@@ -305,6 +320,7 @@ main = do
       seps32 = primArrayFromList [fromIntegral $ ord '/']
 
   candidates <- T.lines <$> T.readFile "/home/sergey/projects/emacs/projects/emacs-native/candidates.txt"
+  let candidatesV = V.fromList candidates
   evaluate $ rnf candidates
   putStrLn $ "Number of candidates = " ++ show (length candidates)
 
@@ -317,11 +333,27 @@ main = do
 
   let origScore str = Sline.mScore $ Sline.fuzzyMatch (Sline.computeHeatMap str seps32) needle (Sline.prepareNeedle needle) str
 
-      optScore str = Data.FuzzyMatch.mScore $ Data.FuzzyMatch.fuzzyMatch (Data.FuzzyMatch.computeHeatMap str seps32) needle (Data.FuzzyMatch.prepareNeedle needle) str
+      -- optScore str = Data.FuzzyMatch.mScore $ Data.FuzzyMatch.fuzzyMatch (Data.FuzzyMatch.computeHeatMap str seps32) needle (Data.FuzzyMatch.prepareNeedle needle) str
 
-      fuzzyMatch getScore
-        = L.sortOn (\(score, str) -> (Down score, T.length str))
-        . map (\str -> (getScore str, str))
+      fuzzyMatchOrig
+        = L.sortOn (\(score, str) -> (score, T.length str))
+        . map (\str -> (Down $ origScore str, str))
+
+      fuzzyMatchOpt xs =
+
+        fmap (\(SortKey (_, _, str)) -> str) $
+          VExt.sortVectorUnsafe $
+            (\zs -> coerce zs :: V.Vector (SortKey Text)) ys
+
+        where
+          needleChars = Data.FuzzyMatch.prepareNeedle needle
+          ys :: V.Vector (Int32, Int, Text)
+          ys = runST $ do
+            store <- Data.FuzzyMatch.mkReusableState needleChars
+            for xs $ \str -> do
+              match <- Data.FuzzyMatch.fuzzyMatch store (Data.FuzzyMatch.computeHeatMap str seps32) needle needleChars str
+              pure (fi32 $ Data.FuzzyMatch.mScore match, T.length str, str)
+
 
   defaultMain
     [ bench "mkHaystackList"                                   $ nf mkHaystackList candidates
@@ -333,6 +365,6 @@ main = do
     , bench "mkHaystackGrowableVectorIterateTextWithTextFold"  $ nf mkHaystackGrowableVectorIterateTextWithTextFold candidates
     , bench "mkHaystackNeedleChars"                            $ nf (mkHaystackNeedleChars (prepareNeedle needle)) candidates
 
-    , bench "Original Haskell fuzzy match"  $ nf (fuzzyMatch origScore) candidates
-    , bench "Optimized Haskell fuzzy match" $ nf (fuzzyMatch optScore) candidates
+    , bench "Original Haskell fuzzy match"  $ nf fuzzyMatchOrig candidates
+    , bench "Optimized Haskell fuzzy match" $ nf fuzzyMatchOpt candidatesV
     ]

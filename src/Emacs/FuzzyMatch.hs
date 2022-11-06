@@ -31,6 +31,7 @@ import Data.Primitive.PrimArray
 import Data.Primitive.Sort
 import Data.Primitive.Types
 import Data.Text qualified as T
+import Data.Traversable
 
 import Data.Emacs.Module.Doc qualified as Doc
 import Emacs.Module
@@ -117,20 +118,22 @@ scoreMatches (R seps (R needle (R haystacks Stop))) = do
   -- let matches = snd <$> haystacks'
 
   let needleChars = prepareNeedle needle'
-      matches
+
+  let haystacks'' = runST $ do
+        store <- mkReusableState needleChars
+
+        for haystacks' $ \(haystack, emacsStr) -> do
+          match <- fuzzyMatch store (computeHeatMap haystack seps') needle' needleChars haystack
+          pure (fi32 $ mScore $ match, T.length haystack, emacsStr)
+
+  let matches
         = fmap (\(SortKey (_, _, emacsStr)) -> emacsStr)
         $ VExt.sortVectorUnsafe
         $ (\xs -> coerce xs :: V.Vector (SortKey (v s)))
         -- $ L.sortOn (\(score, len, _emacsStr) -> (Down score, len))
         -- $ runPar
         -- $ parMap (\(str, emacsStr) -> (mScore $ fuzzyMatch (computeHeatMap str seps') needle' str, str, emacsStr)) haystacks'
-        $ fmap
-            (\(haystack, emacsStr) ->
-              ( fi32 $ mScore $ fuzzyMatch (computeHeatMap haystack seps') needle' needleChars haystack
-              , T.length haystack
-              , emacsStr
-              ))
-            haystacks'
+        $ haystacks''
   makeListFromVector matches
 
 {-# INLINE fi32 #-}
@@ -149,7 +152,10 @@ scoreSingleMatch (R seps (R needle (R haystack Stop))) = do
   seps'     <- extractSeps seps
   needle'   <- extractText needle
   haystack' <- extractText haystack
-  let Match{mScore, mPositions} = fuzzyMatch (computeHeatMap haystack' seps') needle' (prepareNeedle needle') haystack'
+  let needleChars = (prepareNeedle needle')
+      Match{mScore, mPositions} = runST $ do
+        store <- mkReusableState needleChars
+        fuzzyMatch store (computeHeatMap haystack' seps') needle' needleChars haystack'
   score     <- makeInt $ fromIntegral mScore
   positions <- makeList =<< traverse (makeInt . fromIntegral . unStrIdx) mPositions
   cons score positions

@@ -13,9 +13,13 @@ module Data.Primitive.PrimArray.Growable
   , new
   , push
   , unsafeFreeze
+  , size
   -- , freeze
   , finalise
+  , clear
   ) where
+
+-- import qualified Debug.Trace
 
 import Control.Monad
 import Control.Monad.Primitive
@@ -43,6 +47,10 @@ finalise GrowablePrimArray{gpaSize, gpaStore} =
 unsafeFreeze :: (PrimMonad m, Prim a) => GrowablePrimArray (PrimState m) a -> m (PrimArray a)
 unsafeFreeze = unsafeFreezePrimArray <=< finalise
 
+{-# INLINE size #-}
+size :: GrowablePrimArray s a -> Int
+size = gpaSize
+
 -- {-# INLINE freeze #-}
 -- freeze :: (PrimMonad m, Prim a) => GrowablePrimArray (PrimState m) a -> m (w a)
 -- freeze = G.freeze <=< finalise
@@ -54,12 +62,19 @@ push
   -> GrowablePrimArray (PrimState m) a
   -> m (GrowablePrimArray (PrimState m) a)
 push item GrowablePrimArray{gpaSize, gpaStore} = do
-  size  <- getSizeofMutablePrimArray gpaStore
+  len   <- getSizeofMutablePrimArray gpaStore
   store <-
-    if gpaSize == size
+    if gpaSize == len
     then
       resizeMutablePrimArray gpaStore (gpaSize * 2)
     else
       pure gpaStore
   writePrimArray store gpaSize item
   pure $ GrowablePrimArray (gpaSize + 1) store
+
+clear
+  :: GrowablePrimArray s a
+  -> GrowablePrimArray s a
+clear gpa = do -- @GrowablePrimArray{gpaStore} = do
+  -- shrinkMutablePrimArray gpaStore 1
+  gpa { gpaSize = 0 }

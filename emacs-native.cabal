@@ -184,6 +184,7 @@ benchmark fuzzyprof
     , emacs-native
     , primitive
     , text
+    , vector
   ghc-options:
     -rtsopts
 --     -threaded

@@ -7,17 +7,21 @@
 ----------------------------------------------------------------------------
 
 {-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Data.Primitive.PrimArray.GrowableMut
   ( GrowablePrimArrayMut
   , new
   , push
-  , unsafeFreeze
+  , size
+  -- , unsafeFreeze
   , finalise
+  , clear
+  , with
   ) where
 
 import Control.Monad
-import Control.Monad.ST
+import Control.Monad.Primitive
 import Data.Primitive.PrimArray
 import Data.Primitive.Types
 import Data.STRef
@@ -28,23 +32,26 @@ newtype GrowablePrimArrayMut s a = GrowablePrimArrayMut
   { unGrowablePrimArrayMut :: STRef s (PG.GrowablePrimArray s a) }
 
 {-# INLINE new #-}
-new :: Prim a => Int -> ST s (GrowablePrimArrayMut s a)
+new :: (Prim a, PrimMonad m) => Int -> m (GrowablePrimArrayMut (PrimState m) a)
 new n = do
-  ref <- newSTRef =<< PG.new n
+  ref <- stToPrim . newSTRef =<< PG.new n
   pure $ GrowablePrimArrayMut ref
+
+size :: forall m a. PrimMonad m => GrowablePrimArrayMut (PrimState m) a -> m Int
+size = fmap PG.size . (stToPrim . readSTRef) . unGrowablePrimArrayMut
 
 {-# INLINE finalise #-}
 finalise
-  :: Prim a
-  => GrowablePrimArrayMut s a
-  -> ST s (MutablePrimArray s a)
+  :: (Prim a, PrimMonad m)
+  => GrowablePrimArrayMut (PrimState m) a
+  -> m (MutablePrimArray (PrimState m) a)
 finalise =
-  (PG.finalise <=< readSTRef) . unGrowablePrimArrayMut
+  (PG.finalise <=< stToPrim . readSTRef) . unGrowablePrimArrayMut
 
-{-# INLINE unsafeFreeze #-}
-unsafeFreeze :: Prim a => GrowablePrimArrayMut s a -> ST s (PrimArray a)
-unsafeFreeze =
-  (PG.unsafeFreeze <=< readSTRef) . unGrowablePrimArrayMut
+-- {-# INLINE unsafeFreeze #-}
+-- unsafeFreeze :: (Prim a, PrimMonad m) => GrowablePrimArrayMut (PrimState m) a -> m (PrimArray a)
+-- unsafeFreeze =
+--   (PG.unsafeFreeze <=< stToPrim . readSTRef) . unGrowablePrimArrayMut
 
 -- {-# INLINE freeze #-}
 -- freeze :: (PrimMonad m, Prim a) => GrowablePrimArray (PrimState m) a -> m (w a)
@@ -52,9 +59,23 @@ unsafeFreeze =
 
 {-# INLINE push #-}
 push
-  :: Prim a
+  :: (Prim a, PrimMonad m)
   => a
-  -> GrowablePrimArrayMut s a
-  -> ST s ()
+  -> GrowablePrimArrayMut (PrimState m) a
+  -> m ()
 push a (GrowablePrimArrayMut ref) = do
-  writeSTRef ref =<< PG.push a =<< readSTRef ref
+  stToPrim . writeSTRef ref =<< PG.push a =<< stToPrim (readSTRef ref)
+
+{-# INLINE clear #-}
+clear :: (Prim a, PrimMonad m) => GrowablePrimArrayMut (PrimState m) a -> m ()
+clear (GrowablePrimArrayMut ref) =
+  stToPrim . writeSTRef ref . PG.clear =<< stToPrim (readSTRef ref)
+
+{-# INLINE with #-}
+with
+  :: (Prim a, PrimMonad m)
+  => GrowablePrimArrayMut (PrimState m) a
+  -> (PG.GrowablePrimArray (PrimState m) a -> m (PG.GrowablePrimArray (PrimState m) a))
+  -> m ()
+with (GrowablePrimArrayMut ref) f =
+  stToPrim . writeSTRef ref =<< f =<< stToPrim (readSTRef ref)

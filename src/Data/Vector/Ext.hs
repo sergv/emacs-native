@@ -18,16 +18,33 @@ module Data.Vector.Ext
   , uniq
   , sortVectorUnsafe
   , qsort
+  , forM
+  , bitonicSort
+  , sort3
+  , sort4
   ) where
 
 import Prelude hiding (last)
 
-import Control.Monad
+import Control.Monad hiding (forM)
 import Control.Monad.Primitive
 import Control.Monad.ST
 import Data.Bits
 import Data.Vector.Generic qualified as G
 import Data.Vector.Generic.Mutable qualified as GM
+
+{-# INLINE forM #-}
+forM :: (Monad m, PrimMonad m, G.Vector v a, G.Vector v b) => v a -> (a -> m b) -> m (v b)
+forM xs f = do
+  ys <- GM.unsafeNew end
+  let go !i
+        | i == end  = G.unsafeFreeze ys
+        | otherwise = do
+          stToPrim . GM.unsafeWrite ys i =<< f (xs `G.unsafeIndex` i)
+          go (i + 1)
+  go 0
+  where
+    !end = G.length xs
 
 {-# INLINE binSearchMember #-}
 binSearchMember
@@ -175,7 +192,7 @@ sortVectorUnsafe xs = runST $ do
   qsort ys
   G.unsafeFreeze ys
 
-{-# INLINE qsort #-}
+{-# INLINABLE qsort #-}
 qsort :: (PrimMonad m, Ord a, GM.MVector v a) => v (PrimState m) a -> m ()
 qsort vector = go vector threshold
   where

@@ -22,8 +22,10 @@
 {-# LANGUAGE ViewPatterns               #-}
 
 {-# OPTIONS_GHC -Wno-overflowed-literals #-}
+{-# OPTIONS_GHC -Wno-orphans             #-}
 
 {-# OPTIONS_GHC -O2 #-}
+{-# OPTIONS_GHC -ddump-simpl -dsuppress-uniques -dsuppress-idinfo -dsuppress-module-prefixes -dsuppress-type-applications -dsuppress-coercions -dppr-cols200 -dsuppress-type-signatures -ddump-to-file #-}
 
 module Data.FuzzyMatch
   ( fuzzyMatch
@@ -31,6 +33,8 @@ module Data.FuzzyMatch
   , Match(..)
   , NeedleChars
   , prepareNeedle
+  , ReusableState
+  , mkReusableState
 
   -- * Interface for testing
   , computeGroupsAndInitScores
@@ -38,21 +42,17 @@ module Data.FuzzyMatch
   , StrIdx(..)
   ) where
 
+import Control.Exception
+import Control.Monad.Primitive
 import Control.Monad.ST
-
-import Control.Monad
-import Data.Coerce
-import Data.Function
-import Data.Vector.Unboxed.Base qualified as U
-
-import Data.STRef
-import Data.IntMap (IntMap)
-import Data.IntMap qualified as IM
-
 import Data.Bits
 import Data.Char
+import Data.Coerce
 import Data.Foldable
+import Data.Function
 import Data.Int
+import Data.IntMap (IntMap)
+import Data.IntMap qualified as IM
 import Data.IntSet (IntSet)
 import Data.IntSet qualified as IS
 import Data.List qualified as L
@@ -61,7 +61,9 @@ import Data.List.NonEmpty qualified as NE
 import Data.Ord
 import Data.Primitive.PrimArray
 import Data.Primitive.PrimArray.Ext qualified as PExt
+import Data.Primitive.PrimArray.Growable qualified as PG
 import Data.Primitive.PrimArray.GrowableMut qualified as PGM
+import Data.STRef
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Ext qualified as T
@@ -74,7 +76,9 @@ import Data.Vector.Mutable qualified as VM
 import Data.Vector.Primitive qualified as P
 import Data.Vector.Primitive.Mutable qualified as PM
 import Data.Vector.Unboxed qualified as U
+import Data.Vector.Unboxed.Base qualified as U
 import GHC.Generics (Generic)
+import GHC.IO (unsafeIOToST)
 import Prettyprinter (Pretty(..))
 
 import Emacs.Module.Assert (WithCallStack)
@@ -86,6 +90,12 @@ isWordSeparator c = not $ '0' <= c && c <= '9' || 'a' <= c && c <= 'z' || 'A' <=
 {-# INLINE isWord #-}
 isWord :: Char -> Bool
 isWord = not . isWordSeparator
+
+newtype ReusableState s = ReusableState { _unReusableState :: PGM.GrowablePrimArrayMut s Int64 }
+
+mkReusableState :: PrimMonad m => NeedleChars -> m (ReusableState (PrimState m))
+mkReusableState =
+  fmap ReusableState . PGM.new . needleCharsCountHint
 
 newtype NeedleChars = NeedleChars { unNeedleChars :: P.Vector Char }
 
@@ -145,6 +155,9 @@ newtype instance U.Vector    PackedIdx = V_PackedIdx  (U.Vector    Int64)
 deriving instance GM.MVector U.MVector PackedIdx
 deriving instance G.Vector   U.Vector  PackedIdx
 instance U.Unbox PackedIdx
+
+instance Show PackedIdx where
+  show = show . keepIdx
 
 instance Eq PackedIdx where
   (==) = (==) `on` keepIdx
@@ -220,22 +233,51 @@ instance Ord PackedIdx where
 --       | otherwise =
 --         pure acc
 
--- TODO: reuse haystack state between different calls!
-mkHaystack :: forall s. NeedleChars -> Text -> ST s (PM.MVector s Int64)
-mkHaystack needleChars str = do
-  store  <- PGM.new (needleCharsCountHint needleChars)
-  let go :: Int -> Char -> ST s ()
-      go !i !c
-        | needleMember c needleChars = do
-          PGM.push (combineCharIdx c i) store
-          let !c' = toLower c
-          when (c /= c') $
-            PGM.push (combineCharIdx c' i) store
-        | otherwise =
-          pure ()
-  T.textTraverseIdx_ go str
+-- {-# SPECIALIZE bitonicSort :: Int -> PM.MVector s Int64 -> ST s () #-}
+
+-- mkHaystack (ReusableState store) needleChars str = do
+--   -- store <- PGM.new (needleCharsCountHint needleChars)
+--   PGM.clear store
+--   let go :: Int -> Char -> ST s ()
+--       go !i !c
+--         -- | Debug.Trace.trace ("i = " ++ show i ++ ", c = " ++ show c) $ False = undefined
+--         | needleMember c needleChars = do
+--           PGM.push (combineCharIdx c i) store
+--           let !c' = toLower c
+--           when (c /= c') $
+--             PGM.push (combineCharIdx c' i) store
+--         | otherwise =
+--           pure ()
+--   T.textTraverseIdx_ go str
+--   arr    <- PGM.finalise store
+--   arrLen <- PGM.size store
+--   -- arrLen <- getSizeofMutablePrimArray arr
+--   pure $ P.MVector 0 arrLen $ PExt.primToByteArr arr
+
+
+{-# NOINLINE mkHaystack #-}
+mkHaystack :: forall s. ReusableState s -> NeedleChars -> Text -> ST s (PM.MVector s Int64)
+mkHaystack (ReusableState store) needleChars str = do
+  -- store <- PGM.new (needleCharsCountHint needleChars)
+  -- PGM.clear store
+  PGM.with store $ \store' -> do
+
+    let go :: Int -> Char -> PG.GrowablePrimArray s Int64 -> ST s (PG.GrowablePrimArray s Int64)
+        go !i !c !arr
+          -- | Debug.Trace.trace ("i = " ++ show i ++ ", c = " ++ show c) $ False = undefined
+          | needleMember c needleChars = do
+            arr' <- PG.push (combineCharIdx c i) arr
+            let !c' = toLower c
+            if c == c'
+            then pure arr'
+            else PG.push (combineCharIdx c' i) arr'
+          | otherwise =
+            pure arr
+    T.textFoldIdxM go (PG.clear store') str
+
   arr    <- PGM.finalise store
-  arrLen <- getSizeofMutablePrimArray arr
+  arrLen <- PGM.size store
+  -- arrLen <- getSizeofMutablePrimArray arr
   pure $ P.MVector 0 arrLen $ PExt.primToByteArr arr
 
 
@@ -254,27 +296,80 @@ fi64 = fromIntegral
 -- lower-case character. This is done in order to make lower-case
 -- charaters match upper-case ones.
 
+-- {-# NOINLINE characterOccurrences #-}
+-- characterOccurrences
+--   :: ReusableState s
+--   -> Text
+--   -> NeedleChars
+--   -> Text
+--   -> ST s (V.Vector (U.Vector PackedIdx))
+-- characterOccurrences _store needle needleChars haystack = do
+--   haystack' <- do
+--     store <- mkReusableState needleChars
+--     xs <- {-# SCC "mkHaystack" #-} mkHaystack store needleChars haystack
+--     {-# SCC "haystack-sort" #-} VExt.qsort xs
+--     U.V_Int64 <$> P.unsafeFreeze xs
+--   let
+--
+--     haystackChars :: U.Vector PackedChar
+--     haystackChars = coerce haystack'
+--
+--     haystackIdx :: U.Vector PackedIdx
+--     haystackIdx = coerce haystack'
+--
+--     -- haystackChars :: U.Vector Int32
+--     -- haystackChars = U.map (fromIntegral . (`unsafeShiftR` 32)) haystack'
+--
+--     -- haystackIdx :: U.Vector StrIdx
+--     -- haystackIdx = U.map (StrIdx . fromIntegral . (.&. 0x00000000FFFFFFFF)) haystack'
+--
+--     haystackLen = U.length haystack'
+--
+--     findOccurs :: Char -> U.Vector PackedIdx
+--     findOccurs !c
+--       | isMember
+--       = U.unsafeSlice start (skipSameChars start - start) haystackIdx
+--       | otherwise
+--       = U.empty
+--       where
+--         !c' = mkPackedChar c
+--         (isMember, !start) = VExt.binSearchMemberL c' haystackChars
+--
+--         skipSameChars :: Int -> Int
+--         skipSameChars !j
+--           | j == haystackLen
+--           = j
+--           | keepChar (haystackChars `U.unsafeIndex` j) == unPackedChar c'
+--           = skipSameChars $ j + 1
+--           | otherwise
+--           = j
+--
+--   xs <- VM.new (T.length needle)
+--   T.textTraverseIdx_ (\i c -> VM.unsafeWrite xs i (findOccurs c)) needle
+--   V.unsafeFreeze xs
 
+{-# SPECIALIZE VExt.bitonicSort :: Int -> PM.MVector s Int64 -> ST s () #-}
+{-# SPECIALIZE VExt.qsort       :: PM.MVector s Int64 -> ST s () #-}
+{-# SPECIALIZE VExt.sort3       :: PM.MVector s Int64 -> ST s () #-}
+{-# SPECIALIZE VExt.sort4       :: PM.MVector s Int64 -> ST s () #-}
+
+{-# NOINLINE qsort #-}
+qsort :: PM.MVector s Int64 -> ST s ()
+qsort = VExt.qsort
 
 {-# NOINLINE characterOccurrences #-}
 characterOccurrences
-  :: Text
+  :: ReusableState s
+  -> Text
   -> NeedleChars
   -> Text
-  -> V.Vector (U.Vector PackedIdx)
-characterOccurrences needle needleChars haystack = runST $ do
-  xs <- VM.new (T.length needle)
-  T.textTraverseIdx_ (\i c -> VM.unsafeWrite xs i (findOccurs c)) needle
-  V.unsafeFreeze xs
-  where
-    -- TODO: make do with only one vector here. Allocating extra vectors is costly!
-    haystack' :: U.Vector Int64
-    haystack' = runST $ do
-      xs <- {-# SCC "mkHaystack" #-} mkHaystack needleChars haystack
-      VExt.qsort xs
-      ys <- P.unsafeFreeze xs
-      pure $ U.V_Int64 ys
+  -> ST s (V.Vector (U.Vector PackedIdx))
+characterOccurrences store needle needleChars haystack = do
+  haystackMut <- mkHaystack store needleChars haystack
+  {-# SCC "haystack-sort" #-} qsort haystackMut
+  (haystack' :: U.Vector Int64) <- U.V_Int64 <$> P.unsafeFreeze haystackMut
 
+  let
     haystackChars :: U.Vector PackedChar
     haystackChars = coerce haystack'
 
@@ -303,11 +398,14 @@ characterOccurrences needle needleChars haystack = runST $ do
         skipSameChars !j
           | j == haystackLen
           = j
-          | haystackChars `U.unsafeIndex` j == c'
+          | keepChar (haystackChars `U.unsafeIndex` j) == unPackedChar c'
           = skipSameChars $ j + 1
           | otherwise
           = j
 
+  xs <- VM.new (T.length needle)
+  T.textTraverseIdx_ (\i c -> VM.unsafeWrite xs i (findOccurs c)) needle
+  V.unsafeFreeze xs
 
 
 -- {-# NOINLINE characterOccurrences #-}
@@ -396,31 +494,34 @@ submatchToMatch Submatch{smScore, smPositions} = Match
 
 fuzzyMatch
   :: WithCallStack
-  => PrimArray Int32 -- ^ Heatmap mapping characters to scores
+  => ReusableState s
+  -> PrimArray Int32 -- ^ Heatmap mapping characters to scores
   -> Text            -- ^ Needle
   -> NeedleChars     -- ^ Sorted needle characters
   -> Text            -- ^ Haystack
-  -> Match
-fuzzyMatch heatmap needle needleChars haystack
-  | T.null needle     = noMatch
-  | any U.null occurs = noMatch
-  | otherwise         = runST $ do
-    -- cache <- HT.newSized (T.length needle * 2)
-    -- res   <- memoizeBy cache makeKey computeScore occurs (mkPackedIdx (StrIdx (-1)))
-    cache <- newSTRef IM.empty
-    res   <- memoizeBy cache makeKey computeScore occurs (mkPackedIdx (StrIdx (-1)))
-    pure $ case res of
-      []  -> noMatch
-      [m] -> submatchToMatch m
-      ms  -> submatchToMatch $ maximumBy (comparing smScore) ms
+  -> ST s Match
+fuzzyMatch store heatmap needle needleChars haystack
+  | T.null needle     = pure noMatch
+  | otherwise         = do
+    (occurs :: V.Vector (U.Vector PackedIdx)) <- characterOccurrences store needle needleChars haystack
+    result <-
+      if any U.null occurs
+      then pure noMatch
+      else do
+        -- cache <- HT.newSized (T.length needle * 2)
+        -- res   <- memoizeBy cache makeKey computeScore occurs (mkPackedIdx (StrIdx (-1)))
+        cache <- newSTRef IM.empty
+        res   <- memoizeBy cache makeKey computeScore occurs (mkPackedIdx (StrIdx (-1)))
+        pure $ case res of
+          []  -> noMatch
+          [m] -> submatchToMatch m
+          ms  -> submatchToMatch $ maximumBy (comparing smScore) ms
+    unsafeIOToST $ evaluate result
   where
     noMatch = Match
       { mScore     = (-1)
       , mPositions = StrIdx (-1) :| []
       }
-
-    occurs :: V.Vector (U.Vector PackedIdx)
-    occurs = characterOccurrences needle needleChars haystack
 
     bigger :: PackedIdx -> U.Vector PackedIdx -> U.Vector PackedIdx
     bigger x xs

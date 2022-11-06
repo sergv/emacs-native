@@ -11,6 +11,7 @@
 
 module Data.FuzzyMatch.Tests (tests) where
 
+import Control.Monad.ST
 import Data.Char
 import Data.Int
 import Data.IntSet qualified as IS
@@ -93,8 +94,12 @@ fuzzyMatchTests = testGroup "fuzzy match"
   where
     mkTestCase :: Text -> Text -> PrimArray Int32 -> Match -> TestTree
     mkTestCase needle haystack haystackHeatmap result =
-      testCase (T.unpack $ "match '" <> needle <> "' against '" <> haystack <> "'") $
-        fuzzyMatch haystackHeatmap needle (prepareNeedle needle) haystack @?= result
+      testCase (T.unpack $ "match '" <> needle <> "' against '" <> haystack <> "'") $ do
+        let match = runST $ do
+              let needleChars = prepareNeedle needle
+              store <- mkReusableState needleChars
+              fuzzyMatch store haystackHeatmap needle needleChars haystack
+        match @?= result
 
 fi32 :: Integral a => a -> Int32
 fi32 = fromIntegral
