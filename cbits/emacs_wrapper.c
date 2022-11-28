@@ -36,14 +36,14 @@ void deinit(void) {
 }
 
 
-static emacs_value Fdeinit (emacs_env *env, ptrdiff_t nargs, emacs_value args[], void *data) {
+static emacs_value Fdeinit(emacs_env *env, ptrdiff_t nargs, emacs_value args[], void *data) {
   deinit();
   return env->intern(env, "nil");
 }
 
 /* Bind NAME to FUN.  */
 static void
-bind_function (emacs_env *env, const char *name, emacs_value Sfun) {
+bind_function(emacs_env *env, const char *name, emacs_value Sfun) {
   /* Set the function cell of the symbol named NAME to SFUN using the 'fset' function.  */
 
   /* Convert the strings to symbols by interning them */
@@ -74,7 +74,7 @@ int emacs_module_init(struct emacs_runtime *ert) {
       NULL                      // user pointer of your choice (data param in Fmymod_test)
     );
 
-  bind_function (env, "haskell-native-deinit", fun);
+  bind_function(env, "haskell-native-deinit", fun);
 
   return !(init() && initialise(ert));
 }
