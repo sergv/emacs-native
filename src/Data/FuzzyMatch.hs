@@ -28,6 +28,12 @@
 
 {-# OPTIONS_GHC -Wno-orphans #-}
 
+{-# OPTIONS_GHC -O2 #-}
+
+{-# OPTIONS_GHC -ddump-simpl -dsuppress-uniques -dsuppress-idinfo -dsuppress-module-prefixes -dsuppress-type-applications -dsuppress-coercions -dppr-cols200 -dsuppress-type-signatures -ddump-to-file #-}
+-- {-# OPTIONS_GHC -ddump-simpl -dsuppress-uniques -dsuppress-coercions -dppr-cols200 -ddump-to-file #-}
+-- {-# OPTIONS_GHC -ddump-spec #-}
+
 module Data.FuzzyMatch
   ( fuzzyMatch
   , computeHeatMap
@@ -66,7 +72,9 @@ import Data.Primitive.PrimArray.GrowableMut qualified as PGM
 import Data.STRef
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Array qualified as TA
 import Data.Text.Ext qualified as T
+import Data.Text.Internal qualified as TI
 import Data.Traversable
 import Data.Vector qualified as V
 import Data.Vector.Ext qualified as VExt
@@ -82,6 +90,7 @@ import Data.Word
 import GHC.Exts
 import GHC.Generics (Generic)
 import GHC.ST
+import GHC.Word
 import Numeric (showHex)
 import Prettyprinter.Combinators
 import Prettyprinter.Show
@@ -107,22 +116,98 @@ mkReusableState needleSize chars = do
   rsNeedleStore   <- VM.unsafeNew needleSize
   pure ReusableState{rsHaystackStore, rsNeedleStore}
 
-newtype NeedleChars = NeedleChars { unNeedleChars :: P.Vector Char }
+data NeedleChars
+  = NeedleChars8 {-# UNPACK #-} !Word64
+  | NeedleChars16 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64
+  | NeedleChars24 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64
+  | NeedleChars32 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64
+  | NeedleCharsLong {-# UNPACK #-} !(P.Vector Char)
+
+instance Show NeedleChars where
+  show = \case
+    NeedleChars8  a       -> "NeedleChars8 "    ++ showHex' a
+    NeedleChars16 a b     -> "NeedleChars16 "   ++ showHex' a ++ " " ++ showHex' b
+    NeedleChars24 a b c   -> "NeedleChars24 "   ++ showHex' a ++ " " ++ showHex' b ++ " " ++ showHex' c
+    NeedleChars32 a b c d -> "NeedleChars32 "   ++ showHex' a ++ " " ++ showHex' b ++ " " ++ showHex' c ++ " " ++ showHex' d
+    NeedleCharsLong xs    -> "NeedleCharsLong " ++ show xs
 
 needleCharsCountHint :: NeedleChars -> Int
-needleCharsCountHint = P.length . unNeedleChars
+needleCharsCountHint = \case
+  NeedleChars8 _        -> 8
+  NeedleChars16 _ _     -> 16
+  NeedleChars24 _ _ _   -> 24
+  NeedleChars32 _ _ _ _ -> 32
+  NeedleCharsLong xs    -> P.length xs
+
+showHex' :: Integral a => a -> String
+showHex' x = "0x" ++ showHex x ""
 
 prepareNeedle :: Text -> NeedleChars
 prepareNeedle str
-  = NeedleChars
+  | T.all (\c -> ord c < 128) str' && len < 33
+  =
+    if len < 17
+    then
+      if len < 9
+      then NeedleChars8 (readBytes arr offset len)
+      else NeedleChars16 (readWord64 arr offset64) (readBytes arr (offset + 8) (len - 8))
+    else
+      if len < 25
+      then NeedleChars24 (readWord64 arr offset64) (readWord64 arr (offset64 + 1)) (readBytes arr (offset + 16) (len - 16))
+      else NeedleChars32 (readWord64 arr offset64) (readWord64 arr (offset64 + 1)) (readWord64 arr (offset64 + 2)) (readBytes arr (offset + 24) (len - 24))
+  | otherwise
+  = NeedleCharsLong
   $ VExt.uniq
   $ sortVectorUnsafeChar
   $ T.textToPrimVector
-  $ T.map toUpper str <> str
+  $ str'
+  where
+    str' = str <> T.toUpper str
+    TI.Text arr offset len = str'
+    offset64 = offset `unsafeShiftR` 3
 
-needleMember :: Char -> NeedleChars -> Bool
-needleMember c xs = {-# SCC "needleMember" #-} VExt.binSearchMember c . unNeedleChars $ xs
+readWord64 :: TA.Array -> Int -> Word64
+readWord64 (TA.ByteArray barr) (I# start) =
+  case indexWord64Array# barr start of
+    x -> W64# x
 
+readBytes :: TA.Array -> Int -> Int -> Word64
+readBytes xs start count = go 0 start
+  where
+    !end = start + count
+    go :: Word64 -> Int -> Word64
+    go !acc !i
+      | i == end
+      = acc
+      | otherwise
+      = go (acc `unsafeShiftL` 8 .|. fromIntegral (TA.unsafeIndex xs i)) (i + 1)
+
+hasZeroByte :: Word64 -> Bool
+hasZeroByte !x = 0 < (((x - 0x0101010101010101) .&. complement x .&. 0x8080808080808080))
+
+wordMember :: Word64 -> ByteFanout -> Bool
+wordMember !big !(ByteFanout small) = hasZeroByte (small `xor` big)
+
+newtype ByteFanout = ByteFanout Word64
+
+prepare :: Word64 -> ByteFanout
+prepare x = ByteFanout (x * 0x0101010101010101)
+
+needleMember :: Char -> Word64 -> NeedleChars -> Bool
+needleMember !char !charCode = \case
+  NeedleChars8    a       -> charCode < 128 && wordMember a c8
+    where
+      !c8 = prepare charCode
+  NeedleChars16   a b     -> charCode < 128 && (wordMember a c8 || wordMember b c8)
+    where
+      !c8 = prepare charCode
+  NeedleChars24   a b c   -> charCode < 128 && (wordMember a c8 || wordMember b c8 || wordMember c c8)
+    where
+      !c8 = prepare charCode
+  NeedleChars32   a b c d -> charCode < 128 && (wordMember a c8 || wordMember b c8 || wordMember c c8 || wordMember d c8)
+    where
+      !c8 = prepare charCode
+  NeedleCharsLong xs      -> VExt.binSearchMember char xs
 
 newtype PackedCharAndIdx = PackedCharAndIdx { _unPackedCharAndIdx :: Word64 }
 
@@ -211,27 +296,28 @@ instance Ord PackedIdx where
 
 {-# NOINLINE mkHaystack #-}
 mkHaystack :: forall s. ReusableState s -> NeedleChars -> Text -> ST s (PM.MVector s Word64)
-mkHaystack (ReusableState store _) needleChars str = do
+mkHaystack (ReusableState store _) !needleChars !str = do
   -- store <- PGM.new (needleCharsCountHint needleChars)
-  -- PGM.clear store
   PGM.with store $ \store' -> do
 
     let go
-          :: forall ss. Int
-          -> Char
+          :: forall ss. Int#
+          -> Int#
           -> PG.GrowablePrimArrayU ss Word64
           -> State# ss
           -> (# State# ss, PG.GrowablePrimArrayU ss Word64 #)
-        go !i !c arr s1
-          | needleMember c needleChars =
-            case PG.pushU (combineCharIdx c i) arr s1 of
+        go i charCode arr s1
+          | needleMember (C# c) (W64# c') needleChars =
+            case PG.pushU (combineCharIdx (W64# c') (I# i)) arr s1 of
               res@(# s2, arr' #) ->
-                let !c' = toLower c in
-                if c == c'
-                then res
-                else PG.pushU (combineCharIdx c' i) arr' s2
+                if iswupper (I# charCode) > 0
+                then PG.pushU (combineCharIdx (fromIntegral (towlower (I# charCode))) (I# i)) arr' s2
+                else res
           | otherwise =
             (# s1, arr #)
+          where
+            c = chr# charCode
+            c' = wordToWord64# (int2Word# charCode)
 
     primitive $ \s ->
       case T.textFoldIdxM' go (PG.toUnboxed (PG.clear store')) str s of
@@ -242,10 +328,15 @@ mkHaystack (ReusableState store _) needleChars str = do
   -- arrLen <- getSizeofMutablePrimArray arr
   pure $ P.MVector 0 arrLen $ PExt.primToByteArr arr
 
+foreign import ccall unsafe "u_towlower"
+  towlower :: Int -> Int
+
+foreign import ccall unsafe "u_iswupper"
+  iswupper :: Int -> Int
 
 {-# INLINE combineCharIdx #-}
-combineCharIdx :: Char -> Int -> Word64
-combineCharIdx c idx = (w64 (ord c) `unsafeShiftL` 32) .|. (lower4Bytes .&. w64 (fi32 idx))
+combineCharIdx :: Word64 -> Int -> Word64
+combineCharIdx c idx = (c `unsafeShiftL` 32) .|. (lower4Bytes .&. w64 idx)
 
 {-# INLINE w64 #-}
 w64 :: Integral a => a -> Word64
@@ -254,10 +345,6 @@ w64 = fromIntegral
 -- {-# INLINE fi64 #-}
 -- fi64 :: Integral a => a -> Int64
 -- fi64 = fromIntegral
-
-{-# INLINE fi32 #-}
-fi32 :: Integral a => a -> Int32
-fi32 = fromIntegral
 
 -- | For each character in the argument string compute the set of positions
 -- it occurs in.
@@ -327,6 +414,7 @@ characterOccurrences store@(ReusableState _ occursStore) !needle !needleChars !h
           pure $ U.null occs)
     False
     needle
+  -- Exposes freezing bug in GHC.
   -- V.unsafeFreeze occursStore
   pure (occursStore, anyEmpty)
 
@@ -380,7 +468,7 @@ fuzzyMatch store heatmap needle needleChars haystack
         (remainingOccurrences :: U.Vector PackedIdx) <- bigger cutoffIndex <$> VM.unsafeRead needleOccursInHaystack 0
         case VM.length needleOccursInHaystack of
           -- Last character, already checked that vector is never empty
-          1 -> do
+          1 ->
             pure $ flip map (U.toList remainingOccurrences) $ \pidx ->
               let StrIdx !idx = getStrIdx pidx
               in
@@ -390,7 +478,7 @@ fuzzyMatch store heatmap needle needleChars haystack
                 , smContiguousCount = 0
                 }
 
-          _ -> do
+          _ ->
             fmap (getMaximum . concat) $ for (U.toList remainingOccurrences) $ \pidx -> do
               let !idx' = getStrIdx pidx
               submatches <- recur (VM.unsafeTail needleOccursInHaystack) pidx
@@ -524,7 +612,7 @@ computeHeatMap str =
   computeHeatMapFromGroups str . computeGroupsAndInitScores str
 
 computeHeatMapFromGroups :: Text -> (Int32, [HeatMapGroup]) -> PrimArray Int32
-computeHeatMapFromGroups fullStr (groupsCount, groups) = runPrimArray $ do
+computeHeatMapFromGroups haystack (groupsCount, groups) = runPrimArray $ do
   scores <- newPrimArray len
   setPrimArray scores 0 len (initScore + initScoreAdjustment)
   -- scores <- UM.replicate len (initScore + initScoreAdjustment)
@@ -581,7 +669,7 @@ computeHeatMapFromGroups fullStr (groupsCount, groups) = runPrimArray $ do
       = map (\(idx, _) -> (idx, -45))
       $ filter (penalisedIfLeading . snd)
       $ zip [StrIdx 1..]
-      $ T.unpack (T.init fullStr)
+      $ T.unpack (T.init haystack)
 
     penalisedIfLeading :: Char -> Bool
     penalisedIfLeading = (== '.')
@@ -600,7 +688,7 @@ computeHeatMapFromGroups fullStr (groupsCount, groups) = runPrimArray $ do
     initScore, lastCharBonus :: Int32
     initScore     = (-35)
     lastCharBonus = 1
-    len           = T.length fullStr
+    len           = T.length haystack
     lastCharIdx   = StrIdx $ fromIntegral $ len - 1
     -- initScores :: [(StrIdx, Int)]
     -- initScores =
@@ -617,8 +705,8 @@ data GroupState = GroupState
   }
 
 computeGroupsAndInitScores :: Text -> PrimArray Int32 -> (Int32, [HeatMapGroup])
-computeGroupsAndInitScores fullStr groupSeparators
-  | T.null fullStr = (0, [])
+computeGroupsAndInitScores haystack groupSeparators
+  | T.null haystack = (0, [])
   | otherwise
   = (groupsCount, )
   $ fst
@@ -639,9 +727,10 @@ computeGroupsAndInitScores fullStr groupSeparators
         }
       where
         hmgWordCount = gsWordCount finalState
-        finalState = L.foldl' step initState characters
-        cs         = T.unpack str
-        characters = zip3 [succ start..] (prevChar : cs) cs
+        finalState   = L.foldl' step initState characters
+        cs           = T.unpack str
+        characters :: [StrIdxCharsInfo]
+        characters   = zipWith3 mkStrIdxCharsInfo [succ start..] (prevChar : cs) cs
 
         initState :: GroupState
         initState = GroupState
@@ -649,15 +738,15 @@ computeGroupsAndInitScores fullStr groupSeparators
           , gsWordCount       = 0
           }
 
-        step :: GroupState -> (StrIdx, Char, Char) -> GroupState
-        step GroupState{gsBoundaryIndices, gsWordCount} (idxCurrent, prev, current) =
+        step :: GroupState -> StrIdxCharsInfo -> GroupState
+        step GroupState{gsBoundaryIndices, gsWordCount} info =
           GroupState
             { gsBoundaryIndices =
-              if haveBoundary prev current
-              then IS.insert (fromIntegral (unStrIdx idxCurrent)) gsBoundaryIndices
+              if haveBoundary info
+              then IS.insert (fromIntegral (unStrIdx (infoStrIdx info))) gsBoundaryIndices
               else gsBoundaryIndices
             , gsWordCount       =
-              if not (isWord prev) && isWord current
+              if not (infoPrevIsWord info) && infoCurrIsWord info
               then 1 + gsWordCount
               else gsWordCount
             }
@@ -668,19 +757,52 @@ computeGroupsAndInitScores fullStr groupSeparators
       = -- filter (\(_, _, len, _) -> len /= 0)
         mapAccumL
           (\(!idx, !len) (sep, str') ->
-            let next = idx + T.length str' in
+            let !next = idx + T.length str' in
             ((next + 1, len + 1), (StrIdx (fromIntegral idx), sep, StrIdx (fromIntegral next), str')))
           ((-1) -- To account for fake separator at the beginning
           , 0
           )
-      $ splitWithSeps ' ' groupSeparators fullStr
+      $ splitWithSeps ' ' groupSeparators haystack
 
     -- Check whetehr @lastChar@ is the end of a word and
     -- @currentChar@ is the start of the next.
-    haveBoundary :: Char -> Char -> Bool
-    haveBoundary prevChar currentChar =
-      res
-      where
-        res =
-          not (isUpper prevChar) && isUpper currentChar ||
-          not (isWord  prevChar) && isWord  currentChar
+    haveBoundary :: StrIdxCharsInfo -> Bool
+    haveBoundary info =
+      not (infoPrevIsUpper info) && infoCurrIsUpper info ||
+      not (infoPrevIsWord info) && infoCurrIsWord info
+
+-- Isomorphic to (StrIdx, (Bool, Bool) , (Bool, Bool)) derived from (StrIdx, Char, Char)>
+newtype StrIdxCharsInfo = StrIdxCharsInfo { unStrIdxCharsInfo :: Word64 }
+
+instance Show StrIdxCharsInfo where
+  showsPrec _ = (showString "0x" .) . showHex . unStrIdxCharsInfo
+
+mkStrIdxCharsInfo :: StrIdx -> Char -> Char -> StrIdxCharsInfo
+mkStrIdxCharsInfo (StrIdx idx) prev curr = StrIdxCharsInfo $
+  fromIntegral idx .|.
+  mkBit 32 prevWord .|.
+  mkBit 33 currWord .|.
+  mkBit 34 prevUpper .|.
+  mkBit 35 currUpper
+  where
+    prevWord  = isWord prev
+    currWord  = isWord curr
+    prevUpper = isUpper prev
+    currUpper = isUpper curr
+    mkBit :: Int -> Bool -> Word64
+    mkBit !n !x = if x then 1 `unsafeShiftL` n else 0
+
+infoStrIdx :: StrIdxCharsInfo -> StrIdx
+infoStrIdx (StrIdxCharsInfo x) = StrIdx $ fromIntegral $ lower4Bytes .&. x
+
+infoPrevIsWord :: StrIdxCharsInfo -> Bool
+infoPrevIsWord (StrIdxCharsInfo x) = (x `unsafeShiftR` 32 .&. 0x1) == 1
+
+infoCurrIsWord :: StrIdxCharsInfo -> Bool
+infoCurrIsWord (StrIdxCharsInfo x) = (x `unsafeShiftR` 33 .&. 0x1) == 1
+
+infoPrevIsUpper :: StrIdxCharsInfo -> Bool
+infoPrevIsUpper (StrIdxCharsInfo x) = (x `unsafeShiftR` 34 .&. 0x1) == 1
+
+infoCurrIsUpper :: StrIdxCharsInfo -> Bool
+infoCurrIsUpper (StrIdxCharsInfo x) = (x `unsafeShiftR` 35 .&. 0x1) == 1

@@ -31,11 +31,15 @@ import Control.Monad.ST.Strict
 import Data.Primitive.PrimArray
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Array qualified as TA
 import Data.Text.Internal qualified as TI
+import Data.Text.Internal.Encoding.Utf8 (utf8LengthByLeader)
 import Data.Text.Unsafe qualified as TU
 import Data.Vector.Primitive qualified as P
 import Data.Vector.Primitive.Mutable qualified as PM
+import Data.Word
 import GHC.Exts
+import GHC.Word
 
 {-# INLINE textFoldM #-}
 textFoldM :: forall m a. Monad m => (Char -> a -> m a) -> a -> Text -> m a
@@ -67,7 +71,7 @@ textFoldIdxM f !seed (TI.Text arr off len) = textFoldIdxLoop seed 0 off
 textFoldIdxM'
   -- :: forall s (a :: TYPE ('BoxedRep 'Unlifted)).
   :: forall s (a :: TYPE ('TupleRep '[ 'IntRep, UnliftedRep ])).
-      (Int -> Char -> a -> State# s -> (# State# s, a #))
+      (Int# -> Int# -> a -> State# s -> (# State# s, a #))
    -> a
    -> Text
    -> State# s
@@ -76,14 +80,66 @@ textFoldIdxM' f seed (TI.Text arr off len) = textFoldIdxLoop seed 0 off
   where
     !end = off + len
     textFoldIdxLoop :: a -> Int -> Int -> State# s -> (# State# s, a #)
-    textFoldIdxLoop x !i !j s
+    textFoldIdxLoop x !i@(I# i') !j s
       | j >= end  = (# s, x #)
       | otherwise =
-        case TU.iterArray arr j of
-          TU.Iter c delta ->
-            case f i c x s of
+        case iterArray' arr j of
+          (# charCode, delta #) ->
+            case inline f i' charCode x s of
               (# s2, x' #) ->
                 textFoldIdxLoop x' (i + 1) (j + delta) s2
+
+iterArray' :: TA.Array -> Int -> (# Int#, Int #)
+iterArray' arr j = (# w, l #)
+  where
+    !m0 = TA.unsafeIndex arr j
+    !l  = utf8LengthByLeader m0
+    !w  = case l of
+      1 -> wunsafeChr8 m0
+      2 -> wchr2 m0 (TA.unsafeIndex arr (j + 1))
+      3 -> wchr3 m0 (TA.unsafeIndex arr (j + 1)) (TA.unsafeIndex arr (j + 2))
+      _ -> wchr4 m0 (TA.unsafeIndex arr (j + 1)) (TA.unsafeIndex arr (j + 2)) (TA.unsafeIndex arr (j + 3))
+{-# INLINE iterArray' #-}
+
+wunsafeChr8 :: Word8 -> Int#
+wunsafeChr8 (W8# w#) = word2Int# (word8ToWord# w#)
+{-# INLINE wunsafeChr8 #-}
+
+wchr2 :: Word8 -> Word8 -> Int#
+wchr2 (W8# x1#) (W8# x2#) =
+  z1# +# z2#
+  where
+    !y1# = word2Int# (word8ToWord# x1#)
+    !y2# = word2Int# (word8ToWord# x2#)
+    !z1# = uncheckedIShiftL# (y1# -# 0xC0#) 6#
+    !z2# = y2# -# 0x80#
+{-# INLINE wchr2 #-}
+
+wchr3 :: Word8 -> Word8 -> Word8 -> Int#
+wchr3 (W8# x1#) (W8# x2#) (W8# x3#) =
+  z1# +# z2# +# z3#
+  where
+    !y1# = word2Int# (word8ToWord# x1#)
+    !y2# = word2Int# (word8ToWord# x2#)
+    !y3# = word2Int# (word8ToWord# x3#)
+    !z1# = uncheckedIShiftL# (y1# -# 0xE0#) 12#
+    !z2# = uncheckedIShiftL# (y2# -# 0x80#) 6#
+    !z3# = y3# -# 0x80#
+{-# INLINE wchr3 #-}
+
+wchr4 :: Word8 -> Word8 -> Word8 -> Word8 -> Int#
+wchr4 (W8# x1#) (W8# x2#) (W8# x3#) (W8# x4#) =
+  z1# +# z2# +# z3# +# z4#
+  where
+    !y1# = word2Int# (word8ToWord# x1#)
+    !y2# = word2Int# (word8ToWord# x2#)
+    !y3# = word2Int# (word8ToWord# x3#)
+    !y4# = word2Int# (word8ToWord# x4#)
+    !z1# = uncheckedIShiftL# (y1# -# 0xF0#) 18#
+    !z2# = uncheckedIShiftL# (y2# -# 0x80#) 12#
+    !z3# = uncheckedIShiftL# (y3# -# 0x80#) 6#
+    !z4# = y4# -# 0x80#
+{-# INLINE wchr4 #-}
 
 {-# INLINE textFor_ #-}
 textFor_ :: forall m. Monad m => Text -> (Char -> m ()) -> m ()
