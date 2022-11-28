@@ -35,7 +35,7 @@ import Data.Vector.Generic.Mutable qualified as GM
 
 {-# INLINE forM #-}
 forM :: (Monad m, PrimMonad m, G.Vector v a, G.Vector v b) => v a -> (a -> m b) -> m (v b)
-forM xs f = do
+forM !xs f = do
   ys <- GM.unsafeNew end
   let go !i
         | i == end  = G.unsafeFreeze ys
@@ -52,7 +52,7 @@ binSearchMember
   => a
   -> v a
   -> Bool
-binSearchMember a as =
+binSearchMember !a !as =
   binSearchMemberByBounds a as 0 (G.length as)
 
 {-# INLINE linSearchMember #-}
@@ -61,7 +61,7 @@ linSearchMember
   => a
   -> v a
   -> Bool
-linSearchMember a as = go 0
+linSearchMember !a !as = go 0
   where
     !end = G.length as
     go !i
@@ -77,7 +77,7 @@ binSearchMemberByBounds
   -> Int
   -> Int
   -> Bool
-binSearchMemberByBounds a as = go
+binSearchMemberByBounds !a !as = go
   where
     go !l !u
       | u <= l    = False
@@ -98,7 +98,7 @@ binSearchMemberByBoundsM
   -> Int
   -> Int
   -> m Bool
-binSearchMemberByBoundsM a as = go
+binSearchMemberByBoundsM !a !as = go
   where
     go !l !u
       | u <= l    = pure False
@@ -118,7 +118,7 @@ binSearchMemberIdx
   => a
   -> v a
   -> (Bool, Int)
-binSearchMemberIdx x as =
+binSearchMemberIdx !x !as =
   binSearchMemberIdxByBounds x as 0 (G.length as)
 
 {-# INLINE binSearchMemberIdxByBounds #-}
@@ -129,7 +129,7 @@ binSearchMemberIdxByBounds
   -> Int
   -> Int
   -> (Bool, Int)
-binSearchMemberIdxByBounds a as = go
+binSearchMemberIdxByBounds !a !as = go
   where
     go !l !u
       | u <= l    = (False, m)
@@ -148,14 +148,14 @@ binSearchMemberL
   => e
   -> v e
   -> (Bool, Int)
-binSearchMemberL target as =
+binSearchMemberL !target !as =
   binSearchMemberLByBounds target as 0 (G.length as)
 
 {-# INLINE binSearchMemberLByBounds #-}
 binSearchMemberLByBounds
   :: (G.Vector v e, Ord e)
   => e -> v e -> Int -> Int -> (Bool, Int)
-binSearchMemberLByBounds target as =
+binSearchMemberLByBounds !target !as =
   go False
   where
     go found !l !u
@@ -166,10 +166,11 @@ binSearchMemberLByBounds target as =
           EQ -> go True l k
           GT -> go found l k
       where
-        k = (u + l) `unsafeShiftR` 1
+        !k = (u + l) `unsafeShiftR` 1
 
+{-# INLINE uniq #-}
 uniq :: (Ord a, G.Vector v a) => v a -> v a
-uniq xs = runST $ do
+uniq !xs = runST $ do
   let !end = G.length xs
   ys <- GM.unsafeNew end
   let go !i !j
@@ -297,10 +298,10 @@ binlog2 x = 63 - countLeadingZeros x
 
 {-# INLINE shiftDown #-}
 shiftDown :: (PrimMonad m, Ord a, GM.MVector v a) => v (PrimState m) a -> Int -> m ()
-shiftDown v = go
+shiftDown !v = go
   where
     !end = GM.length v
-    go p
+    go !p
       | c1 < end
       = do
         let !c2 = c1 + 1
@@ -326,7 +327,7 @@ shiftDown v = go
 
 {-# INLINE heapify #-}
 heapify :: (PrimMonad m, Ord a, GM.MVector v a) => v (PrimState m) a -> m ()
-heapify v = do
+heapify !v = do
   go (GM.length v `unsafeShiftR` 1)
   where
     go 0 = shiftDown v 0
@@ -334,7 +335,7 @@ heapify v = do
 
 {-# INLINE heapSort #-}
 heapSort :: (PrimMonad m, Ord a, GM.MVector v a) => v (PrimState m) a -> m ()
-heapSort v = do
+heapSort !v = do
   heapify v
   go (GM.length v)
   where
