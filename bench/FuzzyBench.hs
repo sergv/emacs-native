@@ -349,9 +349,9 @@ main = do
           needleChars = Data.FuzzyMatch.prepareNeedle needle
           ys :: V.Vector (Int32, Int, Text)
           ys = runST $ do
-            store <- Data.FuzzyMatch.mkReusableState needleChars
+            store <- Data.FuzzyMatch.mkReusableState (T.length needle) needleChars
             for xs $ \str -> do
-              match <- Data.FuzzyMatch.fuzzyMatch store (Data.FuzzyMatch.computeHeatMap str seps32) needle needleChars str
+              !match <- Data.FuzzyMatch.fuzzyMatch store (Data.FuzzyMatch.computeHeatMap str seps32) needle needleChars str
               pure (fi32 $ Data.FuzzyMatch.mScore match, T.length str, str)
 
 

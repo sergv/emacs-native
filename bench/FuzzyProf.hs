@@ -58,7 +58,7 @@ doMatch seps needle xs =
 
     ys :: V.Vector (Int32, Int, Text)
     ys = runST $ do
-      store <- Data.FuzzyMatch.mkReusableState needleChars
+      store <- Data.FuzzyMatch.mkReusableState (T.length needle) needleChars
       for (V.fromList xs) $ \str -> do
         match <-
           Data.FuzzyMatch.fuzzyMatch

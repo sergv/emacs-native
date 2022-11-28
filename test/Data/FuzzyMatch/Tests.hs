@@ -6,6 +6,7 @@
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
 
+{-# LANGUAGE BangPatterns        #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings   #-}
 
@@ -21,13 +22,19 @@ import Data.List.NonEmpty qualified as NE
 import Data.Primitive.PrimArray
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Traversable
 import Test.Tasty
 import Test.Tasty.HUnit
 
 import Data.FuzzyMatch
 
 tests :: TestTree
-tests = testGroup "Data.FuzzyMatch.Tests" [fuzzyMatchTests, heatMap, heatMapGrouping]
+tests = testGroup "Data.FuzzyMatch.Tests"
+  [ fuzzyMatchTests
+  , fuzzyMatchMultipleTests
+  , heatMap
+  , heatMapGrouping
+  ]
 
 foobarHeatmap :: PrimArray Int32
 foobarHeatmap = primArrayFromList [84, -2, -3, -4, -5, -5]
@@ -97,9 +104,27 @@ fuzzyMatchTests = testGroup "fuzzy match"
       testCase (T.unpack $ "match '" <> needle <> "' against '" <> haystack <> "'") $ do
         let match = runST $ do
               let needleChars = prepareNeedle needle
-              store <- mkReusableState needleChars
+              store <- mkReusableState (T.length needle) needleChars
               fuzzyMatch store haystackHeatmap needle needleChars haystack
         match @?= result
+
+fuzzyMatchMultipleTests :: TestTree
+fuzzyMatchMultipleTests = testGroup "fuzzy match multiple"
+  [ mkTestCase "foo" ["foobar", "foobaz", "quux", "fqouuxo"] [214, 214, (-1), 75]
+  , mkTestCase "vector.hs" ["local-store/ghc-9.4.2/vector-space-0.16-6c2632778a7166806a878ce1c082a8cd55db17dc183ef6153dc43f8064939746/share/doc/html/meta.json", "/home/sergey/projects/haskell/packages/local-store/ghc-9.4.2/mime-types-0.1.1.0-36574ed6c6ba4b463c91ac91e7334e6d64c7e64484e986bb0ef24ae7064fefb6/cabal-hash.txt", "local-store/ghc-9.4.2/mime-types-0.1.1.0-36574ed6c6ba4b463c91ac91e7334e6d64c7e64484e986bb0ef24ae7064fefb6/cabal-hash.txt"] [228, (-1), (-1)]
+  ]
+  where
+    mkTestCase :: Text -> [Text] -> [Int32] -> TestTree
+    mkTestCase needle haystacks expectedScores =
+      testCase (T.unpack $ "match '" <> needle <> "' against '" <> T.pack (show haystacks) <> "'") $ do
+        let matches = runST $ do
+              let needleChars = prepareNeedle needle
+              store <- mkReusableState (T.length needle) needleChars
+              for haystacks $ \haystack -> do
+                !match <- fuzzyMatch store (computeHeatMap haystack mempty) needle needleChars haystack
+                pure $ mScore match
+        matches @?= expectedScores
+
 
 fi32 :: Integral a => a -> Int32
 fi32 = fromIntegral

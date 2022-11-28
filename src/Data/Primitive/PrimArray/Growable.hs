@@ -6,7 +6,16 @@
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
 
-{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE BangPatterns        #-}
+{-# LANGUAGE GADTSyntax          #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE MagicHash           #-}
+{-# LANGUAGE NamedFieldPuns      #-}
+{-# LANGUAGE PolyKinds           #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE UnboxedTuples       #-}
+{-# LANGUAGE UnliftedDatatypes   #-}
+{-# LANGUAGE UnliftedNewtypes    #-}
 
 module Data.Primitive.PrimArray.Growable
   ( GrowablePrimArray
@@ -17,6 +26,10 @@ module Data.Primitive.PrimArray.Growable
   -- , freeze
   , finalise
   , clear
+  , GrowablePrimArrayU
+  , toUnboxed
+  , fromUnboxed
+  , pushU
   ) where
 
 -- import qualified Debug.Trace
@@ -25,11 +38,59 @@ import Control.Monad
 import Control.Monad.Primitive
 import Data.Primitive.PrimArray
 import Data.Primitive.Types
+import GHC.Exts
 
-data GrowablePrimArray s a = GrowablePrimArray
-  { gpaSize  :: {-# UNPACK #-} !Int -- Number of actual elements
-  , gpaStore :: {-# UNPACK #-} !(MutablePrimArray s a)
-  }
+newtype GrowablePrimArrayU s a = GrowablePrimArrayU
+  { _unGrowablePrimArrayU :: (# Int#, MutableByteArray# s #) }
+
+toUnboxed :: GrowablePrimArray s a -> GrowablePrimArrayU s a
+toUnboxed (GrowablePrimArray (I# n) (MutablePrimArray arr)) =
+  GrowablePrimArrayU (# n, arr #)
+
+fromUnboxed :: GrowablePrimArrayU s a -> GrowablePrimArray s a
+fromUnboxed (GrowablePrimArrayU (# n, arr #)) =
+  GrowablePrimArray (I# n) (MutablePrimArray arr)
+
+{-# INLINE pushU #-}
+pushU
+  :: forall a s. Prim a
+  => a
+  -> GrowablePrimArrayU s a
+  -> State# s
+  -> (# State# s, GrowablePrimArrayU s a #)
+pushU item (GrowablePrimArrayU (# n, arr1 #)) s1 =
+  case getSizeofMutableByteArray# arr1 s1 of
+    (# s2, sz #) ->
+      let !k              = n *# (sizeOf# (undefined :: a))
+          !(# s3, arr2 #) =
+            if isTrue# (sz ==# k)
+            then
+              resizeMutableByteArray# arr1 (sz *# 2#) s2
+            else
+              (# s2, arr1 #)
+      in
+        case writeByteArray# arr2 n item s3 of
+          s4 ->
+            (# s4, GrowablePrimArrayU (# n +# 1#, arr2 #) #)
+
+      -- -- (# s'#, I# (quotInt# sz# (sizeOf# (undefined :: a))) #)
+      --
+  -- n   <- getSizeofMutablePrimArray store
+  -- store <-
+  --   if gpaSize == n
+  --   then
+  --     resizeMutablePrimArray store (gpaSize * 2)
+  --   else
+  --     pure store
+
+  -- writePrimArray store gpaSize item
+  -- pure $ GrowablePrimArray (gpaSize + 1) store
+
+data GrowablePrimArray s a where -- :: TYPE (BoxedRep Unlifted) where
+  GrowablePrimArray ::
+    { gpaSize  :: {-# UNPACK #-} !Int -- Number of actual elements
+    , gpaStore :: {-# UNPACK #-} !(MutablePrimArray s a)
+    } -> GrowablePrimArray s a
 
 {-# INLINE new #-}
 new :: (PrimMonad m, Prim a) => Int -> m (GrowablePrimArray (PrimState m) a)

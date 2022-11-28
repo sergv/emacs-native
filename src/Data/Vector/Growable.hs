@@ -53,8 +53,7 @@ push
 push item GrowableVector{gvSize, gvStore} = do
   store <-
     if gvSize == GM.length gvStore
-    then do
-      GM.unsafeGrow gvStore gvSize
+    then GM.unsafeGrow gvStore gvSize
     else pure gvStore
   GM.unsafeWrite store gvSize item
   pure $ GrowableVector (gvSize + 1) store

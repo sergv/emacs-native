@@ -68,13 +68,17 @@ library
     Data.FuzzyMatch
     Data.NBSem
     Data.Regex
+    Data.Primitive.Array.Growable
     Data.Primitive.PrimArray.Ext
     Data.Primitive.PrimArray.Growable
     Data.Primitive.PrimArray.GrowableMut
+    Data.Primitive.SmallArray.Growable
     Data.Text.Ext
     Data.Vector.Ext
+    Data.Vector.FixedSort
     Data.Vector.Growable
     Data.Vector.GrowableMut
+    Data.Vector.PredefinedSorts
 
     Emacs.EprojTagIndex
     Emacs.FastFileSearch
@@ -98,6 +102,7 @@ library
     , path >= 0.6.1
     , path-io
     , prettyprinter >= 1.7
+    , prettyprinter-combinators
     , primitive
     , primitive-sort
     -- , radix-tree
@@ -115,12 +120,11 @@ library
 
 foreign-library emacs-native
   import: ghc-options
+  options: standalone
   type:
     native-shared
   lib-version-info:
     0:0:0
-  build-tool-depends:
-    hsc2hs:hsc2hs
   c-sources:
     cbits/emacs_wrapper.c
   includes:
@@ -129,8 +133,6 @@ foreign-library emacs-native
     emacs-module.h
   include-dirs:
     cbits
-  other-modules:
-    Emacs.Init
 
   if os(Windows)
     options: standalone
@@ -142,6 +144,8 @@ foreign-library emacs-native
     , emacs-native
   hs-source-dirs:
     lib
+  other-modules:
+    Emacs.Init
   ghc-options:
     -threaded
 
