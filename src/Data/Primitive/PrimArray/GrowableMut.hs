@@ -75,7 +75,7 @@ clear (GrowablePrimArrayMut ref) =
 with
   :: (Prim a, PrimMonad m)
   => GrowablePrimArrayMut (PrimState m) a
-  -> (PG.GrowablePrimArray (PrimState m) a -> m (PG.GrowablePrimArray (PrimState m) a))
-  -> m ()
+  -> (PG.GrowablePrimArray (PrimState m) a -> m (b, PG.GrowablePrimArray (PrimState m) a))
+  -> m b
 with (GrowablePrimArrayMut ref) f =
-  stToPrim . writeSTRef ref =<< f =<< stToPrim (readSTRef ref)
+  (\(b, arr) -> b <$ stToPrim (writeSTRef ref arr)) =<< f =<< stToPrim (readSTRef ref)

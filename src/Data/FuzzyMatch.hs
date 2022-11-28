@@ -22,6 +22,7 @@
 {-# LANGUAGE TupleSections              #-}
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE UnboxedTuples              #-}
+{-# LANGUAGE UnliftedFFITypes           #-}
 {-# LANGUAGE ViewPatterns               #-}
 
 {-# OPTIONS_GHC -Wno-overflowed-literals #-}
@@ -116,31 +117,66 @@ mkReusableState needleSize chars = do
   rsNeedleStore   <- VM.unsafeNew needleSize
   pure ReusableState{rsHaystackStore, rsNeedleStore}
 
-data NeedleChars
-  = NeedleChars8 {-# UNPACK #-} !Word64
-  | NeedleChars16 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64
-  | NeedleChars24 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64
-  | NeedleChars32 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64
-  | NeedleCharsLong {-# UNPACK #-} !(P.Vector Char)
+newtype Bytes8 = Bytes8 Word64
+data Bytes16 = Bytes16 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64
+data Bytes24 = Bytes24 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64
+data Bytes32 = Bytes32 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64
+newtype CharsVector = CharsVector { unCharsVector :: P.Vector Char }
 
-instance Show NeedleChars where
-  show = \case
-    NeedleChars8  a       -> "NeedleChars8 "    ++ showHex' a
-    NeedleChars16 a b     -> "NeedleChars16 "   ++ showHex' a ++ " " ++ showHex' b
-    NeedleChars24 a b c   -> "NeedleChars24 "   ++ showHex' a ++ " " ++ showHex' b ++ " " ++ showHex' c
-    NeedleChars32 a b c d -> "NeedleChars32 "   ++ showHex' a ++ " " ++ showHex' b ++ " " ++ showHex' c ++ " " ++ showHex' d
-    NeedleCharsLong xs    -> "NeedleCharsLong " ++ show xs
+class CharMember a where
+  charMember :: Int# -> a -> Bool
+
+instance CharMember Bytes8 where
+  charMember charCode (Bytes8 w1) = isTrue# (charCode <# 128#) && wordMember w1 (fanout charCode)
+
+instance CharMember Bytes16 where
+  charMember charCode (Bytes16 w1 w2) = isTrue# (charCode <# 128#) && (wordMember w1 bytes || wordMember w2 bytes)
+    where
+      !bytes = fanout charCode
+
+instance CharMember Bytes24 where
+  charMember charCode (Bytes24 w1 w2 w3) = isTrue# (charCode <# 128#) && (wordMember w1 bytes || wordMember w2 bytes || wordMember w3 bytes)
+    where
+      !bytes = fanout charCode
+
+instance CharMember Bytes32 where
+  charMember charCode (Bytes32 w1 w2 w3 w4) = isTrue# (charCode <# 128#) && (wordMember w1 bytes || wordMember w2 bytes || wordMember w3 bytes ||  wordMember w4 bytes)
+    where
+      !bytes = fanout charCode
+
+instance CharMember CharsVector where
+  charMember charCode (CharsVector arr) = VExt.binSearchMember (C# (chr# charCode)) arr
+
+hasZeroByte :: Word64 -> Bool
+hasZeroByte !x = 0 < (((x - 0x0101010101010101) .&. complement x .&. 0x8080808080808080))
+
+-- hasZeroByte :: Word64# -> Bool
+-- hasZeroByte x =
+--   isTrue# (wordToWord64# 0## `ltWord64#` (((x `subWord64#` wordToWord64# 0x0101010101010101##) `and64#` not64# x `and64#` wordToWord64# 0x8080808080808080##)))
+
+
+wordMember :: Word64 -> ByteFanout -> Bool
+wordMember !big !(ByteFanout small) = hasZeroByte (small `xor` big)
+
+newtype ByteFanout = ByteFanout Word64
+
+fanout :: Int# -> ByteFanout
+fanout x = ByteFanout ((W64# (wordToWord64# (int2Word# x))) * 0x0101010101010101)
+
+data NeedleChars
+  = NeedleChars8 {-# UNPACK #-} !Bytes8
+  | NeedleChars16 {-# UNPACK #-} !Bytes16
+  | NeedleChars24 {-# UNPACK #-} !Bytes24
+  | NeedleChars32 {-# UNPACK #-} !Bytes32
+  | NeedleCharsLong {-# UNPACK #-} !CharsVector
 
 needleCharsCountHint :: NeedleChars -> Int
 needleCharsCountHint = \case
-  NeedleChars8 _        -> 8
-  NeedleChars16 _ _     -> 16
-  NeedleChars24 _ _ _   -> 24
-  NeedleChars32 _ _ _ _ -> 32
-  NeedleCharsLong xs    -> P.length xs
-
-showHex' :: Integral a => a -> String
-showHex' x = "0x" ++ showHex x ""
+  NeedleChars8 _     -> 8
+  NeedleChars16 _    -> 16
+  NeedleChars24 _    -> 24
+  NeedleChars32 _    -> 32
+  NeedleCharsLong xs -> P.length (unCharsVector xs)
 
 prepareNeedle :: Text -> NeedleChars
 prepareNeedle str
@@ -149,14 +185,15 @@ prepareNeedle str
     if len < 17
     then
       if len < 9
-      then NeedleChars8 (readBytes arr offset len)
-      else NeedleChars16 (readWord64 arr offset64) (readBytes arr (offset + 8) (len - 8))
+      then NeedleChars8 $ Bytes8 (readBytes arr offset len)
+      else NeedleChars16 $ Bytes16 (readWord64 arr offset64) (readBytes arr (offset + 8) (len - 8))
     else
       if len < 25
-      then NeedleChars24 (readWord64 arr offset64) (readWord64 arr (offset64 + 1)) (readBytes arr (offset + 16) (len - 16))
-      else NeedleChars32 (readWord64 arr offset64) (readWord64 arr (offset64 + 1)) (readWord64 arr (offset64 + 2)) (readBytes arr (offset + 24) (len - 24))
+      then NeedleChars24 $ Bytes24 (readWord64 arr offset64) (readWord64 arr (offset64 + 1)) (readBytes arr (offset + 16) (len - 16))
+      else NeedleChars32 $ Bytes32 (readWord64 arr offset64) (readWord64 arr (offset64 + 1)) (readWord64 arr (offset64 + 2)) (readBytes arr (offset + 24) (len - 24))
   | otherwise
   = NeedleCharsLong
+  $ CharsVector
   $ VExt.uniq
   $ sortVectorUnsafeChar
   $ T.textToPrimVector
@@ -182,32 +219,13 @@ readBytes xs start count = go 0 start
       | otherwise
       = go (acc `unsafeShiftL` 8 .|. fromIntegral (TA.unsafeIndex xs i)) (i + 1)
 
-hasZeroByte :: Word64 -> Bool
-hasZeroByte !x = 0 < (((x - 0x0101010101010101) .&. complement x .&. 0x8080808080808080))
-
-wordMember :: Word64 -> ByteFanout -> Bool
-wordMember !big !(ByteFanout small) = hasZeroByte (small `xor` big)
-
-newtype ByteFanout = ByteFanout Word64
-
-prepare :: Word64 -> ByteFanout
-prepare x = ByteFanout (x * 0x0101010101010101)
-
-needleMember :: Char -> Word64 -> NeedleChars -> Bool
-needleMember !char !charCode = \case
-  NeedleChars8    a       -> charCode < 128 && wordMember a c8
-    where
-      !c8 = prepare charCode
-  NeedleChars16   a b     -> charCode < 128 && (wordMember a c8 || wordMember b c8)
-    where
-      !c8 = prepare charCode
-  NeedleChars24   a b c   -> charCode < 128 && (wordMember a c8 || wordMember b c8 || wordMember c c8)
-    where
-      !c8 = prepare charCode
-  NeedleChars32   a b c d -> charCode < 128 && (wordMember a c8 || wordMember b c8 || wordMember c c8 || wordMember d c8)
-    where
-      !c8 = prepare charCode
-  NeedleCharsLong xs      -> VExt.binSearchMember char xs
+instance CharMember NeedleChars where
+  charMember charCode = \case
+    NeedleChars8    x  -> charMember charCode x
+    NeedleChars16   x  -> charMember charCode x
+    NeedleChars24   x  -> charMember charCode x
+    NeedleChars32   x  -> charMember charCode x
+    NeedleCharsLong xs -> charMember charCode xs
 
 newtype PackedCharAndIdx = PackedCharAndIdx { _unPackedCharAndIdx :: Word64 }
 
@@ -298,41 +316,88 @@ instance Ord PackedIdx where
 mkHaystack :: forall s. ReusableState s -> NeedleChars -> Text -> ST s (PM.MVector s Word64)
 mkHaystack (ReusableState store _) !needleChars !str = do
   -- store <- PGM.new (needleCharsCountHint needleChars)
-  PGM.with store $ \store' -> do
+  (arr, arrLen) <- PGM.with store $ \store' -> do
 
-    let go
-          :: forall ss. Int#
+    let goAscii
+          :: (Int# -> Bool)
+          -> Int#
           -> Int#
           -> PG.GrowablePrimArrayU ss Word64
           -> State# ss
           -> (# State# ss, PG.GrowablePrimArrayU ss Word64 #)
-        go i charCode arr s1
-          | needleMember (C# c) (W64# c') needleChars =
+        goAscii memberPred i charCode arr s1
+          | memberPred charCode =
             case PG.pushU (combineCharIdx (W64# c') (I# i)) arr s1 of
               res@(# s2, arr' #) ->
-                if iswupper (I# charCode) > 0
-                then PG.pushU (combineCharIdx (fromIntegral (towlower (I# charCode))) (I# i)) arr' s2
+                if isTrue# (isUpperASCII charCode)
+                then PG.pushU (combineCharIdx (fromIntegral (I# (toLowerASCII charCode))) (I# i)) arr' s2
                 else res
           | otherwise =
             (# s1, arr #)
           where
-            c = chr# charCode
             c' = wordToWord64# (int2Word# charCode)
 
-    primitive $ \s ->
-      case T.textFoldIdxM' go (PG.toUnboxed (PG.clear store')) str s of
-        (# s2, x #) -> (# s2, PG.fromUnboxed x #)
+    store'' <- case needleChars of
+      NeedleChars8    needleChars' -> do
+        primitive $ \s ->
+          case T.textFoldIdxM' (goAscii (`charMember` needleChars')) (PG.toUnboxed (PG.clear store')) str s of
+            (# s2, x #) -> (# s2, PG.fromUnboxed x #)
 
-  arr    <- PGM.finalise store
-  arrLen <- PGM.size store
+      NeedleChars16   needleChars' -> do
+        primitive $ \s ->
+          case T.textFoldIdxM' (goAscii (`charMember` needleChars')) (PG.toUnboxed (PG.clear store')) str s of
+            (# s2, x #) -> (# s2, PG.fromUnboxed x #)
+
+      NeedleChars24   needleChars' -> do
+        primitive $ \s ->
+          case T.textFoldIdxM' (goAscii (`charMember` needleChars')) (PG.toUnboxed (PG.clear store')) str s of
+            (# s2, x #) -> (# s2, PG.fromUnboxed x #)
+
+      NeedleChars32   needleChars' -> do
+        primitive $ \s ->
+          case T.textFoldIdxM' (goAscii (`charMember` needleChars')) (PG.toUnboxed (PG.clear store')) str s of
+            (# s2, x #) -> (# s2, PG.fromUnboxed x #)
+
+      NeedleCharsLong needleChars' -> do
+        let go
+              :: Int#
+              -> Int#
+              -> PG.GrowablePrimArrayU ss Word64
+              -> State# ss
+              -> (# State# ss, PG.GrowablePrimArrayU ss Word64 #)
+            go i charCode arr s1
+              | charMember charCode needleChars' =
+                case PG.pushU (combineCharIdx (W64# c') (I# i)) arr s1 of
+                  res@(# s2, arr' #) ->
+                    if isTrue# (0# /=# iswupper charCode)
+                    then PG.pushU (combineCharIdx (fromIntegral (I# (towlower charCode))) (I# i)) arr' s2
+                    else res
+              | otherwise =
+                (# s1, arr #)
+              where
+                c' = wordToWord64# (int2Word# charCode)
+
+        primitive $ \s ->
+          case T.textFoldIdxM' go (PG.toUnboxed (PG.clear store')) str s of
+            (# s2, x #) -> (# s2, PG.fromUnboxed x #)
+
+    arr <- PG.finalise store''
+    pure ((arr, PG.size store''), store'')
+
   -- arrLen <- getSizeofMutablePrimArray arr
   pure $ P.MVector 0 arrLen $ PExt.primToByteArr arr
 
 foreign import ccall unsafe "u_towlower"
-  towlower :: Int -> Int
+  towlower :: Int# -> Int#
 
 foreign import ccall unsafe "u_iswupper"
-  iswupper :: Int -> Int
+  iswupper :: Int# -> Int#
+
+isUpperASCII :: Int# -> Int#
+isUpperASCII x = (64# <# x) `andI#` (x <# 91#)
+
+toLowerASCII :: Int# -> Int#
+toLowerASCII x = x -# 32#
 
 {-# INLINE combineCharIdx #-}
 combineCharIdx :: Word64 -> Int -> Word64
