@@ -66,10 +66,10 @@ import Data.List qualified as L
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.List.NonEmpty qualified as NE
 import Data.Ord
+import Data.Primitive.ByteArray
 import Data.Primitive.PrimArray
 import Data.Primitive.PrimArray.Ext qualified as PExt
-import Data.Primitive.PrimArray.Growable qualified as PG
-import Data.Primitive.PrimArray.GrowableMut qualified as PGM
+import Data.Primitive.Types
 import Data.STRef
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -107,13 +107,13 @@ isWord :: Char -> Bool
 isWord = not . isWordSeparator
 
 data ReusableState s = ReusableState
-  { rsHaystackStore :: !(PGM.GrowablePrimArrayMut s Word64)
+  { rsHaystackStore :: !(STRef s (MutableByteArray s))
   , rsNeedleStore   :: !(VM.MVector s (U.Vector PackedIdx))
   }
 
-mkReusableState :: PrimMonad m => Int -> NeedleChars -> m (ReusableState (PrimState m))
+mkReusableState :: Int -> NeedleChars -> ST s (ReusableState s)
 mkReusableState needleSize chars = do
-  rsHaystackStore <- PGM.new $ needleCharsCountHint chars
+  rsHaystackStore <- newSTRef =<< newByteArray (needleCharsCountHint chars)
   rsNeedleStore   <- VM.unsafeNew needleSize
   pure ReusableState{rsHaystackStore, rsNeedleStore}
 
@@ -148,7 +148,7 @@ instance CharMember CharsVector where
   charMember charCode (CharsVector arr) = VExt.binSearchMember (C# (chr# charCode)) arr
 
 hasZeroByte :: Word64 -> Bool
-hasZeroByte !x = 0 < (((x - 0x0101010101010101) .&. complement x .&. 0x8080808080808080))
+hasZeroByte !x = 0 /= (((x - 0x0101010101010101) .&. complement x .&. 0x8080808080808080))
 
 -- hasZeroByte :: Word64# -> Bool
 -- hasZeroByte x =
@@ -238,8 +238,8 @@ instance U.Unbox PackedCharAndIdx
 instance Show PackedCharAndIdx where
   show (PackedCharAndIdx x) =
     show
-      ( -- chr $ fromIntegral $
-        showString "0x" . showHex (keepChar (PackedChar x) `unsafeShiftR` 32) $ []
+      ( chr $ fromIntegral $ keepChar (PackedChar x) `unsafeShiftR` 32
+      , showString "0x" . showHex (keepChar (PackedChar x) `unsafeShiftR` 32) $ []
       , keepIdx (PackedIdx x)
       )
 
@@ -314,78 +314,90 @@ instance Ord PackedIdx where
 
 {-# NOINLINE mkHaystack #-}
 mkHaystack :: forall s. ReusableState s -> NeedleChars -> Text -> ST s (PM.MVector s Word64)
-mkHaystack (ReusableState store _) !needleChars !str = do
+mkHaystack (ReusableState store _) !needleChars !str@(TI.Text _ _ haystackBytes) = do
   -- store <- PGM.new (needleCharsCountHint needleChars)
-  (arr, arrLen) <- PGM.with store $ \store' -> do
+  arr <- readSTRef store
 
-    let goAscii
-          :: (Int# -> Bool)
-          -> Int#
-          -> Int#
-          -> PG.GrowablePrimArrayU ss Word64
-          -> State# ss
-          -> (# State# ss, PG.GrowablePrimArrayU ss Word64 #)
-        goAscii memberPred i charCode arr s1
-          | memberPred charCode =
-            case PG.pushU (combineCharIdx (W64# c') (I# i)) arr s1 of
-              res@(# s2, arr' #) ->
-                if isTrue# (isUpperASCII charCode)
-                then PG.pushU (combineCharIdx (fromIntegral (I# (toLowerASCII charCode))) (I# i)) arr' s2
-                else res
-          | otherwise =
-            (# s1, arr #)
-          where
-            c' = wordToWord64# (int2Word# charCode)
+  let toReserve = 2 * haystackBytes * I# (sizeOf# (undefined :: Word64))
 
-    store'' <- case needleChars of
-      NeedleChars8    needleChars' -> do
-        primitive $ \s ->
-          case T.textFoldIdxM' (goAscii (`charMember` needleChars')) (PG.toUnboxed (PG.clear store')) str s of
-            (# s2, x #) -> (# s2, PG.fromUnboxed x #)
+  currSize <- getSizeofMutableByteArray arr
 
-      NeedleChars16   needleChars' -> do
-        primitive $ \s ->
-          case T.textFoldIdxM' (goAscii (`charMember` needleChars')) (PG.toUnboxed (PG.clear store')) str s of
-            (# s2, x #) -> (# s2, PG.fromUnboxed x #)
+  arr'@(MutableByteArray mbarr) <-
+    if toReserve <= currSize
+    then pure arr
+    else do
+      arr' <- resizeMutableByteArray arr toReserve
+      writeSTRef store arr'
+      pure arr'
 
-      NeedleChars24   needleChars' -> do
-        primitive $ \s ->
-          case T.textFoldIdxM' (goAscii (`charMember` needleChars')) (PG.toUnboxed (PG.clear store')) str s of
-            (# s2, x #) -> (# s2, PG.fromUnboxed x #)
+  let goAscii
+        :: (Int# -> Bool)
+        -> Word64
+        -> Int#
+        -> Int#
+        -> State# s
+        -> (# State# s, Int# #)
+      goAscii memberPred i charCode j s1
+        | memberPred charCode =
+          case writeByteArray# mbarr j (combineCharIdx (W64# c') i) s1 of
+            s2 ->
+              if isTrue# (isUpperASCII charCode)
+              then
+                case writeByteArray# mbarr (j +# 1#) (combineCharIdx (fromIntegral (I# (toLowerASCII charCode))) i) s2 of
+                  s3 -> (# s3, j +# 2# #)
+              else (# s2, j +# 1# #)
+        | otherwise =
+          (# s1, j #)
+        where
+          c' = wordToWord64# (int2Word# charCode)
 
-      NeedleChars32   needleChars' -> do
-        primitive $ \s ->
-          case T.textFoldIdxM' (goAscii (`charMember` needleChars')) (PG.toUnboxed (PG.clear store')) str s of
-            (# s2, x #) -> (# s2, PG.fromUnboxed x #)
+  arrLen <- case needleChars of
+    NeedleChars8    needleChars' -> do
+      primitive $ \s ->
+        case T.textFoldIdxM' (goAscii (`charMember` needleChars')) 0# str s of
+          (# s2, arrLen #) -> (# s2, I# arrLen #)
 
-      NeedleCharsLong needleChars' -> do
-        let go
-              :: Int#
-              -> Int#
-              -> PG.GrowablePrimArrayU ss Word64
-              -> State# ss
-              -> (# State# ss, PG.GrowablePrimArrayU ss Word64 #)
-            go i charCode arr s1
-              | charMember charCode needleChars' =
-                case PG.pushU (combineCharIdx (W64# c') (I# i)) arr s1 of
-                  res@(# s2, arr' #) ->
-                    if isTrue# (0# /=# iswupper charCode)
-                    then PG.pushU (combineCharIdx (fromIntegral (I# (towlower charCode))) (I# i)) arr' s2
-                    else res
-              | otherwise =
-                (# s1, arr #)
-              where
-                c' = wordToWord64# (int2Word# charCode)
+    NeedleChars16   needleChars' -> do
+      primitive $ \s ->
+        case T.textFoldIdxM' (goAscii (`charMember` needleChars')) 0# str s of
+          (# s2, arrLen #) -> (# s2, I# arrLen #)
 
-        primitive $ \s ->
-          case T.textFoldIdxM' go (PG.toUnboxed (PG.clear store')) str s of
-            (# s2, x #) -> (# s2, PG.fromUnboxed x #)
+    NeedleChars24   needleChars' -> do
+      primitive $ \s ->
+        case T.textFoldIdxM' (goAscii (`charMember` needleChars')) 0# str s of
+          (# s2, arrLen #) -> (# s2, I# arrLen #)
 
-    arr <- PG.finalise store''
-    pure ((arr, PG.size store''), store'')
+    NeedleChars32   needleChars' -> do
+      primitive $ \s ->
+        case T.textFoldIdxM' (goAscii (`charMember` needleChars')) 0# str s of
+          (# s2, arrLen #) -> (# s2, I# arrLen #)
 
-  -- arrLen <- getSizeofMutablePrimArray arr
-  pure $ P.MVector 0 arrLen $ PExt.primToByteArr arr
+    NeedleCharsLong needleChars' -> do
+      let go
+            :: Word64
+            -> Int#
+            -> Int#
+            -> State# s
+            -> (# State# s, Int# #)
+          go i charCode j s1
+            | charMember charCode needleChars' =
+              case writeByteArray# mbarr j (combineCharIdx (W64# c') i) s1 of
+                s2 ->
+                  if isTrue# (0# /=# iswupper charCode)
+                  then
+                    case writeByteArray# mbarr (j +# 1#) (combineCharIdx (fromIntegral (I# (towlower charCode))) i) s2 of
+                      s3 -> (# s3, j +# 2# #)
+                  else (# s2, j +# 1# #)
+            | otherwise =
+              (# s1, j #)
+            where
+              c' = wordToWord64# (int2Word# charCode)
+
+      primitive $ \s ->
+        case T.textFoldIdxM' go 0# str s of
+          (# s2, arrLen #) -> (# s2, I# arrLen #)
+
+  pure $ P.MVector 0 arrLen arr'
 
 foreign import ccall unsafe "u_towlower"
   towlower :: Int# -> Int#
@@ -400,8 +412,11 @@ toLowerASCII :: Int# -> Int#
 toLowerASCII x = x +# 32#
 
 {-# INLINE combineCharIdx #-}
-combineCharIdx :: Word64 -> Int -> Word64
-combineCharIdx c idx = (c `unsafeShiftL` 32) .|. (lower4Bytes .&. w64 idx)
+combineCharIdx :: Word64 -> Word64 -> Word64
+-- Safe to omit anding with lower4Bytes because index is unlikely to reach a point where that
+-- operation would have any effect
+-- combineCharIdx c idx = (c `unsafeShiftL` 32) .|. (lower4Bytes .&. w64 idx)
+combineCharIdx c idx = (c `unsafeShiftL` 32) .|. idx
 
 {-# INLINE w64 #-}
 w64 :: Integral a => a -> Word64

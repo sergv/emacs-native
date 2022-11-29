@@ -33,7 +33,6 @@ import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Array qualified as TA
 import Data.Text.Internal qualified as TI
-import Data.Text.Internal.Encoding.Utf8 (utf8LengthByLeader)
 import Data.Text.Unsafe qualified as TU
 import Data.Vector.Primitive qualified as P
 import Data.Vector.Primitive.Mutable qualified as PM
@@ -70,8 +69,8 @@ textFoldIdxM f !seed (TI.Text arr off len) = textFoldIdxLoop seed 0 off
 {-# INLINE textFoldIdxM' #-}
 textFoldIdxM'
   -- :: forall s (a :: TYPE ('BoxedRep 'Unlifted)).
-  :: forall s (a :: TYPE ('TupleRep '[ 'IntRep, UnliftedRep ])).
-      (Int# -> Int# -> a -> State# s -> (# State# s, a #))
+  :: forall s (a :: TYPE 'IntRep).
+      (Word64 -> Int# -> a -> State# s -> (# State# s, a #))
    -> a
    -> Text
    -> State# s
@@ -79,31 +78,35 @@ textFoldIdxM'
 textFoldIdxM' f seed (TI.Text arr off len) = textFoldIdxLoop seed 0 off
   where
     !end = off + len
-    textFoldIdxLoop :: a -> Int -> Int -> State# s -> (# State# s, a #)
-    textFoldIdxLoop x !i@(I# i') !j s
-      | j >= end  = (# s, x #)
+    textFoldIdxLoop :: a -> Word64 -> Int -> State# s -> (# State# s, a #)
+    textFoldIdxLoop acc !i !j s
+      | j >= end  = (# s, acc #)
       | otherwise =
         case iterArray' arr j of
           (# charCode, delta #) ->
-            case inline f i' charCode x s of
+            case inline f i charCode acc s of
               (# s2, x' #) ->
                 textFoldIdxLoop x' (i + 1) (j + delta) s2
 
 iterArray' :: TA.Array -> Int -> (# Int#, Int #)
 iterArray' arr j = (# w, l #)
   where
-    !m0 = TA.unsafeIndex arr j
-    !l  = utf8LengthByLeader m0
+    !m0@(W8# m0_8#) = TA.unsafeIndex arr j
+
+    m0# = word8ToWord# m0_8#
+
+    !l  = utf8LengthByLeader m0#
     !w  = case l of
-      1 -> wunsafeChr8 m0
+      1 -> word2Int# m0#
       2 -> wchr2 m0 (TA.unsafeIndex arr (j + 1))
       3 -> wchr3 m0 (TA.unsafeIndex arr (j + 1)) (TA.unsafeIndex arr (j + 2))
       _ -> wchr4 m0 (TA.unsafeIndex arr (j + 1)) (TA.unsafeIndex arr (j + 2)) (TA.unsafeIndex arr (j + 3))
 {-# INLINE iterArray' #-}
 
-wunsafeChr8 :: Word8 -> Int#
-wunsafeChr8 (W8# w#) = word2Int# (word8ToWord# w#)
-{-# INLINE wunsafeChr8 #-}
+utf8LengthByLeader :: Word# -> Int
+utf8LengthByLeader w = I# (c# `xorI#` c# <=# 0#)
+  where
+    c# = word2Int# (clz# (not# w))
 
 wchr2 :: Word8 -> Word8 -> Int#
 wchr2 (W8# x1#) (W8# x2#) =
