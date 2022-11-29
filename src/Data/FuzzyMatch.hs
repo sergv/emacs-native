@@ -397,7 +397,7 @@ isUpperASCII :: Int# -> Int#
 isUpperASCII x = (64# <# x) `andI#` (x <# 91#)
 
 toLowerASCII :: Int# -> Int#
-toLowerASCII x = x -# 32#
+toLowerASCII x = x +# 32#
 
 {-# INLINE combineCharIdx #-}
 combineCharIdx :: Word64 -> Int -> Word64
