@@ -171,7 +171,7 @@ scoreMatches (R seps (R needle (R haystacks Stop))) = {-# SCC "scoreMatches" #-}
         store <- mkReusableState (T.length needle') needleChars
 
         for haystacks' $ \(haystack, emacsStr) -> do
-          !match <- fuzzyMatch store (computeHeatMap haystack seps') needle' needleChars haystack
+          !match <- fuzzyMatch store (computeHeatmap haystack seps') needle' needleChars haystack
           pure (fi32 $ mScore $ match, T.length haystack, emacsStr)
 
   let matches
@@ -180,7 +180,7 @@ scoreMatches (R seps (R needle (R haystacks Stop))) = {-# SCC "scoreMatches" #-}
         $ (\xs -> coerce xs :: V.Vector (SortKey (v s)))
         -- $ L.sortOn (\(score, len, _emacsStr) -> (Down score, len))
         -- $ runPar
-        -- $ parMap (\(str, emacsStr) -> (mScore $ fuzzyMatch (computeHeatMap str seps') needle' str, str, emacsStr)) haystacks'
+        -- $ parMap (\(str, emacsStr) -> (mScore $ fuzzyMatch (computeHeatmap str seps') needle' str, str, emacsStr)) haystacks'
         $ haystacks''
   makeListFromVector matches
 
@@ -203,7 +203,7 @@ scoreSingleMatch (R seps (R needle (R haystack Stop))) = do
   let needleChars = (prepareNeedle needle')
       !Match{mScore, mPositions} = runST $ do
         store <- mkReusableState (T.length needle') needleChars
-        fuzzyMatch store (computeHeatMap haystack' seps') needle' needleChars haystack'
+        fuzzyMatch store (computeHeatmap haystack' seps') needle' needleChars haystack'
   score     <- makeInt $ fromIntegral mScore
   positions <- makeList =<< traverse (makeInt . fromIntegral . unStrIdx) mPositions
   cons score positions

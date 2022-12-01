@@ -19,14 +19,14 @@
 
 module Data.FuzzyMatchBaseline
   ( fuzzyMatch
-  , computeHeatMap
+  , computeHeatmap
   , Match(..)
   , NeedleChars
   , prepareNeedle
 
   -- * Interface for testing
   , computeGroupsAndInitScores
-  , HeatMapGroup(..)
+  , HeatmapGroup(..)
   , StrIdx(..)
   ) where
 
@@ -238,7 +238,7 @@ memoizeBy key f = g
 newtype StrIdx = StrIdx { unStrIdx :: Int }
   deriving (Eq, Ord, Show, Enum, Pretty)
 
-data HeatMapGroup = HeatMapGroup
+data HeatmapGroup = HeatmapGroup
   { -- | At which index the group starts, inclusive. Usually points to
     -- separator that started the group, even for the first group where
     -- it's equal to -1. So, w.r.t. interesting group contents this index
@@ -267,12 +267,12 @@ splitWithSeps firstSep seps = go firstSep
           Nothing         -> []
           Just (c', str') -> go c' str'
 
-computeHeatMap :: Text -> PrimArray Int32 -> PrimArray Int
-computeHeatMap str =
-  computeHeatMapFromGroups str . computeGroupsAndInitScores str
+computeHeatmap :: Text -> PrimArray Int32 -> PrimArray Int
+computeHeatmap str =
+  computeHeatmapFromGroups str . computeGroupsAndInitScores str
 
-computeHeatMapFromGroups :: Text -> (Int, [HeatMapGroup]) -> PrimArray Int
-computeHeatMapFromGroups fullStr (groupsCount, groups) = runPrimArray $ do
+computeHeatmapFromGroups :: Text -> (Int, [HeatmapGroup]) -> PrimArray Int
+computeHeatmapFromGroups fullStr (groupsCount, groups) = runPrimArray $ do
   scores <- newPrimArray len
   setPrimArray scores 0 len (initScore + initScoreAdjustment)
   update lastCharIdx lastCharBonus scores
@@ -281,19 +281,19 @@ computeHeatMapFromGroups fullStr (groupsCount, groups) = runPrimArray $ do
   for_ penalties    $ \(idx, val) -> update idx val scores
   pure scores
   where
-    groupScores :: [(HeatMapGroup, Int)]
+    groupScores :: [(HeatmapGroup, Int)]
     groupScores =
       zipWith (\d g -> (g, groupBasicScore d g)) (-3 : iterate (+ 1) (-5)) groups
 
     groupScores' :: [(StrIdx, Int)]
-    groupScores' = flip concatMap groupScores $ \(HeatMapGroup{hmgStart, hmgEnd}, score) ->
+    groupScores' = flip concatMap groupScores $ \(HeatmapGroup{hmgStart, hmgEnd}, score) ->
       map (, score) [succ hmgStart..min lastCharIdx (succ hmgEnd)]
 
     indexedWords :: [(StrIdx, StrIdx, Int)]
     indexedWords =
       fst $
       foldr
-        (\HeatMapGroup{hmgWordIndices, hmgStart} (results, end) ->
+        (\HeatmapGroup{hmgWordIndices, hmgStart} (results, end) ->
           let newIndices :: [(StrIdx, StrIdx, Int)]
               newIndices =
                 zipWith (\n (start, end') -> (start, end', n)) [0..]
@@ -353,8 +353,8 @@ computeHeatMapFromGroups fullStr (groupsCount, groups) = runPrimArray $ do
     -- initScores =
     --   (lastCharIdx, lastCharBonus) -- : map (, initScore) [StrIdx 0..pred lastCharIdx]
 
-    groupBasicScore :: Int -> HeatMapGroup -> Int
-    groupBasicScore nonBasePathDelta HeatMapGroup{hmgIsBasePath, hmgWordCount}
+    groupBasicScore :: Int -> HeatmapGroup -> Int
+    groupBasicScore nonBasePathDelta HeatmapGroup{hmgIsBasePath, hmgWordCount}
       | hmgIsBasePath = 35 + (if groupsCount > 2 then groupsCount - 2 else 0) - hmgWordCount
       | otherwise     = nonBasePathDelta
 
@@ -363,21 +363,21 @@ data GroupState = GroupState
   , gsWordCount       :: !Int
   }
 
-computeGroupsAndInitScores :: Text -> PrimArray Int32 -> (Int, [HeatMapGroup])
+computeGroupsAndInitScores :: Text -> PrimArray Int32 -> (Int, [HeatmapGroup])
 computeGroupsAndInitScores fullStr groupSeparators
   | T.null fullStr = (0, [])
   | otherwise
   = (groupsCount, )
   $ fst
-  $ foldr (\x@HeatMapGroup{hmgIsBasePath} (xs, seenBasePath) ->
+  $ foldr (\x@HeatmapGroup{hmgIsBasePath} (xs, seenBasePath) ->
              (x { hmgIsBasePath = not seenBasePath && hmgIsBasePath } : xs, seenBasePath || hmgIsBasePath))
           ([], False)
   -- $ onHead (\x -> x { hmgStart = StrIdx 0 })
   $ map analyseGroup groups
   where
-    analyseGroup :: (StrIdx, Char, StrIdx, Text) -> HeatMapGroup
+    analyseGroup :: (StrIdx, Char, StrIdx, Text) -> HeatmapGroup
     analyseGroup (start, prevChar, end, str) =
-      HeatMapGroup
+      HeatmapGroup
         { hmgStart       = start
         , hmgEnd         = end
         , hmgWordCount

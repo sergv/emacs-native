@@ -37,7 +37,6 @@
 
 module Data.FuzzyMatch
   ( fuzzyMatch
-  , computeHeatMap
   , Match(..)
   , NeedleChars
   , prepareNeedle
@@ -45,8 +44,10 @@ module Data.FuzzyMatch
   , mkReusableState
 
   -- * Interface for testing
+  , computeHeatmap
   , computeGroupsAndInitScores
-  , HeatMapGroup(..)
+  , Heatmap(..)
+  , HeatmapGroup(..)
   , StrIdx(..)
   ) where
 
@@ -518,12 +519,12 @@ submatchToMatch Submatch{smScore, smPositions} = Match
 fuzzyMatch
   :: forall s. WithCallStack
   => ReusableState s
-  -> PrimArray Int32 -- ^ Heatmap mapping characters to scores
+  -> Heatmap
   -> Text            -- ^ Needle
   -> NeedleChars     -- ^ Sorted needle characters
   -> Text            -- ^ Haystack
   -> ST s Match
-fuzzyMatch store heatmap needle needleChars haystack
+fuzzyMatch store (Heatmap heatmap) needle needleChars haystack
   | T.null needle = pure noMatch
   | otherwise     = do
     (occurs :: V.MVector s (U.Vector PackedIdx), anyEmpty) <- characterOccurrences store needle needleChars haystack
@@ -658,7 +659,7 @@ deriving instance GM.MVector U.MVector StrIdx
 deriving instance G.Vector   U.Vector  StrIdx
 instance U.Unbox StrIdx
 
-data HeatMapGroup = HeatMapGroup
+data HeatmapGroup = HeatmapGroup
   { -- | At which index the group starts, inclusive. Usually points to
     -- separator that started the group, even for the first group where
     -- it's equal to -1. So, w.r.t. interesting group contents this index
@@ -687,12 +688,15 @@ splitWithSeps firstSep seps = go firstSep
           Nothing         -> []
           Just (c', str') -> go c' str'
 
-computeHeatMap :: Text -> PrimArray Int32 -> PrimArray Int32
-computeHeatMap str =
-  computeHeatMapFromGroups str . computeGroupsAndInitScores str
+-- | Heatmap mapping characters to scores
+newtype Heatmap = Heatmap { unHeatmap :: PrimArray Int32 }
 
-computeHeatMapFromGroups :: Text -> (Int32, [HeatMapGroup]) -> PrimArray Int32
-computeHeatMapFromGroups haystack (groupsCount, groups) = runPrimArray $ do
+computeHeatmap :: Text -> PrimArray Int32 -> Heatmap
+computeHeatmap str =
+  computeHeatmapFromGroups str . computeGroupsAndInitScores str
+
+computeHeatmapFromGroups :: Text -> (Int32, [HeatmapGroup]) -> Heatmap
+computeHeatmapFromGroups haystack (groupsCount, groups) = Heatmap $ runPrimArray $ do
   scores <- newPrimArray len
   setPrimArray scores 0 len (initScore + initScoreAdjustment)
   -- scores <- UM.replicate len (initScore + initScoreAdjustment)
@@ -702,19 +706,19 @@ computeHeatMapFromGroups haystack (groupsCount, groups) = runPrimArray $ do
   for_ penalties    $ \(idx, val) -> update idx val scores
   pure scores
   where
-    groupScores :: [(HeatMapGroup, Int32)]
+    groupScores :: [(HeatmapGroup, Int32)]
     groupScores =
       zipWith (\d g -> (g, groupBasicScore d g)) (-3 : iterate (+ 1) (-5)) groups
 
     groupScores' :: [(StrIdx, Int32)]
-    groupScores' = flip concatMap groupScores $ \(HeatMapGroup{hmgStart, hmgEnd}, score) ->
+    groupScores' = flip concatMap groupScores $ \(HeatmapGroup{hmgStart, hmgEnd}, score) ->
       map (, score) [succ hmgStart..min lastCharIdx (succ hmgEnd)]
 
     indexedWords :: [(StrIdx, StrIdx, Int32)]
     indexedWords =
       fst $
       foldr
-        (\HeatMapGroup{hmgWordIndices, hmgStart} (results, end) ->
+        (\HeatmapGroup{hmgWordIndices, hmgStart} (results, end) ->
           let newIndices :: [(StrIdx, StrIdx, Int32)]
               newIndices =
                 zipWith (\n (start, end') -> (start, end', n)) [0..]
@@ -774,8 +778,8 @@ computeHeatMapFromGroups haystack (groupsCount, groups) = runPrimArray $ do
     -- initScores =
     --   (lastCharIdx, lastCharBonus) -- : map (, initScore) [StrIdx 0..pred lastCharIdx]
 
-    groupBasicScore :: Int32 -> HeatMapGroup -> Int32
-    groupBasicScore nonBasePathDelta HeatMapGroup{hmgIsBasePath, hmgWordCount}
+    groupBasicScore :: Int32 -> HeatmapGroup -> Int32
+    groupBasicScore nonBasePathDelta HeatmapGroup{hmgIsBasePath, hmgWordCount}
       | hmgIsBasePath = 35 + (if groupsCount > 2 then groupsCount - 2 else 0) - hmgWordCount
       | otherwise     = nonBasePathDelta
 
@@ -784,21 +788,21 @@ data GroupState = GroupState
   , gsWordCount       :: !Int32
   }
 
-computeGroupsAndInitScores :: Text -> PrimArray Int32 -> (Int32, [HeatMapGroup])
+computeGroupsAndInitScores :: Text -> PrimArray Int32 -> (Int32, [HeatmapGroup])
 computeGroupsAndInitScores haystack groupSeparators
   | T.null haystack = (0, [])
   | otherwise
   = (groupsCount, )
   $ fst
-  $ foldr (\x@HeatMapGroup{hmgIsBasePath} (xs, seenBasePath) ->
+  $ foldr (\x@HeatmapGroup{hmgIsBasePath} (xs, seenBasePath) ->
              (x { hmgIsBasePath = not seenBasePath && hmgIsBasePath } : xs, seenBasePath || hmgIsBasePath))
           ([], False)
   -- $ onHead (\x -> x { hmgStart = StrIdx 0 })
   $ map analyseGroup groups
   where
-    analyseGroup :: (StrIdx, Char, StrIdx, Text) -> HeatMapGroup
+    analyseGroup :: (StrIdx, Char, StrIdx, Text) -> HeatmapGroup
     analyseGroup (start, prevChar, end, str) =
-      HeatMapGroup
+      HeatmapGroup
         { hmgStart       = start
         , hmgEnd         = end
         , hmgWordCount

@@ -63,7 +63,7 @@ doMatch seps needle xs =
         match <-
           Data.FuzzyMatch.fuzzyMatch
             store
-            (Data.FuzzyMatch.computeHeatMap str seps)
+            (Data.FuzzyMatch.computeHeatmap str seps)
             needle
             needleChars
             str
@@ -80,7 +80,7 @@ doMatch seps needle xs =
 --   fromIntegral $
 --   Data.FuzzyMatch.mScore
 --     (Data.FuzzyMatch.fuzzyMatch
---       (Data.FuzzyMatch.computeHeatMap haystack seps)
+--       (Data.FuzzyMatch.computeHeatmap haystack seps)
 --       needle
 --       needleChars
 --       haystack)
@@ -98,7 +98,7 @@ fmSline :: PrimArray Int32 -> Text -> Sline.NeedleChars -> Text -> Int
 fmSline seps needle needleChars haystack =
   Sline.mScore
     (Sline.fuzzyMatch
-      (Sline.computeHeatMap haystack seps)
+      (Sline.computeHeatmap haystack seps)
       needle
       needleChars
       haystack)
