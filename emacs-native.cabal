@@ -68,16 +68,10 @@ library
     Data.FuzzyMatch
     Data.NBSem
     Data.Regex
-    Data.Primitive.Array.Growable
     Data.Primitive.PrimArray.Ext
-    Data.Primitive.PrimArray.Growable
-    Data.Primitive.PrimArray.GrowableMut
-    Data.Primitive.SmallArray.Growable
     Data.Text.Ext
     Data.Vector.Ext
     Data.Vector.FixedSort
-    Data.Vector.Growable
-    Data.Vector.GrowableMut
     Data.Vector.PredefinedSorts
 
     Emacs.EprojTagIndex
@@ -120,7 +114,7 @@ library
 
 foreign-library emacs-native
   import: ghc-options
-  options: standalone
+  -- options: standalone
   type:
     native-shared
   lib-version-info:

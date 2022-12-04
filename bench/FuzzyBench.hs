@@ -30,7 +30,7 @@ import Data.List qualified as L
 import Data.Ord
 import Data.Primitive.PrimArray
 import Data.Primitive.PrimArray.Ext qualified as PExt
-import Data.Primitive.PrimArray.Growable qualified as PG
+-- import Data.Primitive.PrimArray.Growable qualified as PG
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Ext qualified as T
@@ -52,7 +52,7 @@ import Data.Text.Unsafe qualified as TU
 import Data.FuzzyMatch qualified
 import Data.FuzzyMatchBaseline qualified as Sline
 
-import Data.Vector.Growable qualified as VG
+-- import Data.Vector.Growable qualified as VG
 
 import Test.Tasty.Bench
 
@@ -66,111 +66,111 @@ mkHaystackVector
     . T.unpack
     )
 
-{-# NOINLINE mkHaystackGrowableVectorUnpackText #-}
-mkHaystackGrowableVectorUnpackText :: [Text] -> [U.Vector Int64]
-mkHaystackGrowableVectorUnpackText strs = flip map strs $ \str -> runST $ do
-  store <- VG.new (T.length str)
-  go store 0 (T.unpack str)
-  where
-    go :: VG.GrowableVector (UM.MVector s Int64) -> Int -> String -> ST s (U.Vector Int64)
-    go acc _ []        = VG.unsafeFreeze acc
-    go acc !i (c : cs) = do
-      let !c' = toLower c
-      acc' <-
-        if c == c'
-        then do
-          VG.push (combineCharIdx c i) acc
-        else do
-          VG.push (combineCharIdx c i) acc >>= VG.push (combineCharIdx c' i)
-      go acc' (i + 1) cs
-
-
-
-
-
-{-# NOINLINE mkHaystackGrowableVectorIterateTextManually #-}
-mkHaystackGrowableVectorIterateTextManually :: [Text] -> [U.Vector Int64]
-mkHaystackGrowableVectorIterateTextManually = map mkHaystackGrowableVectorIterateTextManually1
-
-mkHaystackGrowableVectorIterateTextManually1 :: Text -> U.Vector Int64
-mkHaystackGrowableVectorIterateTextManually1 (TI.Text arr off len) = runST $ do
-  store <- VG.new (len + len `unsafeShiftR` 2)
-  go store 0 off
-  where
-    !end = off + len
-
-    go :: VG.GrowableVector (UM.MVector s Int64) -> Int -> Int -> ST s (U.Vector Int64)
-    go acc !i j
-      | j >= end  = VG.unsafeFreeze acc
-      | otherwise = do
-        let !n0 = TA.unsafeIndex arr i
-            !l = TU8.utf8LengthByLeader n0
-            !c = case l of
-              1 -> TUC.unsafeChr8 n0
-              2 -> TU8.chr2 n0 (TA.unsafeIndex arr (i + 1))
-              3 -> TU8.chr3 n0 (TA.unsafeIndex arr (i + 1)) (TA.unsafeIndex arr (i + 2))
-              _ -> TU8.chr4 n0 (TA.unsafeIndex arr (i + 1)) (TA.unsafeIndex arr (i + 2)) (TA.unsafeIndex arr (i + 3))
-
-            !c' = toLower c
-        acc' <-
-          if c == c'
-          then do
-            VG.push (combineCharIdx c i) acc
-          else do
-            VG.push (combineCharIdx c i) acc >>= VG.push (combineCharIdx c' i)
-        go acc' (i + 1) (j + l)
-
-
-
-{-# NOINLINE mkHaystackGrowableVectorIterateTextWithIter #-}
-mkHaystackGrowableVectorIterateTextWithIter :: [Text] -> [U.Vector Int64]
-mkHaystackGrowableVectorIterateTextWithIter = map mkHaystackGrowableVectorIterateTextWithIter1
-
-mkHaystackGrowableVectorIterateTextWithIter1 :: Text -> U.Vector Int64
-mkHaystackGrowableVectorIterateTextWithIter1 (TI.Text arr off len) = runST $ do
-  store <- VG.new (len + len `unsafeShiftR` 2)
-  go store 0 off
-  where
-    !end = off + len
-
-    go :: VG.GrowableVector (UM.MVector s Int64) -> Int -> Int -> ST s (U.Vector Int64)
-    go acc !i j
-      | j >= end  = VG.unsafeFreeze acc
-      | otherwise = do
-        let TU.Iter c delta = TU.iterArray arr j
-            !c'             = toLower c
-        acc' <-
-          if c == c'
-          then do
-            VG.push (combineCharIdx c i) acc
-          else do
-            VG.push (combineCharIdx c i) acc >>= VG.push (combineCharIdx c' i)
-        go acc' (i + 1) (j + delta)
-
-{-# NOINLINE mkHaystackGrowableVectorIterateTextWithTextFold #-}
-mkHaystackGrowableVectorIterateTextWithTextFold :: [Text] -> [U.Vector Int64]
-mkHaystackGrowableVectorIterateTextWithTextFold = map mkHaystackGrowableVectorIterateTextWithTextFold1
-
-mkHaystackGrowableVectorIterateTextWithTextFold1 :: Text -> U.Vector Int64
-mkHaystackGrowableVectorIterateTextWithTextFold1 str = runST $ do
-  store <- VG.new (len + len `unsafeShiftR` 2)
-  T.textFoldM go (0, store) str >>= VG.unsafeFreeze . snd
-  where
-    !len = T.length str
-
-    go
-      :: Char
-      -> (Int, VG.GrowableVector (UM.MVector s Int64))
-      -> ST s (Int, VG.GrowableVector (UM.MVector s Int64))
-    go !c (!i, !acc) = do
-      let !c' = toLower c
-      acc' <-
-        if c == c'
-        then do
-          VG.push (combineCharIdx c i) acc
-        else do
-          VG.push (combineCharIdx c i) acc >>= VG.push (combineCharIdx c' i)
-      pure (i + 1, acc')
+-- {-# NOINLINE mkHaystackGrowableVectorUnpackText #-}
+-- mkHaystackGrowableVectorUnpackText :: [Text] -> [U.Vector Int64]
+-- mkHaystackGrowableVectorUnpackText strs = flip map strs $ \str -> runST $ do
+--   store <- VG.new (T.length str)
+--   go store 0 (T.unpack str)
+--   where
+--     go :: VG.GrowableVector (UM.MVector s Int64) -> Int -> String -> ST s (U.Vector Int64)
+--     go acc _ []        = VG.unsafeFreeze acc
+--     go acc !i (c : cs) = do
+--       let !c' = toLower c
+--       acc' <-
+--         if c == c'
+--         then do
+--           VG.push (combineCharIdx c i) acc
+--         else do
+--           VG.push (combineCharIdx c i) acc >>= VG.push (combineCharIdx c' i)
+--       go acc' (i + 1) cs
+--
+--
+--
+--
+--
+-- {-# NOINLINE mkHaystackGrowableVectorIterateTextManually #-}
+-- mkHaystackGrowableVectorIterateTextManually :: [Text] -> [U.Vector Int64]
+-- mkHaystackGrowableVectorIterateTextManually = map mkHaystackGrowableVectorIterateTextManually1
+--
+-- mkHaystackGrowableVectorIterateTextManually1 :: Text -> U.Vector Int64
+-- mkHaystackGrowableVectorIterateTextManually1 (TI.Text arr off len) = runST $ do
+--   store <- VG.new (len + len `unsafeShiftR` 2)
+--   go store 0 off
+--   where
+--     !end = off + len
+--
+--     go :: VG.GrowableVector (UM.MVector s Int64) -> Int -> Int -> ST s (U.Vector Int64)
+--     go acc !i j
+--       | j >= end  = VG.unsafeFreeze acc
+--       | otherwise = do
+--         let !n0 = TA.unsafeIndex arr i
+--             !l = TU8.utf8LengthByLeader n0
+--             !c = case l of
+--               1 -> TUC.unsafeChr8 n0
+--               2 -> TU8.chr2 n0 (TA.unsafeIndex arr (i + 1))
+--               3 -> TU8.chr3 n0 (TA.unsafeIndex arr (i + 1)) (TA.unsafeIndex arr (i + 2))
+--               _ -> TU8.chr4 n0 (TA.unsafeIndex arr (i + 1)) (TA.unsafeIndex arr (i + 2)) (TA.unsafeIndex arr (i + 3))
+--
+--             !c' = toLower c
+--         acc' <-
+--           if c == c'
+--           then do
+--             VG.push (combineCharIdx c i) acc
+--           else do
+--             VG.push (combineCharIdx c i) acc >>= VG.push (combineCharIdx c' i)
+--         go acc' (i + 1) (j + l)
+--
+--
+--
+-- {-# NOINLINE mkHaystackGrowableVectorIterateTextWithIter #-}
+-- mkHaystackGrowableVectorIterateTextWithIter :: [Text] -> [U.Vector Int64]
+-- mkHaystackGrowableVectorIterateTextWithIter = map mkHaystackGrowableVectorIterateTextWithIter1
+--
+-- mkHaystackGrowableVectorIterateTextWithIter1 :: Text -> U.Vector Int64
+-- mkHaystackGrowableVectorIterateTextWithIter1 (TI.Text arr off len) = runST $ do
+--   store <- VG.new (len + len `unsafeShiftR` 2)
+--   go store 0 off
+--   where
+--     !end = off + len
+--
+--     go :: VG.GrowableVector (UM.MVector s Int64) -> Int -> Int -> ST s (U.Vector Int64)
+--     go acc !i j
+--       | j >= end  = VG.unsafeFreeze acc
+--       | otherwise = do
+--         let TU.Iter c delta = TU.iterArray arr j
+--             !c'             = toLower c
+--         acc' <-
+--           if c == c'
+--           then do
+--             VG.push (combineCharIdx c i) acc
+--           else do
+--             VG.push (combineCharIdx c i) acc >>= VG.push (combineCharIdx c' i)
+--         go acc' (i + 1) (j + delta)
+--
+-- {-# NOINLINE mkHaystackGrowableVectorIterateTextWithTextFold #-}
+-- mkHaystackGrowableVectorIterateTextWithTextFold :: [Text] -> [U.Vector Int64]
+-- mkHaystackGrowableVectorIterateTextWithTextFold = map mkHaystackGrowableVectorIterateTextWithTextFold1
+--
+-- mkHaystackGrowableVectorIterateTextWithTextFold1 :: Text -> U.Vector Int64
+-- mkHaystackGrowableVectorIterateTextWithTextFold1 str = runST $ do
+--   store <- VG.new (len + len `unsafeShiftR` 2)
+--   T.textFoldM go (0, store) str >>= VG.unsafeFreeze . snd
+--   where
+--     !len = T.length str
+--
+--     go
+--       :: Char
+--       -> (Int, VG.GrowableVector (UM.MVector s Int64))
+--       -> ST s (Int, VG.GrowableVector (UM.MVector s Int64))
+--     go !c (!i, !acc) = do
+--       let !c' = toLower c
+--       acc' <-
+--         if c == c'
+--         then do
+--           VG.push (combineCharIdx c i) acc
+--         else do
+--           VG.push (combineCharIdx c i) acc >>= VG.push (combineCharIdx c' i)
+--       pure (i + 1, acc')
 
 
 newtype NeedleChars = NeedleChars { unNeedleChars :: P.Vector Char }
@@ -190,30 +190,30 @@ mkHaystackNeedleChars :: NeedleChars -> [Text] -> [P.Vector Int64]
 mkHaystackNeedleChars needleChars =
   map (\xs -> runST (P.unsafeFreeze =<< mkHaystackNeedleChars1 needleChars xs))
 
-mkHaystackNeedleChars1 :: forall s. NeedleChars -> Text -> ST s (PM.MVector s Int64)
-mkHaystackNeedleChars1 needleChars str = do
-  store  <- PG.new (len + (len `unsafeShiftR` 2))
-  arr    <- PG.finalise =<< T.textFoldIdxM go store str
-  arrLen <- getSizeofMutablePrimArray arr
-  pure $ P.MVector 0 arrLen $ PExt.primToByteArr arr
-  where
-    !len = T.length str
-
-    go
-      :: Int
-      -> Char
-      -> PG.GrowablePrimArray s Int64
-      -> ST s (PG.GrowablePrimArray s Int64)
-    go !i !c !acc
-      | needleMember c needleChars = do
-        let !c' = toLower c
-        if c == c'
-        then do
-          PG.push (combineCharIdx c i) acc
-        else do
-          PG.push (combineCharIdx c i) acc >>= PG.push (combineCharIdx c' i)
-      | otherwise =
-        pure acc
+-- mkHaystackNeedleChars1 :: forall s. NeedleChars -> Text -> ST s (PM.MVector s Int64)
+-- mkHaystackNeedleChars1 needleChars str = do
+--   store  <- PG.new (len + (len `unsafeShiftR` 2))
+--   arr    <- PG.finalise =<< T.textFoldIdxM go store str
+--   arrLen <- getSizeofMutablePrimArray arr
+--   pure $ P.MVector 0 arrLen $ PExt.primToByteArr arr
+--   where
+--     !len = T.length str
+--
+--     go
+--       :: Int
+--       -> Char
+--       -> PG.GrowablePrimArray s Int64
+--       -> ST s (PG.GrowablePrimArray s Int64)
+--     go !i !c !acc
+--       | needleMember c needleChars = do
+--         let !c' = toLower c
+--         if c == c'
+--         then do
+--           PG.push (combineCharIdx c i) acc
+--         else do
+--           PG.push (combineCharIdx c i) acc >>= PG.push (combineCharIdx c' i)
+--       | otherwise =
+--         pure acc
 
 
 
@@ -358,11 +358,11 @@ main = do
   defaultMain
     [ bench "mkHaystackList"                                   $ nf mkHaystackList candidates
     , bench "mkHaystackVector"                                 $ nf mkHaystackVector candidates
-    , bench "mkHaystackGrowableVectorUnpackText"               $ nf mkHaystackGrowableVectorUnpackText candidates
-    , bench "mkHaystackGrowableVectorIterateTextManually"      $ nf mkHaystackGrowableVectorIterateTextManually candidates
-    , bench "mkHaystackGrowableVectorIterateTextWithIter"      $ nf mkHaystackGrowableVectorIterateTextWithIter candidates
-    , bench "mkHaystackGrowableVectorIterateTextManuallyReuse" $ nf mkHaystackGrowableVectorIterateTextManuallyReuse candidates
-    , bench "mkHaystackGrowableVectorIterateTextWithTextFold"  $ nf mkHaystackGrowableVectorIterateTextWithTextFold candidates
+    -- , bench "mkHaystackGrowableVectorUnpackText"               $ nf mkHaystackGrowableVectorUnpackText candidates
+    -- , bench "mkHaystackGrowableVectorIterateTextManually"      $ nf mkHaystackGrowableVectorIterateTextManually candidates
+    -- , bench "mkHaystackGrowableVectorIterateTextWithIter"      $ nf mkHaystackGrowableVectorIterateTextWithIter candidates
+    -- , bench "mkHaystackGrowableVectorIterateTextManuallyReuse" $ nf mkHaystackGrowableVectorIterateTextManuallyReuse candidates
+    -- , bench "mkHaystackGrowableVectorIterateTextWithTextFold"  $ nf mkHaystackGrowableVectorIterateTextWithTextFold candidates
     , bench "mkHaystackNeedleChars"                            $ nf (mkHaystackNeedleChars (prepareNeedle needle)) candidates
 
     , bench "Original Haskell fuzzy match"  $ nf fuzzyMatchOrig candidates
