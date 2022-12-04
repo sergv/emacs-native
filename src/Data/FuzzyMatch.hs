@@ -681,7 +681,9 @@ splitWithSeps
 splitWithSeps firstSep seps = go firstSep
   where
     go :: Char -> Text -> [(Char, Text)]
-    go c str = (c, prefix) : rest
+    go c str
+      | T.null str = []
+      | otherwise  = (c, prefix) : rest
       where
         (prefix, suffix) = T.span (not . PExt.binSearchMember seps . fromIntegral . ord) str
         rest = case T.uncons suffix of
