@@ -25,15 +25,7 @@
 {-# LANGUAGE UnliftedFFITypes           #-}
 {-# LANGUAGE ViewPatterns               #-}
 
-{-# OPTIONS_GHC -Wno-overflowed-literals #-}
-
-{-# OPTIONS_GHC -Wno-orphans #-}
-
 {-# OPTIONS_GHC -O2 #-}
-
-{-# OPTIONS_GHC -ddump-simpl -dsuppress-uniques -dsuppress-idinfo -dsuppress-module-prefixes -dsuppress-type-applications -dsuppress-coercions -dppr-cols200 -dsuppress-type-signatures -ddump-to-file #-}
--- {-# OPTIONS_GHC -ddump-simpl -dsuppress-uniques -dsuppress-coercions -dppr-cols200 -ddump-to-file #-}
--- {-# OPTIONS_GHC -ddump-spec #-}
 
 module Data.FuzzyMatch
   ( fuzzyMatch'
