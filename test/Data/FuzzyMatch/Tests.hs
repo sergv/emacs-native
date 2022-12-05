@@ -23,6 +23,7 @@ import Data.Primitive.PrimArray
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Traversable
+import Data.Vector.Primitive qualified as P
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -37,7 +38,7 @@ tests = testGroup "Data.FuzzyMatch.Tests"
   ]
 
 foobarHeatmap :: Heatmap
-foobarHeatmap = Heatmap $ primArrayFromList [84, -2, -3, -4, -5, -5]
+foobarHeatmap = Heatmap $ P.fromList [84, -2, -3, -4, -5, -5]
 
 noMatch :: Match
 noMatch = Match
@@ -74,11 +75,11 @@ fuzzyMatchTests = testGroup "fuzzy match"
   , mkTestCase "x" "foobar" (\_ -> pure foobarHeatmap) noMatch
   , mkTestCase "fooxar" "foobar" (\_ -> pure foobarHeatmap) noMatch
 
-  , mkTestCase "aaaaaaaaaa" (T.replicate 100 "a") (\_ -> pure (Heatmap (replicatePrimArray 100 1))) Match
+  , mkTestCase "aaaaaaaaaa" (T.replicate 100 "a") (\_ -> pure (Heatmap (P.replicate 100 1))) Match
       { mScore     = 865
       , mPositions = NE.fromList [StrIdx 90..StrIdx 99]
       }
-  , mkTestCase "aaaaaaaaaa" (T.replicate 200 "a") (\_ -> pure (Heatmap (replicatePrimArray 200 1))) Match
+  , mkTestCase "aaaaaaaaaa" (T.replicate 200 "a") (\_ -> pure (Heatmap (P.replicate 200 1))) Match
       { mScore     = 865
       , mPositions = NE.fromList [StrIdx 190..StrIdx 199]
       }
@@ -178,7 +179,7 @@ heatMap = testGroup "Heatmap"
         let Heatmap heatmap = runST $ do
               store <- mkReusableState 3 (prepareNeedle "foo")
               computeHeatmap store str groupSeps
-        heatmap @?= primArrayFromList result
+        heatmap @?= P.fromList result
       where
         seps
           | sizeofPrimArray groupSeps == 0 = mempty

@@ -100,14 +100,14 @@ isWord = not . isWordSeparator
 
 data ReusableState s = ReusableState
   { rsHaystackStore :: !(STRef s (MutableByteArray s))
-  , rsHeatmapStore  :: !(STRef s (MutablePrimArray s Int32))
+  , rsHeatmapStore  :: !(STRef s (PM.MVector s Int32))
   , rsNeedleStore   :: !(VM.MVector s (U.Vector PackedIdx))
   }
 
 mkReusableState :: Int -> NeedleChars -> ST s (ReusableState s)
 mkReusableState needleSize chars = do
   rsHaystackStore <- newSTRef =<< newByteArray (needleCharsCountHint chars)
-  rsHeatmapStore  <- newSTRef =<< newPrimArray (needleCharsCountHint chars)
+  rsHeatmapStore  <- newSTRef =<< PM.unsafeNew (needleCharsCountHint chars)
   rsNeedleStore   <- VM.unsafeNew needleSize
   pure ReusableState{rsHaystackStore, rsHeatmapStore, rsNeedleStore}
 
@@ -549,7 +549,7 @@ fuzzyMatch' store mkHeatmap needle needleChars haystack
                 let StrIdx !idx = getStrIdx pidx
                 in
                 Submatch
-                  { smScore           = heatmap `indexPrimArray` fromIntegral idx
+                  { smScore           = heatmap `P.unsafeIndex` fromIntegral idx
                   , smPositions       = StrIdx idx :| []
                   , smContiguousCount = 0
                   }
@@ -559,7 +559,7 @@ fuzzyMatch' store mkHeatmap needle needleChars haystack
                 let !idx' = getStrIdx pidx
                 submatches <- recur (VM.unsafeTail needleOccursInHaystack) pidx
                 pure $ getMaximum $ flip map submatches $ \submatch ->
-                  let score'          = smScore submatch + (heatmap `indexPrimArray` fromIntegral (unStrIdx idx'))
+                  let score'          = smScore submatch + (heatmap `P.unsafeIndex` fromIntegral (unStrIdx idx'))
                       contiguousBonus = 60 + 15 * min 3 (smContiguousCount submatch)
                       isContiguous    = NE.head (smPositions submatch) == succ idx'
                       score
@@ -667,7 +667,7 @@ splitWithSeps !firstSep !seps !fullStr !fullStrLen
           Just (c', str') -> go c' str'
 
 -- | Heatmap mapping characters to scores
-newtype Heatmap = Heatmap { unHeatmap :: PrimArray Int32 }
+newtype Heatmap = Heatmap { unHeatmap :: P.Vector Int32 }
 
 computeHeatmap :: ReusableState s -> Text -> PrimArray Int32 -> ST s Heatmap
 computeHeatmap store haystack =
@@ -677,19 +677,21 @@ computeHeatmap store haystack =
 
 computeHeatmapFromGroups :: ReusableState s -> Text -> Int -> (Int32, [HeatmapGroup]) -> ST s Heatmap
 computeHeatmapFromGroups ReusableState{rsHeatmapStore} !haystack !len (!groupsCount, groups) = do
-  arr      <- readSTRef rsHeatmapStore
-  currSize <- getSizeofMutablePrimArray arr
-  scores   <- if currSize > len
-    then pure arr
-    else do
-      arr' <- resizeMutablePrimArray arr (len * 2)
-      writeSTRef rsHeatmapStore arr'
-      pure arr'
-  shrinkMutablePrimArray scores len
+  vec      <- readSTRef rsHeatmapStore
+  scores   <- do
+    let !currSize = PM.length vec
+    vec' <-
+      if currSize > len
+      then pure vec
+      else do
+        vec' <- PM.unsafeNew (len * 2)
+        writeSTRef rsHeatmapStore vec'
+        pure vec'
+    pure $ PM.unsafeSlice 0 len vec'
 
   -- scores <- newPrimArray len
 
-  setPrimArray scores 0 len (initScore + initScoreAdjustment)
+  PM.set scores (initScore + initScoreAdjustment)
   update lastCharIdx lastCharBonus scores
   applyGroupScores scores groupScores
   addWordScores scores indexedWords
@@ -700,7 +702,7 @@ computeHeatmapFromGroups ReusableState{rsHeatmapStore} !haystack !len (!groupsCo
       let !idx' = StrIdx (fromIntegral (idx + 1))
       update idx' (-45) scores
 
-  Heatmap <$> unsafeFreezePrimArray scores
+  Heatmap <$> P.unsafeFreeze scores
   where
     groupScores :: [(HeatmapGroup, Int32)]
     groupScores = annotate groups
@@ -719,7 +721,7 @@ computeHeatmapFromGroups ReusableState{rsHeatmapStore} !haystack !len (!groupsCo
 
       -- zipWith (\d g -> (g, groupBasicScore d g)) (-3 : iterate (+ 1) (-5)) groups
 
-    applyGroupScores :: forall ss. MutablePrimArray ss Int32 -> [(HeatmapGroup, Int32)] -> ST ss ()
+    applyGroupScores :: forall ss. PM.MVector ss Int32 -> [(HeatmapGroup, Int32)] -> ST ss ()
     applyGroupScores scores =
       traverse_ $ \(HeatmapGroup{hmgStart, hmgEnd}, score) ->
         forFromTo_ (succ hmgStart) (min lastCharIdx (succ hmgEnd)) $ \_ pos ->
@@ -740,7 +742,7 @@ computeHeatmapFromGroups ReusableState{rsHeatmapStore} !haystack !len (!groupsCo
         ([], lastCharIdx)
         groups
 
-    addWordScores :: forall ss. MutablePrimArray ss Int32 -> [(StrIdx, StrIdx, Int32)] -> ST ss ()
+    addWordScores :: forall ss. PM.MVector ss Int32 -> [(StrIdx, StrIdx, Int32)] -> ST ss ()
     addWordScores scores = traverse_ applyScores
       where
         applyScores (start, end, wordIdx) = do
@@ -757,10 +759,9 @@ computeHeatmapFromGroups ReusableState{rsHeatmapStore} !haystack !len (!groupsCo
       [_] -> 0
       _   -> (-2) * groupsCount
 
-    update :: forall ss. StrIdx -> Int32 -> MutablePrimArray ss Int32 -> ST ss ()
-    update (StrIdx idx) !val vec = do
-      val' <- readPrimArray vec (fromIntegral idx)
-      writePrimArray vec (fromIntegral idx) (val' + val)
+    update :: forall ss. StrIdx -> Int32 -> PM.MVector ss Int32 -> ST ss ()
+    update (StrIdx idx) !val vec =
+      PM.unsafeModify vec (+ val) (fromIntegral idx)
 
     forFromTo_ :: Monad m => StrIdx -> StrIdx -> (Int32 -> StrIdx -> m ()) -> m ()
     forFromTo_ start end f = go 0
