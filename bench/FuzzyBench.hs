@@ -25,7 +25,6 @@ import Control.Monad.ST
 import Data.Char
 import Data.Coerce
 import Data.Int
-import Data.List qualified as L
 import Data.Ord
 import Data.Primitive.PrimArray
 import Data.Text (Text)
@@ -36,7 +35,6 @@ import Data.Vector qualified as V
 import Data.Vector.Ext qualified as VExt
 
 import Data.FuzzyMatch qualified
-import Data.FuzzyMatchBaseline qualified as Sline
 
 import Test.Tasty.Bench
 
@@ -67,20 +65,7 @@ main = do
   evaluate $ rnf candidates
   putStrLn $ "Number of candidates = " ++ show (length candidates)
 
-  -- let !kSline = sum $ map (\i -> sum $ map fst $ doMatchSline i seps needle candidates) [0..read n]
-  -- putStrLn $ "kSline = " ++ show kSline
-  -- let !k = sum $ map (\i -> sum $ map fst $ doMatch i seps needle candidates) [0..read n]
-  -- putStrLn $ "k = " ++ show k
-  --
-  -- _ <- die "We're done"
-
-  let origScore str = Sline.mScore $ Sline.fuzzyMatch (Sline.computeHeatmap str seps32) needle (Sline.prepareNeedle needle) str
-
-      fuzzyMatchOrig
-        = L.sortOn (\(score, str) -> (score, T.length str))
-        . map (\str -> (Down $ origScore str, str))
-
-      fuzzyMatchOpt xs =
+  let fuzzyMatchOpt xs =
 
         fmap (\(SortKey (_, _, str)) -> str) $
           VExt.sortVectorUnsafe $
@@ -97,6 +82,5 @@ main = do
 
 
   defaultMain
-    [ bench "Original Haskell fuzzy match"  $ nf fuzzyMatchOrig candidates
-    , bench "Optimized Haskell fuzzy match" $ nf fuzzyMatchOpt candidatesV
+    [ bench "Optimized Haskell fuzzy match" $ nf fuzzyMatchOpt candidatesV
     ]

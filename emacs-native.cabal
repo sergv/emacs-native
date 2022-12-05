@@ -64,7 +64,6 @@ library
     Data.Emacs.Path
     Data.Eproj
     Data.Filesystem
-    Data.FuzzyMatchBaseline
     Data.FuzzyMatch
     Data.NBSem
     Data.Regex
@@ -153,10 +152,8 @@ test-suite emacs-native-test
     test
   other-modules:
     Data.FuzzyMatch.Tests
-    Data.FuzzyMatchBaseline.Tests
   build-depends:
     , base
-    , containers
     , emacs-native
     , primitive
     , tasty
