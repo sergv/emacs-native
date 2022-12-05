@@ -60,14 +60,17 @@ doMatch seps needle xs =
     ys = runST $ do
       store <- Data.FuzzyMatch.mkReusableState (T.length needle) needleChars
       for (V.fromList xs) $ \str -> do
+        heatmap <- Data.FuzzyMatch.computeHeatmap store str seps
         match <-
           Data.FuzzyMatch.fuzzyMatch
             store
-            (Data.FuzzyMatch.computeHeatmap str seps)
+            heatmap
             needle
             needleChars
             str
         pure (fi32 $ Data.FuzzyMatch.mScore match, T.length str, str)
+        -- !_ <- Data.FuzzyMatch.computeHeatmap store str seps
+        -- pure (0, T.length str, str)
 
   -- = L.sortOn (\(score, str) -> (Down score, str, T.length str))
   -- . map (\str -> (fm seps needle needleChars str, str))

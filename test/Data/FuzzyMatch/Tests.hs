@@ -9,13 +9,13 @@
 {-# LANGUAGE BangPatterns        #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE OverloadedStrings   #-}
+{-# LANGUAGE RankNTypes          #-}
 
 module Data.FuzzyMatch.Tests (tests) where
 
 import Control.Monad.ST
 import Data.Char
 import Data.Int
-import Data.IntSet qualified as IS
 import Data.List qualified as L
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.List.NonEmpty qualified as NE
@@ -47,65 +47,66 @@ noMatch = Match
 
 fuzzyMatchTests :: TestTree
 fuzzyMatchTests = testGroup "fuzzy match"
-  [ mkTestCase "foo" "foobar" foobarHeatmap Match
+  [ mkTestCase "foo" "foobar" (\_ -> pure foobarHeatmap) Match
       { mScore     = 214
       , mPositions = StrIdx 0 :| [StrIdx 1, StrIdx 2]
       }
-  , mkTestCase "fo" "foobar" foobarHeatmap Match
+  , mkTestCase "fo" "foobar" (\_ -> pure foobarHeatmap) Match
       { mScore     = 142
       , mPositions = StrIdx 0 :| [StrIdx 1]
       }
-  , mkTestCase "oob" "foobar" foobarHeatmap Match
+  , mkTestCase "oob" "foobar" (\_ -> pure foobarHeatmap) Match
       { mScore     = 126
       , mPositions = StrIdx 1 :| [StrIdx 2, StrIdx 3]
       }
-  , mkTestCase "ooba" "foobar" foobarHeatmap Match
+  , mkTestCase "ooba" "foobar" (\_ -> pure foobarHeatmap) Match
       { mScore     = 211
       , mPositions = StrIdx 1 :| [StrIdx 2, StrIdx 3, StrIdx 4]
       }
-  , mkTestCase "or" "foobar" foobarHeatmap Match
+  , mkTestCase "or" "foobar" (\_ -> pure foobarHeatmap) Match
       { mScore     = (-7)
       , mPositions = StrIdx 1 :| [StrIdx 5]
       }
-  , mkTestCase "oor" "foobar" foobarHeatmap Match
+  , mkTestCase "oor" "foobar" (\_ -> pure foobarHeatmap) Match
       { mScore     = 50
       , mPositions = StrIdx 1 :| [StrIdx 2, StrIdx 5]
       }
-  , mkTestCase "x" "foobar" foobarHeatmap noMatch
-  , mkTestCase "fooxar" "foobar" foobarHeatmap noMatch
+  , mkTestCase "x" "foobar" (\_ -> pure foobarHeatmap) noMatch
+  , mkTestCase "fooxar" "foobar" (\_ -> pure foobarHeatmap) noMatch
 
-  , mkTestCase "aaaaaaaaaa" (T.replicate 100 "a") (Heatmap (replicatePrimArray 100 1)) Match
+  , mkTestCase "aaaaaaaaaa" (T.replicate 100 "a") (\_ -> pure (Heatmap (replicatePrimArray 100 1))) Match
       { mScore     = 865
       , mPositions = NE.fromList [StrIdx 90..StrIdx 99]
       }
-  , mkTestCase "aaaaaaaaaa" (T.replicate 200 "a") (Heatmap (replicatePrimArray 200 1)) Match
+  , mkTestCase "aaaaaaaaaa" (T.replicate 200 "a") (\_ -> pure (Heatmap (replicatePrimArray 200 1))) Match
       { mScore     = 865
       , mPositions = NE.fromList [StrIdx 190..StrIdx 199]
       }
   , let haystack = "sys/dev/acpica/Osd/OsdTable.c" :: Text in
-      mkTestCase "cat.c" haystack (computeHeatmap haystack mempty) Match
+      mkTestCase "cat.c" haystack (\store -> computeHeatmap store haystack mempty) Match
         { mScore     = 142
         , mPositions = NE.fromList (map StrIdx [12, 13, 22, 27, 28])
         }
   , let haystack = "/home/user/projects/Data/Vector.hs" :: Text in
-    mkTestCase "vector" haystack (computeHeatmap haystack mempty) Match
+    mkTestCase "vector" haystack (\store -> computeHeatmap store haystack mempty) Match
       { mScore     = 397
       , mPositions = fmap StrIdx $ 25 :| [26, 27, 28, 29, 30]
       }
   , let haystack = "all-packages/vector-th-unbox-0.2.2/Data/Vector/Unboxed/Deriving.hs" :: Text in
-    mkTestCase "vector.hs" haystack (computeHeatmap haystack mempty) Match
+    mkTestCase "vector.hs" haystack (\store -> computeHeatmap store haystack mempty) Match
       { mScore     = 414
       , mPositions = fmap StrIdx $ 13 :| [14, 15, 16, 17, 18, 63, 64, 65]
       }
   ]
   where
-    mkTestCase :: Text -> Text -> Heatmap -> Match -> TestTree
-    mkTestCase needle haystack haystackHeatmap result =
-      testCase (T.unpack $ "match '" <> needle <> "' against '" <> haystack <> "'") $ do
+    mkTestCase :: Text -> Text -> (forall s. ReusableState s -> ST s Heatmap) -> Match -> TestTree
+    mkTestCase needle haystack mkHeatmap result =
+      testCase (T.unpack $ "match ‘" <> needle <> "’ against ‘" <> haystack <> "’") $ do
         let match = runST $ do
               let needleChars = prepareNeedle needle
-              store <- mkReusableState (T.length needle) needleChars
-              fuzzyMatch store haystackHeatmap needle needleChars haystack
+              store   <- mkReusableState (T.length needle) needleChars
+              heatmap <- mkHeatmap store
+              fuzzyMatch store heatmap needle needleChars haystack
         match @?= result
 
 fuzzyMatchMultipleTests :: TestTree
@@ -116,12 +117,13 @@ fuzzyMatchMultipleTests = testGroup "fuzzy match multiple"
   where
     mkTestCase :: Text -> [Text] -> [Int32] -> TestTree
     mkTestCase needle haystacks expectedScores =
-      testCase (T.unpack $ "match '" <> needle <> "' against '" <> T.pack (show haystacks) <> "'") $ do
+      testCase (T.unpack $ "match ‘" <> needle <> "’ against ‘" <> T.pack (show haystacks) <> "’") $ do
         let matches = runST $ do
               let needleChars = prepareNeedle needle
               store <- mkReusableState (T.length needle) needleChars
               for haystacks $ \haystack -> do
-                !match <- fuzzyMatch store (computeHeatmap haystack mempty) needle needleChars haystack
+                heatmap <- computeHeatmap store haystack mempty
+                !match  <- fuzzyMatch store heatmap needle needleChars haystack
                 pure $ mScore match
         matches @?= expectedScores
 
@@ -172,8 +174,11 @@ heatMap = testGroup "Heatmap"
   where
     mkTestCase :: Text -> PrimArray Int32 -> [Int32] -> TestTree
     mkTestCase str groupSeps result =
-      testCase (T.unpack $ "Heatmap of '" <> str <> "'" <> seps) $
-        unHeatmap (computeHeatmap str groupSeps) @?= primArrayFromList result
+      testCase (T.unpack $ "Heatmap of ‘" <> str <> "’" <> seps) $ do
+        let Heatmap heatmap = runST $ do
+              store <- mkReusableState 3 (prepareNeedle "foo")
+              computeHeatmap store str groupSeps
+        heatmap @?= primArrayFromList result
       where
         seps
           | sizeofPrimArray groupSeps == 0 = mempty
@@ -183,133 +188,149 @@ heatMap = testGroup "Heatmap"
 heatMapGrouping :: TestTree
 heatMapGrouping = testGroup "Grouping for heatmap computation"
   [ mkTestCase "foo" mempty $ (:[]) HeatmapGroup
-    { hmgStart       = StrIdx (-1)
-    , hmgEnd         = StrIdx 2
-    , hmgWordCount   = 1
-    , hmgWordIndices = IS.singleton 0
-    , hmgIsBasePath  = True
+    { hmgStart           = StrIdx (-1)
+    , hmgEnd             = StrIdx 2
+    , hmgWordCount       = 1
+    , hmgWordIndices     = [StrIdx 0]
+    , hmgWordIndicesSize = 1
+    , hmgIsBasePath      = True
     }
   , mkTestCase "bar" mempty $ (:[]) HeatmapGroup
-    { hmgStart       = StrIdx (-1)
-    , hmgEnd         = StrIdx 2
-    , hmgWordCount   = 1
-    , hmgWordIndices = IS.singleton 0
-    , hmgIsBasePath  = True
+    { hmgStart           = StrIdx (-1)
+    , hmgEnd             = StrIdx 2
+    , hmgWordCount       = 1
+    , hmgWordIndices     = [StrIdx 0]
+    , hmgWordIndicesSize = 1
+    , hmgIsBasePath      = True
     }
   , mkTestCase "foo.bar" mempty $ (:[]) HeatmapGroup
-    { hmgStart       = StrIdx (-1)
-    , hmgEnd         = StrIdx 6
-    , hmgWordCount   = 2
-    , hmgWordIndices = IS.fromList [4, 0]
-    , hmgIsBasePath  = True
+    { hmgStart           = StrIdx (-1)
+    , hmgEnd             = StrIdx 6
+    , hmgWordCount       = 2
+    , hmgWordIndices     = [StrIdx 4, StrIdx 0]
+    , hmgWordIndicesSize = 2
+    , hmgIsBasePath      = True
     }
   , mkTestCase "foo+bar" mempty $ (:[]) HeatmapGroup
-    { hmgStart       = StrIdx (-1)
-    , hmgEnd         = StrIdx 6
-    , hmgWordCount   = 2
-    , hmgWordIndices = IS.fromList [4, 0]
-    , hmgIsBasePath  = True
+    { hmgStart           = StrIdx (-1)
+    , hmgEnd             = StrIdx 6
+    , hmgWordCount       = 2
+    , hmgWordIndices     = [StrIdx 4, StrIdx 0]
+    , hmgWordIndicesSize = 2
+    , hmgIsBasePath      = True
     }
   , mkTestCase "foo/bar/baz" mempty $ (:[]) HeatmapGroup
-    { hmgStart       = StrIdx (-1)
-    , hmgEnd         = StrIdx 10
-    , hmgWordCount   = 3
-    , hmgWordIndices = IS.fromList [8, 4, 0]
-    , hmgIsBasePath  = True
+    { hmgStart           = StrIdx (-1)
+    , hmgEnd             = StrIdx 10
+    , hmgWordCount       = 3
+    , hmgWordIndices     = [StrIdx 8, StrIdx 4, StrIdx 0]
+    , hmgWordIndicesSize = 3
+    , hmgIsBasePath      = True
     }
   , mkTestCase "foo/bar" (primArrayFromList [fi32 $ ord '/'])
     [ HeatmapGroup
-      { hmgStart       = StrIdx (-1)
-      , hmgEnd         = StrIdx 2
-      , hmgWordCount   = 1
-      , hmgWordIndices = IS.singleton 0
-      , hmgIsBasePath  = False
+      { hmgStart           = StrIdx (-1)
+      , hmgEnd             = StrIdx 2
+      , hmgWordCount       = 1
+      , hmgWordIndices     = [StrIdx 0]
+      , hmgWordIndicesSize = 1
+      , hmgIsBasePath      = False
       }
     , HeatmapGroup
-      { hmgStart       = StrIdx 3
-      , hmgEnd         = StrIdx 6
-      , hmgWordCount   = 1
-      , hmgWordIndices = IS.singleton 4
-      , hmgIsBasePath  = True
+      { hmgStart           = StrIdx 3
+      , hmgEnd             = StrIdx 6
+      , hmgWordCount       = 1
+      , hmgWordIndices     = [StrIdx 4]
+      , hmgWordIndicesSize = 1
+      , hmgIsBasePath      = True
       }
     ]
   , mkTestCase "foo/bar/baz" (primArrayFromList [fi32 $ ord '/'])
     [ HeatmapGroup
-      { hmgStart       = StrIdx (-1)
-      , hmgEnd         = StrIdx 2
-      , hmgWordCount   = 1
-      , hmgWordIndices = IS.singleton 0
-      , hmgIsBasePath  = False
+      { hmgStart           = StrIdx (-1)
+      , hmgEnd             = StrIdx 2
+      , hmgWordCount       = 1
+      , hmgWordIndices     = [StrIdx 0]
+      , hmgWordIndicesSize = 1
+      , hmgIsBasePath      = False
       }
     , HeatmapGroup
-      { hmgStart       = StrIdx 3
-      , hmgEnd         = StrIdx 6
-      , hmgWordCount   = 1
-      , hmgWordIndices = IS.singleton 4
-      , hmgIsBasePath  = False
+      { hmgStart           = StrIdx 3
+      , hmgEnd             = StrIdx 6
+      , hmgWordCount       = 1
+      , hmgWordIndices     = [StrIdx 4]
+      , hmgWordIndicesSize = 1
+      , hmgIsBasePath      = False
       }
     , HeatmapGroup
-      { hmgStart       = StrIdx 7
-      , hmgEnd         = StrIdx 10
-      , hmgWordCount   = 1
-      , hmgWordIndices = IS.singleton 8
-      , hmgIsBasePath  = True
+      { hmgStart           = StrIdx 7
+      , hmgEnd             = StrIdx 10
+      , hmgWordCount       = 1
+      , hmgWordIndices     = [StrIdx 8]
+      , hmgWordIndicesSize = 1
+      , hmgIsBasePath      = True
       }
     ]
   , mkTestCase "foo/bar+quuz" mempty
       [ HeatmapGroup
-          { hmgStart       = StrIdx (-1)
-          , hmgEnd         = StrIdx 11
-          , hmgWordCount   = 3
-          , hmgWordIndices = IS.fromList [0, 4, 8]
-          , hmgIsBasePath  = True
+          { hmgStart           = StrIdx (-1)
+          , hmgEnd             = StrIdx 11
+          , hmgWordCount       = 3
+          , hmgWordIndices     = [StrIdx 8, StrIdx 4, StrIdx 0]
+          , hmgWordIndicesSize = 3
+          , hmgIsBasePath      = True
           }
       ]
   , mkTestCase
       "foo/bar+quux/fizz.buzz/frobnicate/frobulate"
       (primArrayFromList [fi32 $ ord '/'])
       [ HeatmapGroup
-          { hmgStart       = StrIdx (-1)
-          , hmgEnd         = StrIdx 2
-          , hmgWordCount   = 1
-          , hmgWordIndices = IS.singleton 0
-          , hmgIsBasePath  = False
+          { hmgStart           = StrIdx (-1)
+          , hmgEnd             = StrIdx 2
+          , hmgWordCount       = 1
+          , hmgWordIndices     = [StrIdx 0]
+          , hmgWordIndicesSize = 1
+          , hmgIsBasePath      = False
           }
       , HeatmapGroup
-          { hmgStart       = StrIdx 3
-          , hmgEnd         = StrIdx 11
-          , hmgWordCount   = 2
-          , hmgWordIndices = IS.fromList [4, 8]
-          , hmgIsBasePath  = False
+          { hmgStart           = StrIdx 3
+          , hmgEnd             = StrIdx 11
+          , hmgWordCount       = 2
+          , hmgWordIndices     = [StrIdx 8, StrIdx 4]
+          , hmgWordIndicesSize = 2
+          , hmgIsBasePath      = False
           }
       , HeatmapGroup
-          { hmgStart       = StrIdx 12
-          , hmgEnd         = StrIdx 21
-          , hmgWordCount   = 2
-          , hmgWordIndices = IS.fromList [13, 18]
-          , hmgIsBasePath  = False
+          { hmgStart           = StrIdx 12
+          , hmgEnd             = StrIdx 21
+          , hmgWordCount       = 2
+          , hmgWordIndices     = [StrIdx 18, StrIdx 13]
+          , hmgWordIndicesSize = 2
+          , hmgIsBasePath      = False
           }
       , HeatmapGroup
-          { hmgStart       = StrIdx 22
-          , hmgEnd         = StrIdx 32
-          , hmgWordCount   = 1
-          , hmgWordIndices = IS.singleton 23
-          , hmgIsBasePath  = False
+          { hmgStart           = StrIdx 22
+          , hmgEnd             = StrIdx 32
+          , hmgWordCount       = 1
+          , hmgWordIndices     = [StrIdx 23]
+          , hmgWordIndicesSize = 1
+          , hmgIsBasePath      = False
           }
       , HeatmapGroup
-          { hmgStart       = StrIdx 33
-          , hmgEnd         = StrIdx 42
-          , hmgWordCount   = 1
-          , hmgWordIndices = IS.singleton 34
-          , hmgIsBasePath  = True
+          { hmgStart           = StrIdx 33
+          , hmgEnd             = StrIdx 42
+          , hmgWordCount       = 1
+          , hmgWordIndices     = [StrIdx 34]
+          , hmgWordIndicesSize = 1
+          , hmgIsBasePath      = True
           }
       ]
   ]
   where
     mkTestCase :: Text -> PrimArray Int32 -> [HeatmapGroup] -> TestTree
     mkTestCase str groupSeps expectedRes =
-      testCase (T.unpack ("groups of '" <> str <> "'" <> seps)) $
-        computeGroupsAndInitScores str groupSeps @?= (fromIntegral $ length expectedRes, expectedRes)
+      testCase (T.unpack ("groups of ‘" <> str <> "’" <> seps)) $
+        computeGroupsAndInitScores str (T.length str) groupSeps @?= (fromIntegral $ length expectedRes, expectedRes)
       where
         seps
           | sizeofPrimArray groupSeps == 0 = mempty

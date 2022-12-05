@@ -186,7 +186,7 @@ uniq !xs = runST $ do
   last <- go 0 0
   G.unsafeFreeze $ GM.unsafeSlice 0 last ys
 
-{-# INLINABLE sortVectorUnsafe #-}
+{-# INLINE sortVectorUnsafe #-}
 sortVectorUnsafe :: (Ord a, G.Vector v a) => v a -> v a
 sortVectorUnsafe !xs = runST $ do
   ys <- G.unsafeThaw xs

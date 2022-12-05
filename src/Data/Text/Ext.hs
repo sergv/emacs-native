@@ -16,7 +16,8 @@
 {-# LANGUAGE UnboxedTuples       #-}
 
 module Data.Text.Ext
-  ( textFoldM
+  ( textFoldIdx
+  , textFoldM
   , textFoldIdxM
   , textFoldIdxM'
   , textTraverse_
@@ -25,6 +26,7 @@ module Data.Text.Ext
   , textForIdx_
   , textToPrimArray
   , textToPrimVector
+  , spanLen
   ) where
 
 import Control.Monad.ST.Strict
@@ -39,6 +41,18 @@ import Data.Vector.Primitive.Mutable qualified as PM
 import Data.Word
 import GHC.Exts
 import GHC.Word
+
+{-# INLINE textFoldIdx #-}
+textFoldIdx :: forall a. (Int -> Char -> a -> a) -> a -> Text -> a
+textFoldIdx f !seed (TI.Text arr off len) = textFoldIdxLoop seed 0 off
+  where
+    !end = off + len
+    textFoldIdxLoop :: a -> Int -> Int -> a
+    textFoldIdxLoop !x !i !j
+      | j >= end  = x
+      | otherwise =
+        let TU.Iter c delta = TU.iterArray arr j
+        in textFoldIdxLoop (f i c x) (i + 1) (j + delta)
 
 {-# INLINE textFoldM #-}
 textFoldM :: forall m a. Monad m => (Char -> a -> m a) -> a -> Text -> m a
@@ -55,16 +69,16 @@ textFoldM f !seed (TI.Text arr off len) = textFoldLoop seed off
 
 {-# INLINE textFoldIdxM #-}
 textFoldIdxM :: forall m a. Monad m => (Int -> Char -> a -> m a) -> a -> Text -> m a
-textFoldIdxM f !seed (TI.Text arr off len) = textFoldIdxLoop seed 0 off
+textFoldIdxM f !seed (TI.Text arr off len) = textFoldIdxMLoop seed 0 off
   where
     !end = off + len
-    textFoldIdxLoop :: a -> Int -> Int -> m a
-    textFoldIdxLoop !x !i !j
+    textFoldIdxMLoop :: a -> Int -> Int -> m a
+    textFoldIdxMLoop !x !i !j
       | j >= end  = pure x
       | otherwise = do
         let TU.Iter c delta = TU.iterArray arr j
         x' <- f i c x
-        textFoldIdxLoop x' (i + 1) (j + delta)
+        textFoldIdxMLoop x' (i + 1) (j + delta)
 
 {-# INLINE textFoldIdxM' #-}
 textFoldIdxM'
@@ -75,18 +89,18 @@ textFoldIdxM'
    -> Text
    -> State# s
    -> (# State# s, a #)
-textFoldIdxM' f seed (TI.Text arr off len) = textFoldIdxLoop seed 0 off
+textFoldIdxM' f seed (TI.Text arr off len) = textFoldIdxMLoop seed 0 off
   where
     !end = off + len
-    textFoldIdxLoop :: a -> Word64 -> Int -> State# s -> (# State# s, a #)
-    textFoldIdxLoop acc !i !j s
+    textFoldIdxMLoop :: a -> Word64 -> Int -> State# s -> (# State# s, a #)
+    textFoldIdxMLoop acc !i !j s
       | j >= end  = (# s, acc #)
       | otherwise =
         case iterArray' arr j of
           (# charCode, delta #) ->
             case inline f i charCode acc s of
               (# s2, x' #) ->
-                textFoldIdxLoop x' (i + 1) (j + delta) s2
+                textFoldIdxMLoop x' (i + 1) (j + delta) s2
 
 iterArray' :: TA.Array -> Int -> (# Int#, Int #)
 iterArray' arr j = (# w, l #)
@@ -189,3 +203,19 @@ textToPrimVector str = runST $ do
   arr <- PM.unsafeNew (T.length str)
   _   <- textTraverseIdx_ (PM.unsafeWrite arr) str
   P.unsafeFreeze arr
+
+{-# INLINE spanLen #-}
+spanLen :: (Int -> Bool) -> Text -> (Int, Text, Text)
+spanLen p (TI.Text arr off len) = (charCount', hd, tl)
+  where
+    hd = TI.text arr off (k - off)
+    tl = TI.text arr k (len + off - k)
+    charCount' :: Int
+    (!charCount', !k) = loop 0 off
+    !end = off + len
+    loop !charCount !i
+      | i < end && p (I# c) = loop (charCount + 1) (i + d)
+      | otherwise           = (charCount, i)
+      where
+        !(# c, d #) = iterArray' arr i
+

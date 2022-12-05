@@ -36,7 +36,8 @@
 -- {-# OPTIONS_GHC -ddump-spec #-}
 
 module Data.FuzzyMatch
-  ( fuzzyMatch
+  ( fuzzyMatch'
+  , fuzzyMatch
   , Match(..)
   , NeedleChars
   , prepareNeedle
@@ -51,6 +52,7 @@ module Data.FuzzyMatch
   , StrIdx(..)
   ) where
 
+import Control.Monad
 import Control.Monad.Primitive
 import Control.Monad.ST.Strict
 import Data.Bits
@@ -61,9 +63,6 @@ import Data.Function
 import Data.Int
 import Data.IntMap (IntMap)
 import Data.IntMap qualified as IM
-import Data.IntSet (IntSet)
-import Data.IntSet qualified as IS
-import Data.List qualified as L
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.List.NonEmpty qualified as NE
 import Data.Ord
@@ -109,14 +108,16 @@ isWord = not . isWordSeparator
 
 data ReusableState s = ReusableState
   { rsHaystackStore :: !(STRef s (MutableByteArray s))
+  , rsHeatmapStore  :: !(STRef s (MutablePrimArray s Int32))
   , rsNeedleStore   :: !(VM.MVector s (U.Vector PackedIdx))
   }
 
 mkReusableState :: Int -> NeedleChars -> ST s (ReusableState s)
 mkReusableState needleSize chars = do
   rsHaystackStore <- newSTRef =<< newByteArray (needleCharsCountHint chars)
+  rsHeatmapStore  <- newSTRef =<< newPrimArray (needleCharsCountHint chars)
   rsNeedleStore   <- VM.unsafeNew needleSize
-  pure ReusableState{rsHaystackStore, rsNeedleStore}
+  pure ReusableState{rsHaystackStore, rsHeatmapStore, rsNeedleStore}
 
 newtype Bytes8 = Bytes8 Word64
 data Bytes16 = Bytes16 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64
@@ -315,9 +316,9 @@ instance Ord PackedIdx where
 
 {-# NOINLINE mkHaystack #-}
 mkHaystack :: forall s. ReusableState s -> NeedleChars -> Text -> ST s (PM.MVector s Word64)
-mkHaystack (ReusableState store _) !needleChars !str@(TI.Text _ _ haystackBytes) = do
+mkHaystack ReusableState{rsHaystackStore} !needleChars !str@(TI.Text _ _ haystackBytes) = do
   -- store <- PGM.new (needleCharsCountHint needleChars)
-  arr <- readSTRef store
+  arr <- readSTRef rsHaystackStore
 
   let toReserve = 2 * haystackBytes * I# (sizeOf# (undefined :: Word64))
 
@@ -328,7 +329,7 @@ mkHaystack (ReusableState store _) !needleChars !str@(TI.Text _ _ haystackBytes)
     then pure arr
     else do
       arr' <- resizeMutableByteArray arr toReserve
-      writeSTRef store arr'
+      writeSTRef rsHaystackStore arr'
       pure arr'
 
   let goAscii
@@ -423,10 +424,6 @@ combineCharIdx c idx = (c `unsafeShiftL` 32) .|. idx
 w64 :: Integral a => a -> Word64
 w64 = fromIntegral
 
--- {-# INLINE fi64 #-}
--- fi64 :: Integral a => a -> Int64
--- fi64 = fromIntegral
-
 -- | For each character in the argument string compute the set of positions
 -- it occurs in.
 --
@@ -441,8 +438,8 @@ characterOccurrences
   -> NeedleChars
   -> Text
   -> ST s (V.MVector s (U.Vector PackedIdx), Bool)
-characterOccurrences store@(ReusableState _ occursStore) !needle !needleChars !haystack = do
-  -- occursStore <- VM.unsafeNew (T.length needle)
+characterOccurrences store@ReusableState{rsNeedleStore} !needle !needleChars !haystack = do
+  -- rsNeedleStore <- VM.unsafeNew (T.length needle)
   haystackMut <- mkHaystack store needleChars haystack
   {-# SCC "haystack-sort" #-} qsortWord64 haystackMut
   (haystack' :: U.Vector Word64) <- U.V_Word64 <$> P.unsafeFreeze haystackMut
@@ -453,12 +450,6 @@ characterOccurrences store@(ReusableState _ occursStore) !needle !needleChars !h
 
     haystackIdx :: U.Vector PackedIdx
     !haystackIdx = coerce haystack'
-
-    -- haystackChars :: U.Vector Int32
-    -- haystackChars = U.map (fromIntegral . (`unsafeShiftR` 32)) haystack'
-
-    -- haystackIdx :: U.Vector StrIdx
-    -- haystackIdx = U.map (StrIdx . fromIntegral . (.&. 0x00000000FFFFFFFF)) haystack'
 
     !haystackLen = U.length haystack'
 
@@ -481,23 +472,19 @@ characterOccurrences store@(ReusableState _ occursStore) !needle !needleChars !h
           | otherwise
           = j
 
-  -- T.textTraverseIdx_ (\i c -> VM.unsafeWrite occursStore i (findOccurs c)) needle
-  -- T.textForIdx_ needle $ \i c ->
-  --   VM.unsafeWrite occursStore i (findOccurs c)
-
   !anyEmpty <- T.textFoldIdxM
     (\ !i !c (!anyEmpty :: Bool) ->
         if anyEmpty
         then pure anyEmpty
         else do
           let !occs = findOccurs c
-          VM.unsafeWrite occursStore i occs
+          VM.unsafeWrite rsNeedleStore i occs
           pure $ U.null occs)
     False
     needle
   -- Exposes freezing bug in GHC.
-  -- V.unsafeFreeze occursStore
-  pure (occursStore, anyEmpty)
+  -- V.unsafeFreeze rsNeedleStore
+  pure (rsNeedleStore, anyEmpty)
 
 data Match = Match
   { mScore     :: !Int32
@@ -524,69 +511,82 @@ fuzzyMatch
   -> NeedleChars     -- ^ Sorted needle characters
   -> Text            -- ^ Haystack
   -> ST s Match
-fuzzyMatch store (Heatmap heatmap) needle needleChars haystack
+fuzzyMatch store heatmap needle needleChars haystack =
+  fuzzyMatch' store (pure heatmap) needle needleChars haystack
+
+fuzzyMatch'
+  :: forall s. WithCallStack
+  => ReusableState s
+  -> ST s Heatmap
+  -> Text            -- ^ Needle
+  -> NeedleChars     -- ^ Sorted needle characters
+  -> Text            -- ^ Haystack
+  -> ST s Match
+fuzzyMatch' store mkHeatmap needle needleChars haystack
   | T.null needle = pure noMatch
   | otherwise     = do
     (occurs :: V.MVector s (U.Vector PackedIdx), anyEmpty) <- characterOccurrences store needle needleChars haystack
-    let
-      bigger :: PackedIdx -> U.Vector PackedIdx -> U.Vector PackedIdx
-      bigger x xs
-        | isMember
-        = let !i' = i + 1
-          in U.unsafeSlice i' (U.length xs - i') xs
-        | otherwise
-        = U.unsafeSlice i (U.length xs - i) xs
-        where
-          (isMember, !i) = VExt.binSearchMemberIdx x xs
+    if anyEmpty -- Also catches occurs == V.empty
+    then pure noMatch
+    else do
 
-      computeScore
-        :: PrimMonad m
-        => (V.MVector (PrimState m) (U.Vector PackedIdx) -> PackedIdx -> m [Submatch])
-        -> V.MVector (PrimState m) (U.Vector PackedIdx)
-        -> PackedIdx
-        -> m [Submatch]
-      computeScore recur !needleOccursInHaystack !cutoffIndex = do
-        (remainingOccurrences :: U.Vector PackedIdx) <- bigger cutoffIndex <$> VM.unsafeRead needleOccursInHaystack 0
-        case VM.length needleOccursInHaystack of
-          -- Last character, already checked that vector is never empty
-          1 ->
-            pure $ flip map (U.toList remainingOccurrences) $ \pidx ->
-              let StrIdx !idx = getStrIdx pidx
-              in
-              Submatch
-                { smScore           = heatmap `indexPrimArray` fromIntegral idx
-                , smPositions       = StrIdx idx :| []
-                , smContiguousCount = 0
-                }
+      Heatmap heatmap <- unsafeInterleaveST mkHeatmap
+      let
+        bigger :: PackedIdx -> U.Vector PackedIdx -> U.Vector PackedIdx
+        bigger x xs
+          | isMember
+          = let !i' = i + 1
+            in U.unsafeSlice i' (U.length xs - i') xs
+          | otherwise
+          = U.unsafeSlice i (U.length xs - i) xs
+          where
+            (isMember, !i) = VExt.binSearchMemberIdx x xs
 
-          _ ->
-            fmap (getMaximum . concat) $ for (U.toList remainingOccurrences) $ \pidx -> do
-              let !idx' = getStrIdx pidx
-              submatches <- recur (VM.unsafeTail needleOccursInHaystack) pidx
-              pure $ getMaximum $ flip map submatches $ \submatch ->
-                let score'          = smScore submatch + (heatmap `indexPrimArray` fromIntegral (unStrIdx idx'))
-                    contiguousBonus = 60 + 15 * min 3 (smContiguousCount submatch)
-                    isContiguous    = NE.head (smPositions submatch) == succ idx'
-                    score
-                      | isContiguous
-                      = score' + contiguousBonus
-                      | otherwise
-                      = score'
-                in Submatch
-                  { smScore           = score
-                  , smPositions       = NE.cons idx' $ smPositions submatch
-                  , smContiguousCount =
-                    if isContiguous then smContiguousCount submatch + 1 else 0
+        computeScore
+          :: PrimMonad m
+          => (V.MVector (PrimState m) (U.Vector PackedIdx) -> PackedIdx -> m [Submatch])
+          -> V.MVector (PrimState m) (U.Vector PackedIdx)
+          -> PackedIdx
+          -> m [Submatch]
+        computeScore recur !needleOccursInHaystack !cutoffIndex = do
+          (remainingOccurrences :: U.Vector PackedIdx) <- bigger cutoffIndex <$> VM.unsafeRead needleOccursInHaystack 0
+          case VM.length needleOccursInHaystack of
+            -- Last character, already checked that vector is never empty
+            1 ->
+              pure $ flip map (U.toList remainingOccurrences) $ \pidx ->
+                let StrIdx !idx = getStrIdx pidx
+                in
+                Submatch
+                  { smScore           = heatmap `indexPrimArray` fromIntegral idx
+                  , smPositions       = StrIdx idx :| []
+                  , smContiguousCount = 0
                   }
-            where
-              getMaximum :: [Submatch] -> [Submatch]
-              getMaximum [] = []
-              getMaximum xs = (:[]) $ maximumBy (comparing smScore) xs
 
-    !result <-
-      if anyEmpty -- Also catches occurs == V.empty
-      then pure noMatch
-      else do
+            _ ->
+              fmap (getMaximum . concat) $ for (U.toList remainingOccurrences) $ \pidx -> do
+                let !idx' = getStrIdx pidx
+                submatches <- recur (VM.unsafeTail needleOccursInHaystack) pidx
+                pure $ getMaximum $ flip map submatches $ \submatch ->
+                  let score'          = smScore submatch + (heatmap `indexPrimArray` fromIntegral (unStrIdx idx'))
+                      contiguousBonus = 60 + 15 * min 3 (smContiguousCount submatch)
+                      isContiguous    = NE.head (smPositions submatch) == succ idx'
+                      score
+                        | isContiguous
+                        = score' + contiguousBonus
+                        | otherwise
+                        = score'
+                  in Submatch
+                    { smScore           = score
+                    , smPositions       = NE.cons idx' $ smPositions submatch
+                    , smContiguousCount =
+                      if isContiguous then smContiguousCount submatch + 1 else 0
+                    }
+              where
+                getMaximum :: [Submatch] -> [Submatch]
+                getMaximum [] = []
+                getMaximum xs = (:[]) $ maximumBy (comparing smScore) xs
+
+      !result <- do
         -- cache <- HT.newSized (T.length needle * 2)
         -- res   <- memoizeBy cache makeKey computeScore occurs (mkPackedIdx (StrIdx (-1)))
         res <- memoizeBy makeKey computeScore occurs (mkPackedIdx (StrIdx (-1)))
@@ -594,7 +594,7 @@ fuzzyMatch store (Heatmap heatmap) needle needleChars haystack
           []  -> noMatch
           [m] -> submatchToMatch m
           ms  -> submatchToMatch $ maximumBy (comparing smScore) ms
-    pure result
+      pure result
   where
     noMatch = Match
       { mScore     = (-1)
@@ -604,29 +604,9 @@ fuzzyMatch store (Heatmap heatmap) needle needleChars haystack
     {-# NOINLINE makeKey #-}
     makeKey :: V.MVector s (U.Vector a) -> PackedIdx -> Int
     makeKey !occs !k =
-      -- Todo: try Cantor and real hash tables
-      j `unsafeShiftL` 32 .|. (lower4Bytes .&. fromIntegral (unStrIdx (keepIdx k)))
+      j `unsafeShiftL` 32 .|. fromIntegral (unStrIdx (keepIdx k))
       where
         !j = VM.length occs
-
--- memoizeBy
---   :: forall a b c s.
---      HT.HashTable s Int64 c
---   -> (a -> b -> Int64)
---   -> ((a -> b -> ST s c) -> a -> b -> ST s c)
---   -> (a -> b -> ST s c)
--- memoizeBy cache mkKey f = g
---   where
---     g :: a -> b -> ST s c
---     g a b = do
---       let !k = mkKey a b
---       res <- HT.lookup cache k
---       case res of
---         Just c  -> pure c
---         Nothing -> do
---           c <- f g a b
---           HT.insert cache k c
---           pure c
 
 memoizeBy
   :: forall a b c s.
@@ -664,28 +644,32 @@ data HeatmapGroup = HeatmapGroup
     -- separator that started the group, even for the first group where
     -- it's equal to -1. So, w.r.t. interesting group contents this index
     -- is exclusive.
-    hmgStart       :: !StrIdx
+    hmgStart           :: !StrIdx
     -- | At which index the group ends, inclusive.
-  , hmgEnd         :: !StrIdx
-  , hmgWordCount   :: !Int32
+  , hmgEnd             :: !StrIdx
+  , hmgWordCount       :: !Int32
     -- | Word indices
-  , hmgWordIndices :: !IntSet
-  , hmgIsBasePath  :: !Bool
+  , hmgWordIndices     :: ![StrIdx]
+  , hmgWordIndicesSize :: !Int32
+  , hmgIsBasePath      :: !Bool
   } deriving (Eq, Ord, Show, Generic)
 
 splitWithSeps
   :: Char -- ^ Fake separator to add at the start
   -> PrimArray Int32
   -> Text
-  -> [(Char, Text)]
-splitWithSeps firstSep seps = go firstSep
+  -> Int
+  -> [(Char, Int, Text)]
+splitWithSeps !firstSep !seps !fullStr !fullStrLen
+  | sizeofPrimArray seps == 0 = [(firstSep, fullStrLen, fullStr)]
+  | otherwise                 = go firstSep fullStr
   where
-    go :: Char -> Text -> [(Char, Text)]
-    go c str
+    go :: Char -> Text -> [(Char, Int, Text)]
+    go !c !str
       | T.null str = []
-      | otherwise  = (c, prefix) : rest
+      | otherwise  = (c, len, prefix) : rest
       where
-        (prefix, suffix) = T.span (not . PExt.binSearchMember seps . fromIntegral . ord) str
+        (len, prefix, suffix) = T.spanLen (not . PExt.binSearchMember seps . fromIntegral) str
         rest = case T.uncons suffix of
           Nothing         -> []
           Just (c', str') -> go c' str'
@@ -693,69 +677,84 @@ splitWithSeps firstSep seps = go firstSep
 -- | Heatmap mapping characters to scores
 newtype Heatmap = Heatmap { unHeatmap :: PrimArray Int32 }
 
-computeHeatmap :: Text -> PrimArray Int32 -> Heatmap
-computeHeatmap str =
-  computeHeatmapFromGroups str . computeGroupsAndInitScores str
+computeHeatmap :: ReusableState s -> Text -> PrimArray Int32 -> ST s Heatmap
+computeHeatmap store haystack =
+  computeHeatmapFromGroups store haystack len . computeGroupsAndInitScores haystack len
+  where
+    !len = T.length haystack
 
-computeHeatmapFromGroups :: Text -> (Int32, [HeatmapGroup]) -> Heatmap
-computeHeatmapFromGroups haystack (groupsCount, groups) = Heatmap $ runPrimArray $ do
-  scores <- newPrimArray len
+computeHeatmapFromGroups :: ReusableState s -> Text -> Int -> (Int32, [HeatmapGroup]) -> ST s Heatmap
+computeHeatmapFromGroups ReusableState{rsHeatmapStore} !haystack !len (!groupsCount, groups) = do
+  arr      <- readSTRef rsHeatmapStore
+  currSize <- getSizeofMutablePrimArray arr
+  scores   <- if currSize > len
+    then pure arr
+    else do
+      arr' <- resizeMutablePrimArray arr (len * 2)
+      writeSTRef rsHeatmapStore arr'
+      pure arr'
+  shrinkMutablePrimArray scores len
+
+  -- scores <- newPrimArray len
+
   setPrimArray scores 0 len (initScore + initScoreAdjustment)
-  -- scores <- UM.replicate len (initScore + initScoreAdjustment)
   update lastCharIdx lastCharBonus scores
-  for_ groupScores' $ \(idx, val) -> update idx val scores
-  for_ wordScores   $ \(idx, val) -> update idx val scores
-  for_ penalties    $ \(idx, val) -> update idx val scores
-  pure scores
+  applyGroupScores scores groupScores
+  addWordScores scores indexedWords
+  -- Apply penalties
+  T.textForIdx_ (T.init haystack) $ \ !idx !c ->
+    when (penalisedIfLeading c) $ do
+      -- Add 1 to index since we've skipped past first character of haystack.
+      let !idx' = StrIdx (fromIntegral (idx + 1))
+      update idx' (-45) scores
+
+  Heatmap <$> unsafeFreezePrimArray scores
   where
     groupScores :: [(HeatmapGroup, Int32)]
-    groupScores =
-      zipWith (\d g -> (g, groupBasicScore d g)) (-3 : iterate (+ 1) (-5)) groups
+    groupScores = annotate groups
+      where
+        annotate :: [HeatmapGroup] -> [(HeatmapGroup, Int32)]
+        annotate []       = []
+        annotate (g : gs) = (g, score) : annotate' (-5) gs
+          where
+            !score = groupBasicScore (-3) g
 
-    groupScores' :: [(StrIdx, Int32)]
-    groupScores' = flip concatMap groupScores $ \(HeatmapGroup{hmgStart, hmgEnd}, score) ->
-      map (, score) [succ hmgStart..min lastCharIdx (succ hmgEnd)]
+        annotate' :: Int32 -> [HeatmapGroup] -> [(HeatmapGroup, Int32)]
+        annotate' _  []       = []
+        annotate' !k (g : gs) = (g, score) : annotate' (k + 1) gs
+          where
+            !score = groupBasicScore k g
+
+      -- zipWith (\d g -> (g, groupBasicScore d g)) (-3 : iterate (+ 1) (-5)) groups
+
+    applyGroupScores :: forall ss. MutablePrimArray ss Int32 -> [(HeatmapGroup, Int32)] -> ST ss ()
+    applyGroupScores scores =
+      traverse_ $ \(HeatmapGroup{hmgStart, hmgEnd}, score) ->
+        forFromTo_ (succ hmgStart) (min lastCharIdx (succ hmgEnd)) $ \_ pos ->
+          update pos score scores
 
     indexedWords :: [(StrIdx, StrIdx, Int32)]
     indexedWords =
       fst $
       foldr
-        (\HeatmapGroup{hmgWordIndices, hmgStart} (results, end) ->
+        (\HeatmapGroup{hmgWordIndices, hmgWordIndicesSize, hmgStart} (results, end) ->
           let newIndices :: [(StrIdx, StrIdx, Int32)]
-              newIndices =
-                zipWith (\n (start, end') -> (start, end', n)) [0..]
-                  $ fst
-                  $ foldr
-                      (\wordStart (xs, end') ->
-                        let wordStart' = StrIdx (fromIntegral wordStart) in
-                        ((wordStart', end') : xs, pred wordStart'))
-                      ([], end)
-                      (IS.toList hmgWordIndices)
-          in (newIndices ++ results, hmgStart))
+              newIndices = go (hmgWordIndicesSize - 1) end hmgWordIndices
+               where
+                 go !n !end' = \case
+                   []             -> results
+                   wordStart : ws -> (wordStart, end', n) : go (n - 1) (pred wordStart) ws
+          in (newIndices, hmgStart))
         ([], lastCharIdx)
         groups
 
-    wordScores :: [(StrIdx, Int32)]
-    wordScores = flip concatMap indexedWords $ \(start, end, wordIdx) ->
-      (start, 85) :
-      zipWith (\wordChar pos -> (pos, wordIdx * (-3) - wordChar))
-        [0..]
-        [start..end]
-
-    -- initScores' :: [(StrIdx, Int)]
-    -- initScores' = case groups of
-    --   []  -> initScores
-    --   [_] -> initScores
-    --   _   -> map (second (+ adjustment)) initScores
-    --     where
-    --       adjustment = (-2) * length groups
-
-    penalties :: [(StrIdx, Int32)]
-    penalties
-      = map (\(idx, _) -> (idx, -45))
-      $ filter (penalisedIfLeading . snd)
-      $ zip [StrIdx 1..]
-      $ T.unpack (T.init haystack)
+    addWordScores :: forall ss. MutablePrimArray ss Int32 -> [(StrIdx, StrIdx, Int32)] -> ST ss ()
+    addWordScores scores = traverse_ applyScores
+      where
+        applyScores (start, end, wordIdx) = do
+          update start 85 scores
+          forFromTo_ start end $ \wordCharIdx pos ->
+            update pos (wordIdx * (-3) - wordCharIdx) scores
 
     penalisedIfLeading :: Char -> Bool
     penalisedIfLeading = (== '.')
@@ -766,32 +765,40 @@ computeHeatmapFromGroups haystack (groupsCount, groups) = Heatmap $ runPrimArray
       [_] -> 0
       _   -> (-2) * groupsCount
 
-    update :: StrIdx -> Int32 -> MutablePrimArray s Int32 -> ST s ()
-    update (StrIdx idx) val vec = do
+    update :: forall ss. StrIdx -> Int32 -> MutablePrimArray ss Int32 -> ST ss ()
+    update (StrIdx idx) !val vec = do
       val' <- readPrimArray vec (fromIntegral idx)
       writePrimArray vec (fromIntegral idx) (val' + val)
+
+    forFromTo_ :: Monad m => StrIdx -> StrIdx -> (Int32 -> StrIdx -> m ()) -> m ()
+    forFromTo_ start end f = go 0
+      where
+        !count = unStrIdx end - unStrIdx start
+        go !i = do
+          f i (StrIdx (coerce start + i))
+          if i == count
+          then pure ()
+          else go (i + 1)
 
     initScore, lastCharBonus :: Int32
     initScore     = (-35)
     lastCharBonus = 1
-    len           = T.length haystack
     lastCharIdx   = StrIdx $ fromIntegral $ len - 1
-    -- initScores :: [(StrIdx, Int)]
-    -- initScores =
-    --   (lastCharIdx, lastCharBonus) -- : map (, initScore) [StrIdx 0..pred lastCharIdx]
 
     groupBasicScore :: Int32 -> HeatmapGroup -> Int32
     groupBasicScore nonBasePathDelta HeatmapGroup{hmgIsBasePath, hmgWordCount}
-      | hmgIsBasePath = 35 + (if groupsCount > 2 then groupsCount - 2 else 0) - hmgWordCount
+      | hmgIsBasePath = 35 + max (groupsCount - 2) 0 - hmgWordCount
       | otherwise     = nonBasePathDelta
 
+
 data GroupState = GroupState
-  { gsBoundaryIndices :: !IntSet
+  { gsBoundaryIndices :: ![StrIdx]
+  , gsBoundarySize    :: !Int32
   , gsWordCount       :: !Int32
   }
 
-computeGroupsAndInitScores :: Text -> PrimArray Int32 -> (Int32, [HeatmapGroup])
-computeGroupsAndInitScores haystack groupSeparators
+computeGroupsAndInitScores :: Text -> Int -> PrimArray Int32 -> (Int32, [HeatmapGroup])
+computeGroupsAndInitScores !haystack !haystackLen !groupSeparators
   | T.null haystack = (0, [])
   | otherwise
   = (groupsCount, )
@@ -799,96 +806,67 @@ computeGroupsAndInitScores haystack groupSeparators
   $ foldr (\x@HeatmapGroup{hmgIsBasePath} (xs, seenBasePath) ->
              (x { hmgIsBasePath = not seenBasePath && hmgIsBasePath } : xs, seenBasePath || hmgIsBasePath))
           ([], False)
-  -- $ onHead (\x -> x { hmgStart = StrIdx 0 })
   $ map analyseGroup groups
   where
     analyseGroup :: (StrIdx, Char, StrIdx, Text) -> HeatmapGroup
     analyseGroup (start, prevChar, end, str) =
       HeatmapGroup
-        { hmgStart       = start
-        , hmgEnd         = end
+        { hmgStart           = start
+        , hmgEnd             = end
         , hmgWordCount
-        , hmgWordIndices = gsBoundaryIndices finalState
-        , hmgIsBasePath  = hmgWordCount /= 0
+        , hmgWordIndices     = gsBoundaryIndices finalState
+        , hmgWordIndicesSize = gsBoundarySize finalState
+        , hmgIsBasePath      = hmgWordCount /= 0
         }
       where
         hmgWordCount = gsWordCount finalState
-        finalState   = L.foldl' step initState characters
-        cs           = T.unpack str
-        characters :: [StrIdxCharsInfo]
-        characters   = zipWith3 mkStrIdxCharsInfo [succ start..] (prevChar : cs) cs
+
+        (finalState, _, _) = T.textFoldIdx step' (initState, isWord prevChar, isUpper prevChar) str
+
+        step' :: Int -> Char -> (GroupState, Bool, Bool) -> (GroupState, Bool, Bool)
+        step' i c (GroupState{gsBoundaryIndices, gsBoundarySize, gsWordCount}, prevWord, prevUpper) =
+          (nextState, currWord, currUpper)
+          where
+            currWord  = isWord c
+            currUpper = isUpper c
+
+            -- Check whether @lastChar@ is the end of a word and
+            -- @currentChar@ is the start of the next.
+            haveBoundary = not prevUpper && currUpper || not prevWord && currWord
+
+            !idx' = StrIdx $ fromIntegral i + (unStrIdx start + 1)
+
+            nextState = GroupState
+              { gsBoundaryIndices =
+                if haveBoundary
+                then idx' : gsBoundaryIndices
+                else gsBoundaryIndices
+              , gsBoundarySize    =
+                if haveBoundary
+                then 1 + gsBoundarySize
+                else gsBoundarySize
+              , gsWordCount       =
+                if not prevWord && currWord
+                then 1 + gsWordCount
+                else gsWordCount
+              }
 
         initState :: GroupState
         initState = GroupState
           { gsBoundaryIndices = mempty
+          , gsBoundarySize    = 0
           , gsWordCount       = 0
           }
-
-        step :: GroupState -> StrIdxCharsInfo -> GroupState
-        step GroupState{gsBoundaryIndices, gsWordCount} info =
-          GroupState
-            { gsBoundaryIndices =
-              if haveBoundary info
-              then IS.insert (fromIntegral (unStrIdx (infoStrIdx info))) gsBoundaryIndices
-              else gsBoundaryIndices
-            , gsWordCount       =
-              if not (infoPrevIsWord info) && infoCurrIsWord info
-              then 1 + gsWordCount
-              else gsWordCount
-            }
 
     groupsCount :: Int32
     groups      :: [(StrIdx, Char, StrIdx, Text)]
     ((_, groupsCount), groups)
       = -- filter (\(_, _, len, _) -> len /= 0)
         mapAccumL
-          (\(!idx, !len) (sep, str') ->
-            let !next = idx + T.length str' in
+          (\(!idx, !len) (!sep, !groupLen, !str') ->
+            let !next = idx + groupLen in
             ((next + 1, len + 1), (StrIdx (fromIntegral idx), sep, StrIdx (fromIntegral next), str')))
           ((-1) -- To account for fake separator at the beginning
           , 0
           )
-      $ splitWithSeps ' ' groupSeparators haystack
-
-    -- Check whetehr @lastChar@ is the end of a word and
-    -- @currentChar@ is the start of the next.
-    haveBoundary :: StrIdxCharsInfo -> Bool
-    haveBoundary info =
-      not (infoPrevIsUpper info) && infoCurrIsUpper info ||
-      not (infoPrevIsWord info) && infoCurrIsWord info
-
--- Isomorphic to (StrIdx, (Bool, Bool) , (Bool, Bool)) derived from (StrIdx, Char, Char)>
-newtype StrIdxCharsInfo = StrIdxCharsInfo { unStrIdxCharsInfo :: Word64 }
-
-instance Show StrIdxCharsInfo where
-  showsPrec _ = (showString "0x" .) . showHex . unStrIdxCharsInfo
-
-mkStrIdxCharsInfo :: StrIdx -> Char -> Char -> StrIdxCharsInfo
-mkStrIdxCharsInfo (StrIdx idx) prev curr = StrIdxCharsInfo $
-  fromIntegral idx .|.
-  mkBit 32 prevWord .|.
-  mkBit 33 currWord .|.
-  mkBit 34 prevUpper .|.
-  mkBit 35 currUpper
-  where
-    prevWord  = isWord prev
-    currWord  = isWord curr
-    prevUpper = isUpper prev
-    currUpper = isUpper curr
-    mkBit :: Int -> Bool -> Word64
-    mkBit !n !x = if x then 1 `unsafeShiftL` n else 0
-
-infoStrIdx :: StrIdxCharsInfo -> StrIdx
-infoStrIdx (StrIdxCharsInfo x) = StrIdx $ fromIntegral $ lower4Bytes .&. x
-
-infoPrevIsWord :: StrIdxCharsInfo -> Bool
-infoPrevIsWord (StrIdxCharsInfo x) = (x `unsafeShiftR` 32 .&. 0x1) == 1
-
-infoCurrIsWord :: StrIdxCharsInfo -> Bool
-infoCurrIsWord (StrIdxCharsInfo x) = (x `unsafeShiftR` 33 .&. 0x1) == 1
-
-infoPrevIsUpper :: StrIdxCharsInfo -> Bool
-infoPrevIsUpper (StrIdxCharsInfo x) = (x `unsafeShiftR` 34 .&. 0x1) == 1
-
-infoCurrIsUpper :: StrIdxCharsInfo -> Bool
-infoCurrIsUpper (StrIdxCharsInfo x) = (x `unsafeShiftR` 35 .&. 0x1) == 1
+      $ splitWithSeps ' ' groupSeparators haystack haystackLen

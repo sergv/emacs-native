@@ -88,7 +88,6 @@ library
     , emacs-module >= 0.2
     , exceptions
     , filepath
-    -- , hashtables
     , lifted-async
     , monad-control
     , monad-par
