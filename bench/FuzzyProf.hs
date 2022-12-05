@@ -60,11 +60,10 @@ doMatch seps needle xs =
     ys = runST $ do
       store <- Data.FuzzyMatch.mkReusableState (T.length needle) needleChars
       for (V.fromList xs) $ \str -> do
-        heatmap <- Data.FuzzyMatch.computeHeatmap store str seps
         match <-
-          Data.FuzzyMatch.fuzzyMatch
+          Data.FuzzyMatch.fuzzyMatch'
             store
-            heatmap
+            (Data.FuzzyMatch.computeHeatmap store str seps)
             needle
             needleChars
             str
