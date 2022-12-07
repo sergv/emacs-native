@@ -27,6 +27,7 @@ module Data.Text.Ext
   , textToPrimArray
   , textToPrimVector
   , spanLen
+  , spanLenEnd
   ) where
 
 import Control.Monad.ST.Strict
@@ -101,6 +102,25 @@ textFoldIdxM' f seed (TI.Text arr off len) = textFoldIdxMLoop seed 0 off
             case inline f i charCode acc s of
               (# s2, x' #) ->
                 textFoldIdxMLoop x' (i + 1) (j + delta) s2
+
+reverseIterArray' :: TA.Array -> Int -> (# Int#, Int #)
+reverseIterArray' arr j =
+  if isTrue# (m0# `ltWord#` 0x80##)
+  then (# word2Int# m0#, (-1) #)
+  else
+    let !m1 = TA.unsafeIndex arr (j - 1) in
+    if m1 >= 0xC0
+    then (# wchr2 m1 m0, (-2) #)
+    else
+      let !m2 = TA.unsafeIndex arr (j - 2) in
+      if m2 >= 0xC0
+      then (# wchr3 m2 m1 m0, (-3) #)
+      else
+        let !m3 = TA.unsafeIndex arr (j - 3) in
+        (# wchr4 m3 m2 m1 m0, (-4) #)
+  where
+    !m0@(W8# m0_8#) = TA.unsafeIndex arr j
+    m0# = word8ToWord# m0_8#
 
 iterArray' :: TA.Array -> Int -> (# Int#, Int #)
 iterArray' arr j = (# w, l #)
@@ -218,4 +238,23 @@ spanLen p (TI.Text arr off len) = (charCount', hd, tl)
       | otherwise           = (charCount, i)
       where
         !(# c, d #) = iterArray' arr i
+
+{-# INLINE spanLenEnd #-}
+spanLenEnd :: (Int -> Bool) -> Text -> (Int, Text, Text)
+spanLenEnd p (TI.Text arr start len) = (charCount', hd, tl)
+  where
+    hd = TI.text arr start (k - start)
+    tl = TI.text arr k (len + start - k)
+
+    charCount' :: Int
+    (!charCount', !k) = loop 0 end
+    !end = start + len - 1
+    loop !charCount !i
+      | i > start
+      = let !(# c, d #) = reverseIterArray' arr i in
+        if p (I# c)
+        then loop (charCount + 1) (i + d)
+        else (charCount, i)
+      | otherwise
+      = (charCount + 1, i)
 
