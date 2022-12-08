@@ -39,10 +39,8 @@ module Data.FuzzyMatch
 
   -- * Interface for testing
   , computeHeatmap
-  -- , computeGroupsAndInitScores
   , Heatmap(..)
   , Heat(..)
-  -- , HeatmapGroup(..)
   , StrIdx(..)
   ) where
 
@@ -262,7 +260,6 @@ mkPackedChar = PackedChar . (`unsafeShiftL` 32) . w64 . ord
 keepChar :: PackedChar -> Word64
 keepChar =
   (.&. upper4Bytes) . unPackedChar
-  -- (`unsafeShiftR` 32)
 
 instance Eq PackedChar where
   (==) = (==) `on` keepChar
@@ -436,7 +433,7 @@ characterOccurrences
 characterOccurrences store@ReusableState{rsNeedleStore} !needle !needleChars !haystack = do
   -- rsNeedleStore <- VM.unsafeNew (T.length needle)
   haystackMut <- mkHaystack store needleChars haystack
-  {-# SCC "haystack-sort" #-} qsortWord64 haystackMut
+  qsortWord64 haystackMut
   (haystack' :: U.Vector Word64) <- U.V_Word64 <$> P.unsafeFreeze haystackMut
 
   let
@@ -596,7 +593,6 @@ fuzzyMatch' store mkHeatmap needle needleChars haystack
       , mPositions = StrIdx (-1) :| []
       }
 
-    {-# NOINLINE makeKey #-}
     makeKey :: V.MVector s (U.Vector a) -> PackedIdx -> Int
     makeKey !occs !k =
       j `unsafeShiftL` 32 .|. fromIntegral (unStrIdx (keepIdx k))
@@ -633,21 +629,6 @@ newtype instance U.Vector    StrIdx = V_StrIdx  (U.Vector    Int32)
 deriving instance GM.MVector U.MVector StrIdx
 deriving instance G.Vector   U.Vector  StrIdx
 instance U.Unbox StrIdx
-
--- data HeatmapGroup = HeatmapGroup
---   { -- | At which index the group starts, inclusive. Usually points to
---     -- separator that started the group, even for the first group where
---     -- it's equal to -1. So, w.r.t. interesting group contents this index
---     -- is exclusive.
---     hmgStart           :: !StrIdx
---     -- | At which index the group ends, inclusive.
---   , hmgEnd             :: !StrIdx
---   , hmgWordCount       :: !Int32
---     -- | Word indices
---   , hmgWordIndices     :: ![StrIdx]
---   , hmgWordIndicesSize :: !Int32
---   , hmgIsBasePath      :: !Bool
---   } deriving (Eq, Ord, Show, Generic)
 
 data Group = Group
   { gPrevChar :: {-# UNPACK #-} !Char
@@ -772,7 +753,6 @@ computeHeatmap ReusableState{rsHeatmapStore} haystack groupSeps = do
 data GroupState = GroupState
   { gsIsBasePath        :: !Bool
   , gsGroupIdx          :: {-# UNPACK #-} !Int32
-  -- , gsGroupNonBaseScore :: {-# UNPACK #-} !Heat
   } deriving (Show)
 
 data GroupChar = GroupChar
@@ -879,200 +859,3 @@ applyGroupScore !score !start !end !scores =
       = update i score scores
       | otherwise
       = pure ()
-
-
-
--- computeHeatmap :: ReusableState s -> Text -> PrimArray Int32 -> ST s Heatmap
--- computeHeatmap store haystack =
---   computeHeatmapFromGroups store haystack len . computeGroupsAndInitScores haystack len
---   where
---     !len = T.length haystack
-
--- computeHeatmapFromGroups :: ReusableState s -> Text -> Int -> (Int32, [HeatmapGroup]) -> ST s Heatmap
--- computeHeatmapFromGroups ReusableState{rsHeatmapStore} !haystack !len (!groupsCount, groups) = do
---   vec      <- readSTRef rsHeatmapStore
---   scores   <- do
---     let !currSize = PM.length vec
---     vec' <-
---       if currSize > len
---       then pure vec
---       else do
---         vec' <- PM.unsafeNew (len * 2)
---         writeSTRef rsHeatmapStore vec'
---         pure vec'
---     pure $ PM.unsafeSlice 0 len vec'
---
---   -- scores <- newPrimArray len
---
---   PM.set scores (initScore + initScoreAdjustment)
---   update lastCharIdx lastCharBonus scores
---   applyGroupScores scores groupScores
---   addWordScores scores indexedWords
---   -- Apply penalties
---   T.textForIdx_ (T.init haystack) $ \ !idx !c ->
---     when (penaliseIfLeading c) $ do
---       -- Add 1 to index since we've skipped past first character of haystack.
---       let !idx' = StrIdx (fromIntegral (idx + 1))
---       update idx' (-45) scores
---
---   Heatmap <$> P.unsafeFreeze scores
---   where
---     groupScores :: [(HeatmapGroup, Int32)]
---     groupScores = annotate groups
---       where
---         annotate :: [HeatmapGroup] -> [(HeatmapGroup, Int32)]
---         annotate []       = []
---         annotate (g : gs) = (g, score) : annotate' (-5) gs
---           where
---             !score = groupBasicScore (-3) g
---
---         annotate' :: Int32 -> [HeatmapGroup] -> [(HeatmapGroup, Int32)]
---         annotate' _  []       = []
---         annotate' !k (g : gs) = (g, score) : annotate' (k + 1) gs
---           where
---             !score = groupBasicScore k g
---
---       -- zipWith (\d g -> (g, groupBasicScore d g)) (-3 : iterate (+ 1) (-5)) groups
---
---     applyGroupScores :: forall ss. PM.MVector ss Int32 -> [(HeatmapGroup, Int32)] -> ST ss ()
---     applyGroupScores scores =
---       traverse_ $ \(HeatmapGroup{hmgStart, hmgEnd}, score) ->
---         forFromTo_ (succ hmgStart) (min lastCharIdx (succ hmgEnd)) $ \_ pos ->
---           update pos score scores
---
---     indexedWords :: [(StrIdx, StrIdx, Int32)]
---     indexedWords =
---       fst $
---       foldr
---         (\HeatmapGroup{hmgWordIndices, hmgWordIndicesSize, hmgStart} (results, end) ->
---           let newIndices :: [(StrIdx, StrIdx, Int32)]
---               newIndices = go (hmgWordIndicesSize - 1) end hmgWordIndices
---                where
---                  go !n !end' = \case
---                    []             -> results
---                    wordStart : ws -> (wordStart, end', n) : go (n - 1) (pred wordStart) ws
---           in (newIndices, hmgStart))
---         ([], lastCharIdx)
---         groups
---
---     addWordScores :: forall ss. PM.MVector ss Int32 -> [(StrIdx, StrIdx, Int32)] -> ST ss ()
---     addWordScores scores = traverse_ applyScores
---       where
---         applyScores (start, end, wordIdx) = do
---           update start 85 scores
---           forFromTo_ start end $ \wordCharIdx pos ->
---             update pos (wordIdx * (-3) - wordCharIdx) scores
---
---     penaliseIfLeading :: Char -> Bool
---     penaliseIfLeading = (== '.')
---
---     initScoreAdjustment :: Int32
---     initScoreAdjustment = case groups of
---       []  -> 0
---       [_] -> 0
---       _   -> (-2) * groupsCount
---
---     update :: forall ss. StrIdx -> Int32 -> PM.MVector ss Int32 -> ST ss ()
---     update (StrIdx idx) !val vec =
---       PM.unsafeModify vec (+ val) (fromIntegral idx)
---
---     forFromTo_ :: Monad m => StrIdx -> StrIdx -> (Int32 -> StrIdx -> m ()) -> m ()
---     forFromTo_ start end f = go 0
---       where
---         !count = unStrIdx end - unStrIdx start
---         go !i = do
---           f i (StrIdx (coerce start + i))
---           if i == count
---           then pure ()
---           else go (i + 1)
---
---     initScore, lastCharBonus :: Int32
---     initScore     = (-35)
---     lastCharBonus = 1
---     lastCharIdx   = StrIdx $ fromIntegral $ len - 1
---
---     groupBasicScore :: Int32 -> HeatmapGroup -> Int32
---     groupBasicScore nonBasePathDelta HeatmapGroup{hmgIsBasePath, hmgWordCount}
---       | hmgIsBasePath = 35 + max (groupsCount - 2) 0 - hmgWordCount
---       | otherwise     = nonBasePathDelta
---
---
--- data GroupState = GroupState
---   { gsBoundaryIndices :: ![StrIdx]
---   , gsBoundarySize    :: !Int32
---   , gsWordCount       :: !Int32
---   }
---
--- computeGroupsAndInitScores :: Text -> Int -> PrimArray Int32 -> (Int32, [HeatmapGroup])
--- computeGroupsAndInitScores !haystack !haystackLen !groupSeparators
---   | T.null haystack = (0, [])
---   | otherwise
---   = (groupsCount, )
---   $ fst
---   $ foldr (\x@HeatmapGroup{hmgIsBasePath} (xs, seenBasePath) ->
---              (x { hmgIsBasePath = not seenBasePath && hmgIsBasePath } : xs, seenBasePath || hmgIsBasePath))
---           ([], False)
---   $ map analyseGroup groups
---   where
---     analyseGroup :: (StrIdx, Char, StrIdx, Text) -> HeatmapGroup
---     analyseGroup (start, prevChar, end, str) =
---       HeatmapGroup
---         { hmgStart           = start
---         , hmgEnd             = end
---         , hmgWordCount
---         , hmgWordIndices     = gsBoundaryIndices finalState
---         , hmgWordIndicesSize = gsBoundarySize finalState
---         , hmgIsBasePath      = hmgWordCount /= 0
---         }
---       where
---         hmgWordCount = gsWordCount finalState
---
---         (finalState, _, _) = T.textFoldIdx step' (initState, isWord prevChar, isUpper prevChar) str
---
---         step' :: Int -> Char -> (GroupState, Bool, Bool) -> (GroupState, Bool, Bool)
---         step' i c (GroupState{gsBoundaryIndices, gsBoundarySize, gsWordCount}, prevWord, prevUpper) =
---           (nextState, currWord, currUpper)
---           where
---             currWord  = isWord c
---             currUpper = isUpper c
---
---             -- Check whether @lastChar@ is the end of a word and
---             -- @currentChar@ is the start of the next.
---             haveBoundary = not prevUpper && currUpper || not prevWord && currWord
---
---             !idx' = StrIdx $ fromIntegral i + (unStrIdx start + 1)
---
---             nextState = GroupState
---               { gsBoundaryIndices =
---                 if haveBoundary
---                 then idx' : gsBoundaryIndices
---                 else gsBoundaryIndices
---               , gsBoundarySize    =
---                 if haveBoundary
---                 then 1 + gsBoundarySize
---                 else gsBoundarySize
---               , gsWordCount       =
---                 if not prevWord && currWord
---                 then 1 + gsWordCount
---                 else gsWordCount
---               }
---
---         initState :: GroupState
---         initState = GroupState
---           { gsBoundaryIndices = mempty
---           , gsBoundarySize    = 0
---           , gsWordCount       = 0
---           }
---
---     groupsCount :: Int32
---     groups      :: [(StrIdx, Char, StrIdx, Text)]
---     ((_, groupsCount), groups)
---       = -- filter (\(_, _, len, _) -> len /= 0)
---         mapAccumL
---           (\(!idx, !len) (!sep, !groupLen, !str') ->
---             let !next = idx + groupLen in
---             ((next + 1, len + 1), (StrIdx (fromIntegral idx), sep, StrIdx (fromIntegral next), str')))
---           ((-1) -- To account for fake separator at the beginning
---           , 0
---           )
---       $ splitWithSeps ' ' groupSeparators haystack haystackLen
