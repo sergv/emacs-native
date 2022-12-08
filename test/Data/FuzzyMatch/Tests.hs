@@ -171,6 +171,10 @@ heatMap = testGroup "Heatmap"
       "foo//bar"
       (primArrayFromList [fi32 $ ord '/'])
       [41, -45, -46, -47, -46, 79, -7, -7]
+  , mkTestCase
+      ".emacs.d"
+      (primArrayFromList [fi32 $ ord '.'])
+      [41, -6, -47, -48, -49, -50, -51, 35]
   ]
   where
     mkTestCase :: Text -> PrimArray Int32 -> [Int32] -> TestTree

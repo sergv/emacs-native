@@ -88,7 +88,7 @@ import GHC.Generics (Generic)
 import GHC.ST
 import GHC.Word
 import Numeric (showHex)
-import Prettyprinter.Combinators
+import Prettyprinter
 import Prettyprinter.Show
 
 import Emacs.Module.Assert (WithCallStack)
@@ -674,13 +674,29 @@ splitWithSeps !firstSep !seps !fullStr !fullStrLen
       | T.null str
       = []
       | T.null prefix
-      = [ Group
-          { gPrevChar = firstSep
-          , gLen      = len
-          , gStr      = suffix
-          , gStart    = off - len
-          }
-        ]
+      = if isSep $ fromIntegral $ ord $ T.unsafeHead suffix
+        then
+          [ Group
+            { gPrevChar = T.unsafeHead suffix
+            , gLen      = len - 1
+            , gStr      = T.unsafeTail suffix
+            , gStart    = off - len + 1
+            }
+          , Group
+            { gPrevChar = firstSep
+            , gLen      = 0
+            , gStr      = T.empty
+            , gStart    = 0
+            }
+          ]
+        else
+          [ Group
+            { gPrevChar = firstSep
+            , gLen      = len
+            , gStr      = suffix
+            , gStart    = off - len
+            }
+          ]
       | otherwise
       = Group
         { gPrevChar = T.unsafeHead suffix
@@ -691,10 +707,11 @@ splitWithSeps !firstSep !seps !fullStr !fullStrLen
       : go (start - 1) prefix
       where
         !start = off - len
-        (len, prefix, suffix) = T.spanLenEnd (not . PExt.binSearchMember seps . fromIntegral) str
+        isSep  = PExt.binSearchMember seps
+        (len, prefix, suffix) = T.spanLenEnd (not . isSep . fromIntegral) str
 
 newtype Heat = Heat { unHeat :: Int32 }
-  deriving (Eq, Ord, Num, Prim)
+  deriving (Eq, Ord, Num, Prim, Pretty)
 
 instance Show Heat where
   show = show . unHeat
@@ -738,7 +755,8 @@ computeHeatmap ReusableState{rsHeatmapStore} haystack groupSeps = do
         }
   case split of
     Left  g      -> void $ analyzeGroup g False groupsCount initGroupState scores
-    Right groups -> goGroups False initGroupState groups
+    Right groups -> do
+      goGroups False initGroupState groups
       where
         goGroups !seenBasePath !s = \case
           []     -> pure ()
@@ -763,6 +781,7 @@ data GroupChar = GroupChar
   , gcWordCount   :: {-# UNPACK #-} !Int
   , gcWordIdx     :: {-# UNPACK #-} !Int
   , gcWordCharIdx :: {-# UNPACK #-} !Int
+  , gcPrevChar    :: {-# UNPACK #-} !Char
   } deriving (Show)
 
 {-# INLINE fi32 #-}
@@ -770,7 +789,7 @@ fi32 :: Integral a => a -> Int32
 fi32 = fromIntegral
 
 analyzeGroup :: Group -> Bool -> Int -> GroupState -> PM.MVector s Heat -> ST s GroupState
-analyzeGroup Group{gPrevChar, gLen, gStr, gStart} seenBasePath groupsCount GroupState{gsGroupIdx} scores = do
+analyzeGroup Group{gPrevChar, gLen, gStr, gStart} !seenBasePath !groupsCount GroupState{gsGroupIdx} !scores = do
   let start :: Int
       !start = gStart
       !end = start + gLen
@@ -780,7 +799,7 @@ analyzeGroup Group{gPrevChar, gLen, gStr, gStart} seenBasePath groupsCount Group
       !leadingPenalty = (-45)
 
   GroupChar{gcWordIdx, gcWordCharIdx, gcWordCount} <- T.textFoldIdxM
-    (\ !idx !c GroupChar{gcIsWord, gcIsUpper, gcWordCount, gcWordIdx, gcWordCharIdx} -> do
+    (\ !idx !c GroupChar{gcIsWord, gcIsUpper, gcWordCount, gcWordIdx, gcWordCharIdx, gcPrevChar} -> do
       let j :: Int
           !j = start + idx
 
@@ -801,10 +820,8 @@ analyzeGroup Group{gPrevChar, gLen, gStr, gStart} seenBasePath groupsCount Group
 
       let !gcWordCharIdx'' = gcWordCharIdx' + 1
 
-      when (penalisedIfLeading c) $ do
-        let !k = j + 1
-        when (k < PM.length scores) $
-          update k leadingPenalty scores
+      when (penaliseIfLeading gcPrevChar) $
+        update j leadingPenalty scores
 
       pure GroupChar
         { gcIsWord      = currWord
@@ -812,9 +829,13 @@ analyzeGroup Group{gPrevChar, gLen, gStr, gStart} seenBasePath groupsCount Group
         , gcIsUpper     = currUpper
         , gcWordIdx     = gcWordIdx'
         , gcWordCharIdx = gcWordCharIdx''
+        , gcPrevChar    = c
         })
-    (GroupChar { gcIsWord = isWord gPrevChar, gcIsUpper = isUpper gPrevChar, gcWordCount = 0, gcWordIdx = (-1), gcWordCharIdx = 0 })
+    (GroupChar { gcIsWord = isWord gPrevChar, gcIsUpper = isUpper gPrevChar, gcWordCount = 0, gcWordIdx = (-1), gcWordCharIdx = 0, gcPrevChar = gPrevChar })
     gStr
+
+  when (gStart == 0 && gLen == 0) $
+    update gStart wordStart scores
 
   -- Update score for trailing separator of current group.
   let !trailingSep = end
@@ -839,8 +860,8 @@ calcGroupScore isBasePath groupsCount wordCount gcGroupIdx
   | isBasePath = Heat $ fi32 $ 35 + max (groupsCount - 2) 0 - wordCount
   | otherwise  = if gcGroupIdx == 0 then (- 3) else Heat $ gcGroupIdx - 6
 
-penalisedIfLeading :: Char -> Bool
-penalisedIfLeading = (== '.')
+penaliseIfLeading :: Char -> Bool
+penaliseIfLeading = (== '.')
 
 update :: Int -> Heat -> PM.MVector s Heat -> ST s ()
 update !idx !val vec =
@@ -853,7 +874,7 @@ applyGroupScore !score !start !end !scores =
     go !i
       | i < end
       = update i score scores *> go (i + 1)
-      -- i == end
+      -- If we reached here then i == end
       | i < PM.length scores
       = update i score scores
       | otherwise
@@ -889,7 +910,7 @@ applyGroupScore !score !start !end !scores =
 --   addWordScores scores indexedWords
 --   -- Apply penalties
 --   T.textForIdx_ (T.init haystack) $ \ !idx !c ->
---     when (penalisedIfLeading c) $ do
+--     when (penaliseIfLeading c) $ do
 --       -- Add 1 to index since we've skipped past first character of haystack.
 --       let !idx' = StrIdx (fromIntegral (idx + 1))
 --       update idx' (-45) scores
@@ -942,8 +963,8 @@ applyGroupScore !score !start !end !scores =
 --           forFromTo_ start end $ \wordCharIdx pos ->
 --             update pos (wordIdx * (-3) - wordCharIdx) scores
 --
---     penalisedIfLeading :: Char -> Bool
---     penalisedIfLeading = (== '.')
+--     penaliseIfLeading :: Char -> Bool
+--     penaliseIfLeading = (== '.')
 --
 --     initScoreAdjustment :: Int32
 --     initScoreAdjustment = case groups of
