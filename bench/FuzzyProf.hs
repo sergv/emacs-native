@@ -29,7 +29,10 @@ import Data.Vector qualified as V
 import Data.Vector.Ext qualified as VExt
 import System.Environment
 
-import Data.FuzzyMatch qualified
+import Data.FuzzyMatch qualified as FuzzyMatch
+
+-- import Data.List qualified as L
+-- import Data.FuzzyMatchBaseline qualified as Sline
 
 newtype SortKey v = SortKey { _unSortKey :: (Int32, Int, v) }
 
@@ -52,38 +55,47 @@ doMatch seps needle xs =
       VExt.sortVectorUnsafe $
         (\zs -> coerce zs :: V.Vector (SortKey Text)) ys
   where
-    needleChars = Data.FuzzyMatch.prepareNeedle needle
+    needleChars = FuzzyMatch.prepareNeedle needle
 
     ys :: V.Vector (Int32, Int, Text)
     ys = runST $ do
-      store <- Data.FuzzyMatch.mkReusableState (T.length needle) needleChars
+      store <- FuzzyMatch.mkReusableState (T.length needle) needleChars
       for (V.fromList xs) $ \str -> do
         match <-
-          Data.FuzzyMatch.fuzzyMatch'
+          FuzzyMatch.fuzzyMatch'
             store
-            (Data.FuzzyMatch.computeHeatmap store str seps)
+            (FuzzyMatch.computeHeatmap store str seps)
             needle
             needleChars
             str
-        pure (fi32 $ Data.FuzzyMatch.mScore match, T.length str, str)
-        -- !_ <- Data.FuzzyMatch.computeHeatmap store str seps
+        pure (fi32 $ FuzzyMatch.mScore match, T.length str, str)
+        -- !_ <- FuzzyMatch.computeHeatmap store str seps
         -- pure (0, T.length str, str)
 
   -- = L.sortOn (\(score, str) -> (Down score, str, T.length str))
   -- . map (\str -> (fm seps needle needleChars str, str))
   -- where
-  --   needleChars = Data.FuzzyMatch.prepareNeedle needle
+  --   needleChars = FuzzyMatch.prepareNeedle needle
 
+
+-- {-# NOINLINE doMatchSline #-}
+-- doMatchSline :: PrimArray Int32 -> Text -> [Text] -> [(Int, Text)]
+-- doMatchSline seps needle
+--   = L.sortOn (\(score, str) -> (Down score, str, T.length str))
+--   . map (\str -> (fmSline seps needle needleChars str, str))
+--   where
+--     needleChars = Sline.prepareNeedle needle
+--
 -- -- {-# NOINLINE fm #-}
--- fm :: PrimArray Int32 -> Text -> Data.FuzzyMatch.NeedleChars -> Text -> Int
--- fm seps needle needleChars haystack =
---   fromIntegral $
---   Data.FuzzyMatch.mScore
---     (Data.FuzzyMatch.fuzzyMatch
---       (Data.FuzzyMatch.computeHeatmap haystack seps)
+-- fmSline :: PrimArray Int32 -> Text -> Sline.NeedleChars -> Text -> Int
+-- fmSline seps needle needleChars haystack =
+--   Sline.mScore
+--     (Sline.fuzzyMatch
+--       (Sline.computeHeatmap haystack seps)
 --       needle
 --       needleChars
 --       haystack)
+
 
 
 main :: IO ()
@@ -103,6 +115,40 @@ main = do
 
   let !k = sum $ map (\i -> sum $ map fst $ doMatch (primArrayFromList [fromIntegral i]) needle candidates) [1..n']
   putStrLn $ "k = " ++ show k
+  -- let !kSline = sum $ map (\i -> sum $ map fst $ doMatchSline (primArrayFromList [fromIntegral i]) needle candidates) [1..n']
+  -- putStrLn $ "kSline = " ++ show kSline
+
+  -- let seps :: PrimArray Int32
+  --     seps = primArrayFromList [fromIntegral n']
+  -- for_ candidates $ \candidate -> do
+  -- -- let candidate = ".emacs.d" :: Text
+  -- -- do
+  --   let oldHeatmap = primArrayToList (Sline.computeHeatmap candidate seps)
+  --   let newHeatmap = runST $ do
+  --         store <- FuzzyMatch.mkReusableState (T.length needle) (FuzzyMatch.prepareNeedle needle)
+  --         P.toList . FuzzyMatch.unHeatmap <$> FuzzyMatch.computeHeatmap store candidate seps
+  --   when (map fromIntegral oldHeatmap /= map FuzzyMatch.unHeat newHeatmap) $ do
+  --     putStrLn $ "candidate = " ++ show candidate
+  --     putStrLn $ "oldHeatmap = " ++ show oldHeatmap
+  --     putStrLn $ "newHeatmap = " ++ show newHeatmap
+  --     putStrLn ""
+
+  -- let newMatches = doMatch seps needle candidates
+  -- let oldMatches = doMatchSline seps needle candidates
+  -- for_ (zip3 candidates oldMatches newMatches) $ \(candidate, (oldScore, old), (newScore, new)) -> do
+  --   when (oldScore /= newScore) $ do
+  --     putStrLn $ "oldScore = " ++ show oldScore
+  --     putStrLn $ "newScore = " ++ show newScore
+  --     putStrLn $ "old heatmap = " ++ show (primArrayToList (Sline.computeHeatmap candidate seps))
+  --     let newHeatmap = runST $ do
+  --           store <- FuzzyMatch.mkReusableState (T.length needle) (FuzzyMatch.prepareNeedle needle)
+  --           FuzzyMatch.computeHeatmap store candidate seps
+  --
+  --     putStrLn $ "new heatmap = " ++ show (P.toList $ FuzzyMatch.unHeatmap newHeatmap)
+  --
+  --
+  --     putStrLn $ "old = " ++ show old
+  --     putStrLn $ "new = " ++ show new
 
   pure ()
 
