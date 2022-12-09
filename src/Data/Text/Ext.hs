@@ -20,6 +20,7 @@ module Data.Text.Ext
   , textFoldM
   , textFoldIdxM
   , textFoldIdxM'
+  , textFoldIdxMIntIdx
   , textTraverse_
   , textFor_
   , textTraverseIdx_
@@ -94,6 +95,28 @@ textFoldIdxM' f seed (TI.Text arr off len) = textFoldIdxMLoop seed 0 off
   where
     !end = off + len
     textFoldIdxMLoop :: a -> Word64 -> Int -> State# s -> (# State# s, a #)
+    textFoldIdxMLoop acc !i !j s
+      | j >= end  = (# s, acc #)
+      | otherwise =
+        case iterArray' arr j of
+          (# charCode, delta #) ->
+            case inline f i charCode acc s of
+              (# s2, x' #) ->
+                textFoldIdxMLoop x' (i + 1) (j + delta) s2
+
+{-# INLINE textFoldIdxMIntIdx #-}
+textFoldIdxMIntIdx
+  -- :: forall s (a :: TYPE ('BoxedRep 'Unlifted)).
+  :: forall s a.
+      (Int -> Int# -> a -> State# s -> (# State# s, a #))
+   -> a
+   -> Text
+   -> State# s
+   -> (# State# s, a #)
+textFoldIdxMIntIdx f seed (TI.Text arr off len) = textFoldIdxMLoop seed 0 off
+  where
+    !end = off + len
+    textFoldIdxMLoop :: a -> Int -> Int -> State# s -> (# State# s, a #)
     textFoldIdxMLoop acc !i !j s
       | j >= end  = (# s, acc #)
       | otherwise =

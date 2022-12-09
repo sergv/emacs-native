@@ -69,7 +69,6 @@ import Data.Text.Array qualified as TA
 import Data.Text.Ext qualified as T
 import Data.Text.Internal qualified as TI
 import Data.Text.Unsafe qualified as T
-import Data.Traversable
 import Data.Vector qualified as V
 import Data.Vector.Ext qualified as VExt
 import Data.Vector.Generic qualified as G
@@ -91,13 +90,71 @@ import Prettyprinter.Show
 
 import Emacs.Module.Assert (WithCallStack)
 
+-- {-# INLINE isWordSeparator #-}
+-- isWordSeparator :: Char -> Bool
+-- isWordSeparator = \case
+--   ' '  -> True
+--   '\t' -> True
+--   '\r' -> True
+--   '\n' -> True
+--   '*'  -> True
+--   '+'  -> True
+--   '-'  -> True
+--   '_'  -> True
+--   ':'  -> True
+--   ';'  -> True
+--   '.'  -> True
+--   ','  -> True
+--   '/'  -> True
+--   '\\' -> True
+--   _    -> False
+
+-- {-# INLINE isWordSeparator #-}
+-- isWordSeparator :: Char -> Bool
+-- isWordSeparator c =
+--   not $ '0' <= c && c <= '9' || 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z'
+
+wordSeps :: Bytes16
+wordSeps = Bytes16
+  (c8 ' ' '\t' '\r' '\n' '*' '+' '-' '_')
+  (c8 ':' ';' '.' ',' '/' '\\' ' ' ' ')
+  where
+    c8 :: Char -> Char -> Char -> Char -> Char -> Char -> Char -> Char -> Word64
+    c8 !x1 !x2 !x3 !x4 !x5 !x6 !x7 !x8 =
+      w8
+        (fromIntegral (ord x1))
+        (fromIntegral (ord x2))
+        (fromIntegral (ord x3))
+        (fromIntegral (ord x4))
+        (fromIntegral (ord x5))
+        (fromIntegral (ord x6))
+        (fromIntegral (ord x7))
+        (fromIntegral (ord x8))
+
+    w8 :: Word64 -> Word64 -> Word64 -> Word64 -> Word64 -> Word64 -> Word64 -> Word64 -> Word64
+    w8 !x1 !x2 !x3 !x4 !x5 !x6 !x7 !x8 =
+      x1 .|.
+      x2 `unsafeShiftL` 8 .|.
+      x3 `unsafeShiftL` 16 .|.
+      x4 `unsafeShiftL` 24 .|.
+      x5 `unsafeShiftL` 32 .|.
+      x6 `unsafeShiftL` 40 .|.
+      x7 `unsafeShiftL` 48 .|.
+      x8 `unsafeShiftL` 56
+
 {-# INLINE isWordSeparator #-}
-isWordSeparator :: Char -> Bool
-isWordSeparator c = not $ '0' <= c && c <= '9' || 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z'
+isWordSeparator :: Int# -> Bool
+isWordSeparator x = charMember x wordSeps
 
 {-# INLINE isWord #-}
-isWord :: Char -> Bool
-isWord = not . isWordSeparator
+isWord :: Int# -> Bool
+isWord x = not(isWordSeparator x)
+
+{-# INLINE isWordC #-}
+isWordC :: Char -> Bool
+isWordC c = isWord x
+  where
+    !(I# x) = ord c
 
 data ReusableState s = ReusableState
   { rsHaystackStore :: !(STRef s (MutableByteArray s))
@@ -524,7 +581,7 @@ fuzzyMatch' store mkHeatmap needle needleChars haystack
 
       Heatmap heatmap <- unsafeInterleaveST mkHeatmap
       let
-        bigger :: PackedIdx -> U.Vector PackedIdx -> U.Vector PackedIdx
+        bigger :: StrIdx -> U.Vector PackedIdx -> U.Vector PackedIdx
         bigger x xs
           | isMember
           = let !i' = i + 1
@@ -532,20 +589,20 @@ fuzzyMatch' store mkHeatmap needle needleChars haystack
           | otherwise
           = U.unsafeSlice i (U.length xs - i) xs
           where
-            (isMember, !i) = VExt.binSearchMemberIdx x xs
+            (isMember, !i) = VExt.binSearchMemberIdx (mkPackedIdx x) xs
 
         computeScore
           :: PrimMonad m
-          => (V.MVector (PrimState m) (U.Vector PackedIdx) -> PackedIdx -> m [Submatch])
+          => (V.MVector (PrimState m) (U.Vector PackedIdx) -> StrIdx -> m [Submatch])
           -> V.MVector (PrimState m) (U.Vector PackedIdx)
-          -> PackedIdx
+          -> StrIdx
           -> m [Submatch]
         computeScore recur !needleOccursInHaystack !cutoffIndex = do
           (remainingOccurrences :: U.Vector PackedIdx) <- bigger cutoffIndex <$> VM.unsafeRead needleOccursInHaystack 0
           case VM.length needleOccursInHaystack of
             -- Last character, already checked that vector is never empty
             1 ->
-              pure $ flip map (U.toList remainingOccurrences) $ \pidx ->
+              pure $ flip map (U.toList remainingOccurrences) $ \ !pidx ->
                 let StrIdx !idx = getStrIdx pidx
                 in
                 Submatch
@@ -555,10 +612,10 @@ fuzzyMatch' store mkHeatmap needle needleChars haystack
                   }
 
             _ ->
-              fmap (getMaximum . concat) $ for (U.toList remainingOccurrences) $ \pidx -> do
+              findBestWith remainingOccurrences $ \ !pidx -> do
                 let !idx' = getStrIdx pidx
-                submatches <- recur (VM.unsafeTail needleOccursInHaystack) pidx
-                pure $ getMaximum $ flip map submatches $ \submatch ->
+                submatches <- recur (VM.unsafeTail needleOccursInHaystack) idx'
+                pure $ flip map submatches $ \submatch ->
                   let score'          = smScore submatch + (heatmap `P.unsafeIndex` fromIntegral (unStrIdx idx'))
                       contiguousBonus = Heat $ 60 + 15 * min 3 (smContiguousCount submatch)
                       isContiguous    = NE.head (smPositions submatch) == succ idx'
@@ -574,14 +631,21 @@ fuzzyMatch' store mkHeatmap needle needleChars haystack
                       if isContiguous then smContiguousCount submatch + 1 else 0
                     }
               where
-                getMaximum :: [Submatch] -> [Submatch]
-                getMaximum [] = []
-                getMaximum xs = (:[]) $ maximumBy (comparing smScore) xs
+                findBestWith :: forall n. Monad n => U.Vector PackedIdx -> (PackedIdx -> n [Submatch]) -> n [Submatch]
+                findBestWith !occs f =
+                  go (Submatch minBound (NE.singleton (StrIdx (-1))) 0) 0
+                  where
+                    go :: Submatch -> Int -> n [Submatch]
+                    go !best !i
+                      | i == U.length occs
+                      = pure $ if smScore best == minBound then [] else [best]
+                      | otherwise
+                      = do
+                        xs <- f (occs `U.unsafeIndex` i)
+                        go (maximumBy (comparing smScore) (best : xs)) (i + 1)
 
       !result <- do
-        -- cache <- HT.newSized (T.length needle * 2)
-        -- res   <- memoizeBy cache makeKey computeScore occurs (mkPackedIdx (StrIdx (-1)))
-        res <- memoizeBy makeKey computeScore occurs (mkPackedIdx (StrIdx (-1)))
+        res <- memoizeBy makeKey computeScore occurs (StrIdx (-1))
         pure $ case res of
           []  -> noMatch
           [m] -> submatchToMatch m
@@ -593,9 +657,9 @@ fuzzyMatch' store mkHeatmap needle needleChars haystack
       , mPositions = StrIdx (-1) :| []
       }
 
-    makeKey :: V.MVector s (U.Vector a) -> PackedIdx -> Int
+    makeKey :: V.MVector s (U.Vector a) -> StrIdx -> Int
     makeKey !occs !k =
-      j `unsafeShiftL` 32 .|. fromIntegral (unStrIdx (keepIdx k))
+      j `unsafeShiftL` 32 .|. fromIntegral (unStrIdx k)
       where
         !j = VM.length occs
 
@@ -692,7 +756,7 @@ splitWithSeps !firstSep !seps !fullStr !fullStrLen
         (len, prefix, suffix) = T.spanLenEnd (not . isSep . fromIntegral) str
 
 newtype Heat = Heat { unHeat :: Int32 }
-  deriving (Eq, Ord, Num, Prim, Pretty)
+  deriving (Eq, Ord, Num, Prim, Pretty, Bounded)
 
 instance Show Heat where
   show = show . unHeat
@@ -761,12 +825,15 @@ data GroupChar = GroupChar
   , gcWordCount   :: {-# UNPACK #-} !Int
   , gcWordIdx     :: {-# UNPACK #-} !Int
   , gcWordCharIdx :: {-# UNPACK #-} !Int
-  , gcPrevChar    :: {-# UNPACK #-} !Char
+  , gcPrevChar    :: Int#
   } deriving (Show)
 
 {-# INLINE fi32 #-}
 fi32 :: Integral a => a -> Int32
 fi32 = fromIntegral
+
+unST :: State# s -> ST s a -> (# State# s, a #)
+unST s (ST f) = f s
 
 analyzeGroup :: Group -> Bool -> Int -> GroupState -> PM.MVector s Heat -> ST s GroupState
 analyzeGroup Group{gPrevChar, gLen, gStr, gStart} !seenBasePath !groupsCount GroupState{gsGroupIdx} !scores = do
@@ -778,13 +845,13 @@ analyzeGroup Group{gPrevChar, gLen, gStr, gStart} !seenBasePath !groupsCount Gro
       !wordStart = 85
       !leadingPenalty = (-45)
 
-  GroupChar{gcWordIdx, gcWordCharIdx, gcWordCount} <- T.textFoldIdxM
-    (\ !idx !c GroupChar{gcIsWord, gcIsUpper, gcWordCount, gcWordIdx, gcWordCharIdx, gcPrevChar} -> do
+  GroupChar{gcWordIdx, gcWordCharIdx, gcWordCount} <- ST $ \s -> T.textFoldIdxMIntIdx
+    (\ !idx c GroupChar{gcIsWord, gcIsUpper, gcWordCount, gcWordIdx, gcWordCharIdx, gcPrevChar} s' -> unST s' $ do
       let j :: Int
           !j = start + idx
 
           !currWord   = isWord c
-          !currUpper  = isUpper c
+          !currUpper  = isUpper (chr (I# c))
 
           !isWord'    = not gcIsWord && currWord
           !isBoundary = isWord' || not gcIsUpper && currUpper
@@ -811,8 +878,9 @@ analyzeGroup Group{gPrevChar, gLen, gStr, gStart} !seenBasePath !groupsCount Gro
         , gcWordCharIdx = gcWordCharIdx''
         , gcPrevChar    = c
         })
-    (GroupChar { gcIsWord = isWord gPrevChar, gcIsUpper = isUpper gPrevChar, gcWordCount = 0, gcWordIdx = (-1), gcWordCharIdx = 0, gcPrevChar = gPrevChar })
+    (GroupChar { gcIsWord = isWordC gPrevChar, gcIsUpper = isUpper gPrevChar, gcWordCount = 0, gcWordIdx = (-1), gcWordCharIdx = 0, gcPrevChar = let !(I# x) = ord gPrevChar in x })
     gStr
+    s
 
   when (gStart == 0 && gLen == 0) $
     update gStart wordStart scores
@@ -840,8 +908,8 @@ calcGroupScore isBasePath groupsCount wordCount gcGroupIdx
   | isBasePath = Heat $ fi32 $ 35 + max (groupsCount - 2) 0 - wordCount
   | otherwise  = if gcGroupIdx == 0 then (- 3) else Heat $ gcGroupIdx - 6
 
-penaliseIfLeading :: Char -> Bool
-penaliseIfLeading = (== '.')
+penaliseIfLeading :: Int# -> Bool
+penaliseIfLeading x = isTrue# (x ==# 46#) -- 46 is '.'in ascii
 
 update :: Int -> Heat -> PM.MVector s Heat -> ST s ()
 update !idx !val vec =
