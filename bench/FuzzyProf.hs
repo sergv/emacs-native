@@ -100,16 +100,17 @@ doMatch seps needle xs =
 
 main :: IO ()
 main = do
-  [n] <- getArgs
+  [n, k] <- getArgs
 
-  let n' :: Int
+  let n', k' :: Int
       n' = read n
+      k' = read k
 
   let needle :: Text
-      needle = "e" -- "vector.hs"
+      needle = "ee" -- "vector.hs"
       -- seps = primArrayFromList [ord '/']
 
-  candidates <- T.lines <$> T.readFile "/home/sergey/projects/emacs/projects/emacs-native/candidates.txt"
+  candidates <- take k' . T.lines <$> T.readFile "/home/sergey/projects/emacs/projects/emacs-native/candidates.txt"
   evaluate $ rnf candidates
   putStrLn $ "Number of candidates = " ++ show (length candidates)
 
