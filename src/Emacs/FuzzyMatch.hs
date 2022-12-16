@@ -34,18 +34,13 @@ import Data.Primitive.Types
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Traversable
+import Data.Vector qualified as V
 import Data.Vector.PredefinedSorts
 
 import Data.Emacs.Module.Doc qualified as Doc
 import Emacs.Module
 import Emacs.Module.Assert (WithCallStack)
 import Emacs.Module.Monad qualified as Emacs
-
--- import Data.Primitive.Array.Growable qualified as AG
--- import Data.Primitive.PrimArray.Growable qualified as PG
--- import Data.Primitive.SmallArray.Growable qualified as SAG
-import Data.Vector qualified as V
--- import Data.Vector.Growable qualified as VG
 
 import Data.FuzzyMatch
 
@@ -68,69 +63,6 @@ extractSeps !xs = do
   ys <- traversePrimArray (fmap fromIntegral . extractInt) =<< extractVectorAsPrimArray xs
   pure $ runST $ unsafeFreezePrimArray =<< sortUniqueMutable =<< unsafeThawPrimArray ys
 
--- {-# INLINE extractListWithViaGrowableVector #-}
--- -- | Extract vanilla Emacs list as a Haskell list.
--- extractListWithViaGrowableVector
---   :: (WithCallStack, MonadEmacs m v)
---   => (v s -> m s a)
---   -> v s
---   -> m s (V.Vector a)
--- extractListWithViaGrowableVector f !input = do
---   !ys <- VG.new 0
---   VG.unsafeFreeze =<< extractLoop ys input
---   where
---     extractLoop !ys !xs = do
---       !nonNil <- isNotNil xs
---       if nonNil
---       then do
---         !x   <- f =<< car xs
---         !ys' <- VG.push x ys
---         extractLoop ys' =<< cdr xs
---       else
---         pure ys
---
--- {-# INLINE extractListWithViaGrowableArray #-}
--- -- | Extract vanilla Emacs list as a Haskell list.
--- extractListWithViaGrowableArray
---   :: (WithCallStack, MonadEmacs m v)
---   => (v s -> m s a)
---   -> v s
---   -> m s (V.Vector a)
--- extractListWithViaGrowableArray f !input = do
---   !ys <- AG.new 0
---   AG.unsafeToVector =<< extractLoop ys input
---   where
---     extractLoop !ys !xs = do
---       !nonNil <- isNotNil xs
---       if nonNil
---       then do
---         !x   <- f =<< car xs
---         !ys' <- AG.push x ys
---         extractLoop ys' =<< cdr xs
---       else
---         pure ys
---
--- {-# INLINE extractListWithViaGrowableSmallArray #-}
--- -- | Extract vanilla Emacs list as a Haskell list.
--- extractListWithViaGrowableSmallArray
---   :: (WithCallStack, MonadEmacs m v)
---   => (v s -> m s a)
---   -> v s
---   -> m s (SAG.SmallArray a)
--- extractListWithViaGrowableSmallArray f !input = do
---   !ys <- SAG.new 0
---   SAG.unsafeFreeze =<< extractLoop ys input
---   where
---     extractLoop !ys !xs = do
---       !nonNil <- isNotNil xs
---       if nonNil
---       then do
---         !x   <- f =<< car xs
---         !ys' <- SAG.push x ys
---         extractLoop ys' =<< cdr xs
---       else
---         pure ys
-
 {-# INLINE makeListFromVector #-}
 -- | Construct vanilla Emacs list from a Haskell list.
 makeListFromVector
@@ -146,26 +78,16 @@ makeListFromVector xs = do
       let !j = i - 1
       mkListLoop j =<< cons (xs `V.unsafeIndex` j) res
 
--- {-# NOINLINE scoreMatches #-}
 scoreMatches
   :: forall m v s. (WithCallStack, MonadEmacs m v, MonadIO (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)), NFData (v s), Prim (v s))
   => EmacsFunction ('S ('S ('S 'Z))) 'Z 'False m v s
 scoreMatches (R seps (R needle (R haystacks Stop))) = {-# SCC "scoreMatches" #-} do
   seps'      <- extractSeps seps
   needle'    <- extractText needle
-  -- haystacks' <- extractListWith' (\str -> (, str) <$> extractText str) haystacks
 
-  -- (haystacks' :: V.Vector (Text, v s)) <- traverse (\str -> (, str) <$> extractText str) =<< extractVector haystacks
   (haystacks' :: V.Vector (Text, v s)) <- extractVectorWith (\str -> (, str) <$> extractText str) haystacks
-  -- haystacks' <- extractListWithViaGrowableVector (\str -> (, str) <$> extractText str) haystacks
-  -- haystacks' <- extractListWithViaGrowableArray (\str -> (, str) <$> extractText str) haystacks
-  -- haystacks' <- extractListWithViaGrowableSmallArray (\str -> (, str) <$> extractText str) haystacks
-
-  -- let matches = snd <$> haystacks'
 
   let needleChars = prepareNeedle needle'
-
-  -- let matches = snd <$> haystacks'
 
   let haystacks'' = runST $ do
         store <- mkReusableState (T.length needle') needleChars
