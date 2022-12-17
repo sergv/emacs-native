@@ -152,12 +152,14 @@ test-suite emacs-native-test
     test
   other-modules:
     Data.FuzzyMatch.Tests
+    Data.Vector.Ext.Tests
   build-depends:
     , base
     , emacs-native
     , primitive
     , tasty
     , tasty-hunit
+    , tasty-quickcheck
     , text
     , vector
   ghc-options:

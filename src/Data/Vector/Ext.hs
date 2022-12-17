@@ -268,7 +268,9 @@ qsortImpl !vector = qsortLoop vector threshold
         !len = GM.length v
 
 {-# INLINE partitionTwoWays #-}
-partitionTwoWays :: forall m a v. (PrimMonad m, Ord a, GM.MVector v a) => a -> Int -> v (PrimState m) a -> m Int
+partitionTwoWays
+  :: forall m a v. (PrimMonad m, Ord a, GM.MVector v a)
+  => a -> Int -> v (PrimState m) a -> m Int
 partitionTwoWays !pv !lastIdx !v =
   go 0 (lastIdx - 1)
   where
