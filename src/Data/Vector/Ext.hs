@@ -198,11 +198,14 @@ qsort :: (PrimMonad m, Ord a, GM.MVector v a) => v (PrimState m) a -> m ()
 qsort = qsortImpl
 
 {-# INLINE qsortImpl #-}
-qsortImpl :: (PrimMonad m, Ord a, GM.MVector v a) => v (PrimState m) a -> m ()
-qsortImpl !vector = go vector threshold
+qsortImpl :: forall m a v. (PrimMonad m, Ord a, GM.MVector v a) => v (PrimState m) a -> m ()
+qsortImpl !vector = qsortLoop vector threshold
   where
-    threshold = binlog2 (GM.length vector)
-    go v !cutoff
+    threshold :: Int
+    !threshold = binlog2 (GM.length vector)
+
+    qsortLoop :: v (PrimState m) a -> Int -> m ()
+    qsortLoop !v !cutoff
       | len < 17
       = bitonicSort len v
       | cutoff == 0
@@ -254,21 +257,22 @@ qsortImpl !vector = go vector threshold
               GM.unsafeWrite v pi1 pv2
               GM.unsafeWrite v pi2 pv1
               pure pv1
-        pi' <- partitionTwoWays pv last v
+        !pi' <- partitionTwoWays pv last v
         let !pi''    = pi' + 1
             !left    = GM.unsafeSlice 0 pi' v
             !right   = GM.unsafeSlice pi'' (len - pi'') v
             !cutoff' = cutoff - 1
-        go left cutoff'
-        go right cutoff'
+        qsortLoop left cutoff'
+        qsortLoop right cutoff'
       where
-        len = GM.length v
+        !len = GM.length v
 
 {-# INLINE partitionTwoWays #-}
-partitionTwoWays :: (PrimMonad m, Ord a, GM.MVector v a) => a -> Int -> v (PrimState m) a -> m Int
+partitionTwoWays :: forall m a v. (PrimMonad m, Ord a, GM.MVector v a) => a -> Int -> v (PrimState m) a -> m Int
 partitionTwoWays !pv !lastIdx !v =
   go 0 (lastIdx - 1)
   where
+    go :: Int -> Int -> m Int
     go !i !j = do
       (i', xi) <- goLT i
       (j', xj) <- goGT j

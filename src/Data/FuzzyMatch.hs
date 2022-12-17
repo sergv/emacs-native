@@ -710,9 +710,9 @@ splitWithSeps
   -> Either Group [Group]
 splitWithSeps !firstSep !seps !fullStr !fullStrLen
   | sizeofPrimArray seps == 0
-  = Left $ Group { gPrevChar = firstSep, gLen = fullStrLen, gStr = fullStr, gStart = 0 }
+  = Left $! Group { gPrevChar = firstSep, gLen = fullStrLen, gStr = fullStr, gStart = 0 }
   | otherwise
-  = Right $ go fullStrLen fullStr
+  = Right $! go fullStrLen fullStr
   where
     go :: Int -> Text -> [Group]
     go !off !str
@@ -753,7 +753,7 @@ splitWithSeps !firstSep !seps !fullStr !fullStrLen
       where
         !start = off - len
         isSep  = PExt.binSearchMember seps
-        (len, prefix, suffix) = T.spanLenEnd (not . isSep . fromIntegral) str
+        (!len, !prefix, !suffix) = T.spanLenEnd (not . isSep . fromIntegral) str
 
 newtype Heat = Heat { unHeat :: Int32 }
   deriving (Eq, Ord, Num, Prim, Pretty, Bounded)
