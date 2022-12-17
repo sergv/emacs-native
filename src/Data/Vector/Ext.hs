@@ -278,7 +278,8 @@ partitionTwoWays !pv !lastIdx !v =
         GM.unsafeWrite v i' xj
         go (i' + 1) (j' - 1)
       else do
-        GM.unsafeSwap v i' lastIdx
+        GM.unsafeWrite v i' pv
+        GM.unsafeWrite v lastIdx xi
         pure i'
       where
         goLT !k = do
