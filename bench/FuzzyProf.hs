@@ -27,20 +27,13 @@ import Data.Text.IO qualified as T
 import Data.Traversable
 import Data.Vector qualified as V
 import Data.Vector.Ext qualified as VExt
+import Data.Vector.PredefinedSorts
 import System.Environment
 
 import Data.FuzzyMatch qualified as FuzzyMatch
 
 -- import Data.List qualified as L
 -- import Data.FuzzyMatchBaseline qualified as Sline
-
-newtype SortKey v = SortKey { _unSortKey :: (Int32, Int, v) }
-
-instance Eq (SortKey v) where
-  SortKey (a, b, _) == SortKey (a', b', _) = a == a' && b == b'
-
-instance Ord (SortKey v) where
-  SortKey (a, b, _) `compare` SortKey (a', b', _) = Down a `compare` Down a' <> b `compare` b'
 
 {-# INLINE fi32 #-}
 fi32 :: Integral a => a -> Int32
@@ -52,7 +45,7 @@ doMatch :: PrimArray Int32 -> Text -> [Text] -> [(Int, Text)]
 doMatch seps needle xs =
   V.toList $
     fmap (\(SortKey (score, _, str)) -> (fromIntegral score, str)) $
-      VExt.sortVectorUnsafe $
+      sortVectorUnsafeSortKey $
         (\zs -> coerce zs :: V.Vector (SortKey Text)) ys
   where
     needleChars = FuzzyMatch.prepareNeedle needle
