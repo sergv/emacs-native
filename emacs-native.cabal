@@ -66,6 +66,7 @@ library
     Data.Emacs.Path
     Data.Eproj
     Data.Filesystem
+    Data.FuzzyMatchBaseline
     Data.FuzzyMatch
     Data.FuzzyMatch.SortKey
     Data.NBSem
@@ -156,10 +157,12 @@ test-suite emacs-native-test
   other-modules:
     Control.LensBlaze.Tests
     Data.FuzzyMatch.Tests
+    Data.FuzzyMatchBaseline.Tests
     Data.Vector.Ext.Tests
   build-depends:
     , QuickCheck
     , base
+    , containers
     , emacs-native
     , primitive
     , tasty

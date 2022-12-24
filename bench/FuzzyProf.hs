@@ -17,17 +17,17 @@ module FuzzyProf (main) where
 import Control.DeepSeq
 import Control.Exception
 import Control.LensBlaze
+import Control.Monad
 import Control.Monad.ST
-import Data.Coerce
+import Data.Foldable
 import Data.Int
+import Data.List qualified as L
 import Data.Ord
 import Data.Primitive.PrimArray
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.IO qualified as T
-import Data.Traversable
 import Data.Vector qualified as V
-import Data.Vector.Ext qualified as VExt
 import Data.Vector.PredefinedSorts
 import Data.Vector.Primitive qualified as P
 import Data.Vector.Primitive.Mutable qualified as PM
@@ -35,6 +35,7 @@ import System.Environment
 
 import Data.FuzzyMatch qualified as FuzzyMatch
 import Data.FuzzyMatch.SortKey
+import Data.FuzzyMatchBaseline qualified as Sline
 
 -- import Data.List qualified as L
 -- import Data.FuzzyMatchBaseline qualified as Sline
@@ -114,6 +115,25 @@ doMatch seps needle haystacks =
 --       needleChars
 --       haystack)
 
+{-# NOINLINE doMatchSline #-}
+doMatchSline :: PrimArray Int32 -> Text -> [Text] -> [(Int, Text)]
+doMatchSline seps needle
+  = L.sortOn (\(score, str) -> (Down score, str, T.length str))
+  . map (\str -> (fmSline seps needle needleChars str, str))
+  where
+    needleChars = Sline.prepareNeedle needle
+
+-- {-# NOINLINE fm #-}
+fmSline :: PrimArray Int32 -> Text -> Sline.NeedleChars -> Text -> Int
+fmSline seps needle needleChars haystack =
+  Sline.mScore
+    (Sline.fuzzyMatch
+      (Sline.computeHeatmap haystack seps)
+      needle
+      needleChars
+      haystack)
+
+
 
 
 main :: IO ()
@@ -125,49 +145,61 @@ main = do
       k' = read k
 
   let needle :: Text
-      needle = "e" -- "vector.hs"
+      needle = "vector.hs"
       -- seps = primArrayFromList [ord '/']
 
   candidates <- take k' . T.lines <$> T.readFile "/home/sergey/projects/emacs/projects/emacs-native/candidates.txt"
   evaluate $ rnf candidates
   putStrLn $ "Number of candidates = " ++ show (length candidates)
 
-  let !totalScore = sum $ map (\i -> sum $ map fst $ doMatch (primArrayFromList [fromIntegral i]) needle candidates) [1..n']
-  putStrLn $ "totalScore = " ++ show totalScore
+  -- let !totalScore = sum $ map (\i -> sum $ map fst $ doMatch (primArrayFromList [fromIntegral i]) needle candidates) [1..n']
+  -- putStrLn $ "totalScore = " ++ show totalScore
   -- let !kSline = sum $ map (\i -> sum $ map fst $ doMatchSline (primArrayFromList [fromIntegral i]) needle candidates) [1..n']
   -- putStrLn $ "kSline = " ++ show kSline
 
-  -- let seps :: PrimArray Int32
-  --     seps = primArrayFromList [fromIntegral n']
+  let seps :: PrimArray Int32
+      seps = primArrayFromList [fromIntegral n']
+
   -- for_ candidates $ \candidate -> do
   -- -- let candidate = ".emacs.d" :: Text
   -- -- do
   --   let oldHeatmap = primArrayToList (Sline.computeHeatmap candidate seps)
   --   let newHeatmap = runST $ do
   --         store <- FuzzyMatch.mkReusableState (T.length needle) (FuzzyMatch.prepareNeedle needle)
-  --         P.toList . FuzzyMatch.unHeatmap <$> FuzzyMatch.computeHeatmap store candidate seps
+  --         P.toList . FuzzyMatch.unHeatmap <$> FuzzyMatch.computeHeatmap store candidate (T.length candidate) seps
   --   when (map fromIntegral oldHeatmap /= map FuzzyMatch.unHeat newHeatmap) $ do
   --     putStrLn $ "candidate = " ++ show candidate
   --     putStrLn $ "oldHeatmap = " ++ show oldHeatmap
   --     putStrLn $ "newHeatmap = " ++ show newHeatmap
   --     putStrLn ""
 
-  -- let newMatches = doMatch seps needle candidates
-  -- let oldMatches = doMatchSline seps needle candidates
-  -- for_ (zip3 candidates oldMatches newMatches) $ \(candidate, (oldScore, old), (newScore, new)) -> do
-  --   when (oldScore /= newScore) $ do
-  --     putStrLn $ "oldScore = " ++ show oldScore
-  --     putStrLn $ "newScore = " ++ show newScore
-  --     putStrLn $ "old heatmap = " ++ show (primArrayToList (Sline.computeHeatmap candidate seps))
-  --     let newHeatmap = runST $ do
-  --           store <- FuzzyMatch.mkReusableState (T.length needle) (FuzzyMatch.prepareNeedle needle)
-  --           FuzzyMatch.computeHeatmap store candidate seps
+  let newMatches = doMatch seps needle candidates
+  let oldMatches = doMatchSline seps needle candidates
+  for_ (zip3 candidates oldMatches newMatches) $ \(candidate, (oldScore, old), (newScore, new)) -> do
+    when (oldScore /= newScore) $ do
+      putStrLn $ "oldScore = " ++ show oldScore
+      putStrLn $ "newScore = " ++ show newScore
+      putStrLn $ "old heatmap = " ++ show (primArrayToList (Sline.computeHeatmap candidate seps))
+      let newHeatmap = runST $ do
+            store <- FuzzyMatch.mkReusableState (T.length needle) (FuzzyMatch.prepareNeedle needle)
+            FuzzyMatch.computeHeatmap store candidate (T.length candidate) seps
+
+      putStrLn $ "new heatmap = " ++ show (P.toList $ FuzzyMatch.unHeatmap newHeatmap)
+
+
+      putStrLn $ "old = " ++ show old
+      putStrLn $ "new = " ++ show new
+
+  -- let seps :: PrimArray Int32
+  --     seps = primArrayFromList [fromIntegral $ ord '/']
+  -- let old = doMatchSline seps needle candidates
+  -- let new = doMatch seps needle candidates
   --
-  --     putStrLn $ "new heatmap = " ++ show (P.toList $ FuzzyMatch.unHeatmap newHeatmap)
+  -- putStrLn $ "Old score: " ++ show (sum $ map fst old)
+  -- putStrLn $ "New score: " ++ show (sum $ map fst new)
   --
-  --
-  --     putStrLn $ "old = " ++ show old
-  --     putStrLn $ "new = " ++ show new
+  -- for_ (L.take n' $ filter (\(x, y) -> x /= y) $ L.zip old new) $ \(old', new') ->
+  --   putStrLn $ show old' ++ " | " ++ show new'
 
   pure ()
 
