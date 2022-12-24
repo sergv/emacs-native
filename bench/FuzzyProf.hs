@@ -100,15 +100,15 @@ main = do
       k' = read k
 
   let needle :: Text
-      needle = "ee" -- "vector.hs"
+      needle = "e" -- "vector.hs"
       -- seps = primArrayFromList [ord '/']
 
   candidates <- take k' . T.lines <$> T.readFile "/home/sergey/projects/emacs/projects/emacs-native/candidates.txt"
   evaluate $ rnf candidates
   putStrLn $ "Number of candidates = " ++ show (length candidates)
 
-  let !k = sum $ map (\i -> sum $ map fst $ doMatch (primArrayFromList [fromIntegral i]) needle candidates) [1..n']
-  putStrLn $ "k = " ++ show k
+  let !totalScore = sum $ map (\i -> sum $ map fst $ doMatch (primArrayFromList [fromIntegral i]) needle candidates) [1..n']
+  putStrLn $ "totalScore = " ++ show totalScore
   -- let !kSline = sum $ map (\i -> sum $ map fst $ doMatchSline (primArrayFromList [fromIntegral i]) needle candidates) [1..n']
   -- putStrLn $ "kSline = " ++ show kSline
 

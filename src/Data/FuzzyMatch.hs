@@ -50,14 +50,12 @@ import Control.Monad.ST.Strict
 import Data.Bits
 import Data.Char
 import Data.Coerce
-import Data.Foldable
 import Data.Function
 import Data.Int
 import Data.IntMap (IntMap)
 import Data.IntMap qualified as IM
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.List.NonEmpty qualified as NE
-import Data.Ord
 import Data.Primitive.ByteArray
 import Data.Primitive.PrimArray
 import Data.Primitive.PrimArray.Ext qualified as PExt
@@ -593,32 +591,33 @@ fuzzyMatch' store mkHeatmap needle needleChars haystack
 
         computeScore
           :: PrimMonad m
-          => (V.MVector (PrimState m) (U.Vector PackedIdx) -> StrIdx -> m [Submatch])
+          => (V.MVector (PrimState m) (U.Vector PackedIdx) -> StrIdx -> m (Maybe Submatch))
           -> V.MVector (PrimState m) (U.Vector PackedIdx)
           -> StrIdx
-          -> m [Submatch]
+          -> m (Maybe Submatch)
         computeScore recur !needleOccursInHaystack !cutoffIndex = do
+          -- Debug.Trace.traceM $ "key = " ++ show (VM.length needleOccursInHaystack, cutoffIndex)
+
           (remainingOccurrences :: U.Vector PackedIdx) <- bigger cutoffIndex <$> VM.unsafeRead needleOccursInHaystack 0
           case VM.length needleOccursInHaystack of
             -- Last character, already checked that vector is never empty
             1 ->
-              pure $ flip map (U.toList remainingOccurrences) $ \ !pidx ->
+              inline findBestWith remainingOccurrences $ \ !pidx -> do
                 let StrIdx !idx = getStrIdx pidx
-                in
-                Submatch
+                pure $! Just $! Submatch
                   { smScore           = heatmap `P.unsafeIndex` fromIntegral idx
                   , smPositions       = StrIdx idx :| []
                   , smContiguousCount = 0
                   }
 
             _ ->
-              findBestWith remainingOccurrences $ \ !pidx -> do
+              inline findBestWith remainingOccurrences $ \ !pidx -> do
                 let !idx' = getStrIdx pidx
-                submatches <- recur (VM.unsafeTail needleOccursInHaystack) idx'
-                pure $ flip map submatches $ \submatch ->
-                  let score'          = smScore submatch + (heatmap `P.unsafeIndex` fromIntegral (unStrIdx idx'))
-                      contiguousBonus = Heat $ 60 + 15 * min 3 (smContiguousCount submatch)
-                      isContiguous    = NE.head (smPositions submatch) == succ idx'
+                submatch' <- recur (VM.unsafeTail needleOccursInHaystack) idx'
+                pure $ (`fmap` submatch') $ \Submatch{smScore, smContiguousCount, smPositions} ->
+                  let score'          = smScore + (heatmap `P.unsafeIndex` fromIntegral (unStrIdx idx'))
+                      contiguousBonus = Heat $ 60 + 15 * min 3 smContiguousCount
+                      isContiguous    = NE.head smPositions == succ idx'
                       score
                         | isContiguous
                         = score' + contiguousBonus
@@ -626,30 +625,16 @@ fuzzyMatch' store mkHeatmap needle needleChars haystack
                         = score'
                   in Submatch
                     { smScore           = score
-                    , smPositions       = NE.cons idx' $ smPositions submatch
+                    , smPositions       = NE.cons idx' smPositions
                     , smContiguousCount =
-                      if isContiguous then smContiguousCount submatch + 1 else 0
+                      if isContiguous then smContiguousCount + 1 else 0
                     }
-              where
-                findBestWith :: forall n. Monad n => U.Vector PackedIdx -> (PackedIdx -> n [Submatch]) -> n [Submatch]
-                findBestWith !occs f =
-                  go (Submatch minBound (NE.singleton (StrIdx (-1))) 0) 0
-                  where
-                    go :: Submatch -> Int -> n [Submatch]
-                    go !best !i
-                      | i == U.length occs
-                      = pure $ if smScore best == minBound then [] else [best]
-                      | otherwise
-                      = do
-                        xs <- f (occs `U.unsafeIndex` i)
-                        go (maximumBy (comparing smScore) (best : xs)) (i + 1)
 
       !result <- do
         res <- memoizeBy makeKey computeScore occurs (StrIdx (-1))
         pure $ case res of
-          []  -> noMatch
-          [m] -> submatchToMatch m
-          ms  -> submatchToMatch $ maximumBy (comparing smScore) ms
+          Nothing -> noMatch
+          Just m  -> submatchToMatch m
       pure result
   where
     noMatch = Match
@@ -662,6 +647,24 @@ fuzzyMatch' store mkHeatmap needle needleChars haystack
       j `unsafeShiftL` 32 .|. fromIntegral (unStrIdx k)
       where
         !j = VM.length occs
+
+    findBestWith :: forall n. Monad n => U.Vector PackedIdx -> (PackedIdx -> n (Maybe Submatch)) -> n (Maybe Submatch)
+    findBestWith !occs f = go Nothing 0
+      where
+        go :: Maybe Submatch -> Int -> n (Maybe Submatch)
+        go !best !i
+          | i == U.length occs
+          = pure best
+          | otherwise
+          = do
+            x <- f (occs `U.unsafeIndex` i)
+            let best' = case (best, x) of
+                  (Nothing, y)       -> y
+                  (y, Nothing)       -> y
+                  (Just b', Just x') ->
+                    -- If scores are equal then prefer the match occuring later.
+                    Just $! if smScore x' >= smScore b' then x' else b'
+            go best' (i + 1)
 
 memoizeBy
   :: forall a b c s.
