@@ -638,7 +638,7 @@ fuzzyMatch' store mkHeatmap needle needleChars haystack
       pure result
   where
     noMatch = Match
-      { mScore     = (-1)
+      { mScore     = (-1000000)
       , mPositions = StrIdx (-1) :| []
       }
 

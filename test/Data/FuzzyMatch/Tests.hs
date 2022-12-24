@@ -40,9 +40,12 @@ tests = testGroup "Data.FuzzyMatch.Tests"
 foobarHeatmap :: Heatmap
 foobarHeatmap = Heatmap $ P.fromList [84, -2, -3, -4, -5, -5]
 
+noMatchScore :: Int32
+noMatchScore = (- 1000000)
+
 noMatch :: Match
 noMatch = Match
-  { mScore     = (-1)
+  { mScore     = noMatchScore
   , mPositions = StrIdx (-1) :| []
   }
 
@@ -112,8 +115,8 @@ fuzzyMatchTests = testGroup "fuzzy match"
 
 fuzzyMatchMultipleTests :: TestTree
 fuzzyMatchMultipleTests = testGroup "fuzzy match multiple"
-  [ mkTestCase "foo" ["foobar", "foobaz", "quux", "fqouuxo"] [214, 214, (-1), 75]
-  , mkTestCase "vector.hs" ["local-store/ghc-9.4.2/vector-space-0.16-6c2632778a7166806a878ce1c082a8cd55db17dc183ef6153dc43f8064939746/share/doc/html/meta.json", "/home/sergey/projects/haskell/packages/local-store/ghc-9.4.2/mime-types-0.1.1.0-36574ed6c6ba4b463c91ac91e7334e6d64c7e64484e986bb0ef24ae7064fefb6/cabal-hash.txt", "local-store/ghc-9.4.2/mime-types-0.1.1.0-36574ed6c6ba4b463c91ac91e7334e6d64c7e64484e986bb0ef24ae7064fefb6/cabal-hash.txt"] [228, (-1), (-1)]
+  [ mkTestCase "foo" ["foobar", "foobaz", "quux", "fqouuxo"] [214, 214, noMatchScore, 75]
+  , mkTestCase "vector.hs" ["local-store/ghc-9.4.2/vector-space-0.16-6c2632778a7166806a878ce1c082a8cd55db17dc183ef6153dc43f8064939746/share/doc/html/meta.json", "/home/sergey/projects/haskell/packages/local-store/ghc-9.4.2/mime-types-0.1.1.0-36574ed6c6ba4b463c91ac91e7334e6d64c7e64484e986bb0ef24ae7064fefb6/cabal-hash.txt", "local-store/ghc-9.4.2/mime-types-0.1.1.0-36574ed6c6ba4b463c91ac91e7334e6d64c7e64484e986bb0ef24ae7064fefb6/cabal-hash.txt"] [228, noMatchScore, noMatchScore]
   ]
   where
     mkTestCase :: Text -> [Text] -> [Int32] -> TestTree
