@@ -60,7 +60,7 @@ scoreMatchesDoc =
 
 extractSeps :: (MonadEmacs m v, Prim (v s)) => v s -> m s (PrimArray Int32)
 extractSeps !xs = do
-  ys <- traversePrimArray (fmap fromIntegral . extractInt) =<< extractVectorAsPrimArray xs
+  ys <- extractVectorAsPrimArrayWith (fmap fromIntegral . extractInt) xs
   pure $ runST $ unsafeFreezePrimArray =<< sortUniqueMutable =<< unsafeThawPrimArray ys
 
 {-# INLINE makeListFromVector #-}
