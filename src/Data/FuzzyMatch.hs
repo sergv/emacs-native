@@ -161,7 +161,7 @@ data ReusableState s = ReusableState
   }
 
 mkReusableState :: Int -> NeedleChars -> ST s (ReusableState s)
-mkReusableState needleSize chars = do
+mkReusableState !needleSize !chars = do
   rsHaystackStore <- newSTRef =<< newByteArray (needleCharsCountHint chars)
   rsHeatmapStore  <- newSTRef =<< PM.unsafeNew (needleCharsCountHint chars)
   rsNeedleStore   <- VM.unsafeNew needleSize
@@ -768,21 +768,21 @@ instance Show Heat where
 newtype Heatmap = Heatmap { unHeatmap :: P.Vector Heat }
   deriving (Show)
 
-computeHeatmap :: ReusableState s -> Text -> PrimArray Int32 -> ST s Heatmap
-computeHeatmap ReusableState{rsHeatmapStore} haystack groupSeps = do
+computeHeatmap :: ReusableState s -> Text -> Int -> PrimArray Int32 -> ST s Heatmap
+computeHeatmap ReusableState{rsHeatmapStore} !haystack !haystackLen groupSeps = do
   vec    <- readSTRef rsHeatmapStore
   scores <- do
     let !currSize = PM.length vec
     vec' <-
-      if currSize > len
+      if currSize > haystackLen
       then pure vec
       else do
-        vec' <- PM.unsafeNew (len * 2)
+        vec' <- PM.unsafeNew (haystackLen * 2)
         writeSTRef rsHeatmapStore vec'
         pure vec'
-    pure $ PM.unsafeSlice 0 len vec'
+    pure $ PM.unsafeSlice 0 haystackLen vec'
 
-  let split = splitWithSeps ' ' groupSeps haystack len
+  let split = splitWithSeps ' ' groupSeps haystack haystackLen
 
       !groupsCount = case split of
         Left Group{} -> 1
@@ -795,7 +795,7 @@ computeHeatmap ReusableState{rsHeatmapStore} haystack groupSeps = do
       !lastCharBonus = 1
 
   PM.set scores (initScore + initAdjustment)
-  update (len - 1) lastCharBonus scores
+  update (haystackLen - 1) lastCharBonus scores
 
   let initGroupState = GroupState
         { gsIsBasePath = False
@@ -813,9 +813,6 @@ computeHeatmap ReusableState{rsHeatmapStore} haystack groupSeps = do
             goGroups (seenBasePath || gsIsBasePath s') s' gs
 
   Heatmap <$> P.unsafeFreeze scores
-
-  where
-    !len = T.length haystack
 
 data GroupState = GroupState
   { gsIsBasePath        :: !Bool

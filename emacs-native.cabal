@@ -60,11 +60,14 @@ library
   if flag(runtime-checks)
     cpp-options: -DRUNTIME_CHECKS
   exposed-modules:
+    Control.LensBlaze
+
     Data.ByteString.Char8.Ext
     Data.Emacs.Path
     Data.Eproj
     Data.Filesystem
     Data.FuzzyMatch
+    Data.FuzzyMatch.SortKey
     Data.NBSem
     Data.Regex
     Data.Primitive.PrimArray.Ext
@@ -151,9 +154,11 @@ test-suite emacs-native-test
     .
     test
   other-modules:
+    Control.LensBlaze.Tests
     Data.FuzzyMatch.Tests
     Data.Vector.Ext.Tests
   build-depends:
+    , QuickCheck
     , base
     , emacs-native
     , primitive

@@ -25,7 +25,7 @@ tests = testGroup "Data.Vector.Ext.Tests"
   ]
 
 sortTests :: TestTree
-sortTests = testGroup "sort  tests"
+sortTests = testGroup "sort tests"
   [ localOption (QC.QuickCheckTests 10000) $
     QC.testProperty "Data.Vector Int sorting" $
       \(xs :: [Int]) ->

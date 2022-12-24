@@ -84,17 +84,17 @@ fuzzyMatchTests = testGroup "fuzzy match"
       , mPositions = NE.fromList [StrIdx 190..StrIdx 199]
       }
   , let haystack = "sys/dev/acpica/Osd/OsdTable.c" :: Text in
-      mkTestCase "cat.c" haystack (\store -> computeHeatmap store haystack mempty) Match
+      mkTestCase "cat.c" haystack (\store -> computeHeatmap store haystack (T.length haystack) mempty) Match
         { mScore     = 142
         , mPositions = NE.fromList (map StrIdx [12, 13, 22, 27, 28])
         }
   , let haystack = "/home/user/projects/Data/Vector.hs" :: Text in
-    mkTestCase "vector" haystack (\store -> computeHeatmap store haystack mempty) Match
+    mkTestCase "vector" haystack (\store -> computeHeatmap store haystack (T.length haystack) mempty) Match
       { mScore     = 397
       , mPositions = fmap StrIdx $ 25 :| [26, 27, 28, 29, 30]
       }
   , let haystack = "all-packages/vector-th-unbox-0.2.2/Data/Vector/Unboxed/Deriving.hs" :: Text in
-    mkTestCase "vector.hs" haystack (\store -> computeHeatmap store haystack mempty) Match
+    mkTestCase "vector.hs" haystack (\store -> computeHeatmap store haystack (T.length haystack) mempty) Match
       { mScore     = 414
       , mPositions = fmap StrIdx $ 13 :| [14, 15, 16, 17, 18, 63, 64, 65]
       }
@@ -123,7 +123,7 @@ fuzzyMatchMultipleTests = testGroup "fuzzy match multiple"
               let needleChars = prepareNeedle needle
               store <- mkReusableState (T.length needle) needleChars
               for haystacks $ \haystack -> do
-                heatmap <- computeHeatmap store haystack mempty
+                heatmap <- computeHeatmap store haystack (T.length haystack) mempty
                 !match  <- fuzzyMatch store heatmap needle needleChars haystack
                 pure $ mScore match
         matches @?= expectedScores
@@ -182,7 +182,7 @@ heatMap = testGroup "Heatmap"
       testCase (T.unpack $ "Heatmap of ‘" <> str <> "’" <> seps) $ do
         let Heatmap heatmap = runST $ do
               store <- mkReusableState 3 (prepareNeedle "foo")
-              computeHeatmap store str groupSeps
+              computeHeatmap store str (T.length str) groupSeps
         heatmap @?= P.fromList (map Heat result)
       where
         seps

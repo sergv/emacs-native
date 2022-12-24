@@ -16,6 +16,7 @@ module FuzzyProf (main) where
 
 import Control.DeepSeq
 import Control.Exception
+import Control.LensBlaze
 import Control.Monad.ST
 import Data.Coerce
 import Data.Int
@@ -28,9 +29,12 @@ import Data.Traversable
 import Data.Vector qualified as V
 import Data.Vector.Ext qualified as VExt
 import Data.Vector.PredefinedSorts
+import Data.Vector.Primitive qualified as P
+import Data.Vector.Primitive.Mutable qualified as PM
 import System.Environment
 
 import Data.FuzzyMatch qualified as FuzzyMatch
+import Data.FuzzyMatch.SortKey
 
 -- import Data.List qualified as L
 -- import Data.FuzzyMatchBaseline qualified as Sline
@@ -39,29 +43,50 @@ import Data.FuzzyMatch qualified as FuzzyMatch
 fi32 :: Integral a => a -> Int32
 fi32 = fromIntegral
 
-
 {-# NOINLINE doMatch #-}
 doMatch :: PrimArray Int32 -> Text -> [Text] -> [(Int, Text)]
-doMatch seps needle xs =
-  V.toList $
-    fmap (\(SortKey (score, _, str)) -> (fromIntegral score, str)) $
-      sortVectorUnsafeSortKey $
-        (\zs -> coerce zs :: V.Vector (SortKey Text)) ys
+doMatch seps needle haystacks =
+  map (\key -> (fromIntegral (getScore key), haystacks' `V.unsafeIndex` fromIntegral (view idxL key))) $ P.toList ys
   where
     needleChars = FuzzyMatch.prepareNeedle needle
 
-    ys :: V.Vector (Int32, Int, Text)
+    haystacks' :: V.Vector Text
+    haystacks' = V.fromList haystacks
+
+    ys :: P.Vector SortKey
     ys = runST $ do
+
+      let !totalHaystacks = V.length haystacks'
+
       store <- FuzzyMatch.mkReusableState (T.length needle) needleChars
-      for (V.fromList xs) $ \str -> do
-        match <-
-          FuzzyMatch.fuzzyMatch'
-            store
-            (FuzzyMatch.computeHeatmap store str seps)
-            needle
-            needleChars
-            str
-        pure (fi32 $ FuzzyMatch.mScore match, T.length str, str)
+
+      scores <- PM.new totalHaystacks
+
+      let go !n
+            | n == totalHaystacks
+            = pure ()
+            | otherwise
+            = do
+              let !haystack    = haystacks' `V.unsafeIndex` n
+                  !haystackLen = T.length haystack
+              !match <- FuzzyMatch.fuzzyMatch' store (FuzzyMatch.computeHeatmap store haystack haystackLen seps) needle needleChars haystack
+              PM.unsafeWrite scores n $!
+                mkSortKey (FuzzyMatch.mScore match) (fromIntegral haystackLen) (fromIntegral n)
+              go (n + 1)
+
+      go 0
+      qsortSortKey scores
+      P.unsafeFreeze scores
+
+      -- for (V.fromList xs) $ \str -> do
+      --   match <-
+      --     FuzzyMatch.fuzzyMatch'
+      --       store
+      --       (FuzzyMatch.computeHeatmap store str seps)
+      --       needle
+      --       needleChars
+      --       str
+      --   pure (fi32 $ FuzzyMatch.mScore match, T.length str, str)
         -- !_ <- FuzzyMatch.computeHeatmap store str seps
         -- pure (0, T.length str, str)
 
