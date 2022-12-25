@@ -768,17 +768,18 @@ instance Show Heat where
 newtype Heatmap = Heatmap { unHeatmap :: PrimArray Heat }
   deriving (Show)
 
+-- Heatmap elements spast @hastyackLen@ will have undefined values. Take care not
+-- to access them!
 computeHeatmap :: ReusableState s -> Text -> Int -> PrimArray Int32 -> ST s Heatmap
 computeHeatmap ReusableState{rsHeatmapStore} !haystack !haystackLen groupSeps = do
   arr    <- readSTRef rsHeatmapStore
   scores <- do
     !currSize <- getSizeofMutablePrimArray arr
     if currSize > haystackLen
-    then do
-      shrinkMutablePrimArray arr haystackLen
+    then
       pure arr
     else do
-      arr' <- resizeMutablePrimArray arr haystackLen
+      arr' <- resizeMutablePrimArray arr (2 * haystackLen)
       writeSTRef rsHeatmapStore arr'
       pure arr'
 
@@ -803,8 +804,7 @@ computeHeatmap ReusableState{rsHeatmapStore} !haystack !haystackLen groupSeps = 
         }
   case split of
     Left  g      -> void $ analyzeGroup g False groupsCount initGroupState haystackLen scores
-    Right groups -> do
-      goGroups False initGroupState groups
+    Right groups -> goGroups False initGroupState groups
       where
         goGroups !seenBasePath !s = \case
           []     -> pure ()
