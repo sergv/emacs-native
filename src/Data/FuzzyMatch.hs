@@ -156,14 +156,14 @@ isWordC c = isWord x
 
 data ReusableState s = ReusableState
   { rsHaystackStore :: !(STRef s (MutableByteArray s))
-  , rsHeatmapStore  :: !(STRef s (PM.MVector s Heat))
+  , rsHeatmapStore  :: !(STRef s (MutablePrimArray s Heat))
   , rsNeedleStore   :: !(VM.MVector s (U.Vector PackedIdx))
   }
 
 mkReusableState :: Int -> NeedleChars -> ST s (ReusableState s)
 mkReusableState !needleSize !chars = do
   rsHaystackStore <- newSTRef =<< newByteArray (needleCharsCountHint chars)
-  rsHeatmapStore  <- newSTRef =<< PM.unsafeNew (needleCharsCountHint chars)
+  rsHeatmapStore  <- newSTRef =<< newPrimArray (needleCharsCountHint chars)
   rsNeedleStore   <- VM.unsafeNew needleSize
   pure ReusableState{rsHaystackStore, rsHeatmapStore, rsNeedleStore}
 
@@ -605,7 +605,7 @@ fuzzyMatch' store mkHeatmap needle needleChars haystack
               inline findBestWith remainingOccurrences $ \ !pidx -> do
                 let StrIdx !idx = getStrIdx pidx
                 pure $! Just $! Submatch
-                  { smScore           = heatmap `P.unsafeIndex` fromIntegral idx
+                  { smScore           = heatmap `indexPrimArray` fromIntegral idx
                   , smPositions       = StrIdx idx :| []
                   , smContiguousCount = 0
                   }
@@ -615,7 +615,7 @@ fuzzyMatch' store mkHeatmap needle needleChars haystack
                 let !idx' = getStrIdx pidx
                 submatch' <- recur (VM.unsafeTail needleOccursInHaystack) idx'
                 pure $ (`fmap` submatch') $ \Submatch{smScore, smContiguousCount, smPositions} ->
-                  let score'          = smScore + (heatmap `P.unsafeIndex` fromIntegral (unStrIdx idx'))
+                  let score'          = smScore + (heatmap `indexPrimArray` fromIntegral (unStrIdx idx'))
                       contiguousBonus = Heat $ 60 + 15 * min 3 smContiguousCount
                       isContiguous    = NE.head smPositions == succ idx'
                       score
@@ -765,22 +765,22 @@ instance Show Heat where
   show = show . unHeat
 
 -- | Heatmap mapping characters to scores
-newtype Heatmap = Heatmap { unHeatmap :: P.Vector Heat }
+newtype Heatmap = Heatmap { unHeatmap :: PrimArray Heat }
   deriving (Show)
 
 computeHeatmap :: ReusableState s -> Text -> Int -> PrimArray Int32 -> ST s Heatmap
 computeHeatmap ReusableState{rsHeatmapStore} !haystack !haystackLen groupSeps = do
-  vec    <- readSTRef rsHeatmapStore
+  arr    <- readSTRef rsHeatmapStore
   scores <- do
-    let !currSize = PM.length vec
-    vec' <-
-      if currSize > haystackLen
-      then pure vec
-      else do
-        vec' <- PM.unsafeNew (haystackLen * 2)
-        writeSTRef rsHeatmapStore vec'
-        pure vec'
-    pure $ PM.unsafeSlice 0 haystackLen vec'
+    !currSize <- getSizeofMutablePrimArray arr
+    if currSize > haystackLen
+    then do
+      shrinkMutablePrimArray arr haystackLen
+      pure arr
+    else do
+      arr' <- resizeMutablePrimArray arr haystackLen
+      writeSTRef rsHeatmapStore arr'
+      pure arr'
 
   let split = splitWithSeps ' ' groupSeps haystack haystackLen
 
@@ -794,7 +794,7 @@ computeHeatmap ReusableState{rsHeatmapStore} !haystack !haystackLen groupSeps = 
       lastCharBonus :: Heat
       !lastCharBonus = 1
 
-  PM.set scores (initScore + initAdjustment)
+  setPrimArray scores 0 haystackLen (initScore + initAdjustment)
   update (haystackLen - 1) lastCharBonus scores
 
   let initGroupState = GroupState
@@ -802,17 +802,17 @@ computeHeatmap ReusableState{rsHeatmapStore} !haystack !haystackLen groupSeps = 
         , gsGroupIdx   = fi32 $ groupsCount - 1
         }
   case split of
-    Left  g      -> void $ analyzeGroup g False groupsCount initGroupState scores
+    Left  g      -> void $ analyzeGroup g False groupsCount initGroupState haystackLen scores
     Right groups -> do
       goGroups False initGroupState groups
       where
         goGroups !seenBasePath !s = \case
           []     -> pure ()
           g : gs -> do
-            s' <- analyzeGroup g seenBasePath groupsCount s scores
+            s' <- analyzeGroup g seenBasePath groupsCount s haystackLen scores
             goGroups (seenBasePath || gsIsBasePath s') s' gs
 
-  Heatmap <$> P.unsafeFreeze scores
+  Heatmap <$> unsafeFreezePrimArray scores
 
 data GroupState = GroupState
   { gsIsBasePath        :: !Bool
@@ -835,8 +835,8 @@ fi32 = fromIntegral
 unST :: State# s -> ST s a -> (# State# s, a #)
 unST s (ST f) = f s
 
-analyzeGroup :: Group -> Bool -> Int -> GroupState -> PM.MVector s Heat -> ST s GroupState
-analyzeGroup Group{gPrevChar, gLen, gStr, gStart} !seenBasePath !groupsCount GroupState{gsGroupIdx} !scores = do
+analyzeGroup :: Group -> Bool -> Int -> GroupState -> Int -> MutablePrimArray s Heat -> ST s GroupState
+analyzeGroup Group{gPrevChar, gLen, gStr, gStart} !seenBasePath !groupsCount GroupState{gsGroupIdx} !scoresLen !scores = do
   let start :: Int
       !start = gStart
       !end = start + gLen
@@ -846,7 +846,7 @@ analyzeGroup Group{gPrevChar, gLen, gStr, gStart} !seenBasePath !groupsCount Gro
       !leadingPenalty = (-45)
 
   GroupChar{gcWordIdx, gcWordCharIdx, gcWordCount} <- ST $ \s -> T.textFoldIdxMIntIdx
-    (\ !idx c GroupChar{gcIsWord, gcIsUpper, gcWordCount, gcWordIdx, gcWordCharIdx, gcPrevChar} s' -> unST s' $ do
+    (\ (!idx :: Int) (c :: Int#) GroupChar{gcIsWord, gcIsUpper, gcWordCount, gcWordIdx, gcWordCharIdx, gcPrevChar} s' -> unST s' $ do
       let j :: Int
           !j = start + idx
 
@@ -858,7 +858,7 @@ analyzeGroup Group{gPrevChar, gLen, gStr, gStart} !seenBasePath !groupsCount Gro
 
       let (!gcWordIdx', !gcWordCharIdx')
             | isBoundary = (gcWordIdx + 1, 0)
-            | otherwise  = (gcWordIdx, gcWordCharIdx)
+            | otherwise  = (gcWordIdx,     gcWordCharIdx)
       when isBoundary $
         update j wordStart scores
 
@@ -887,14 +887,14 @@ analyzeGroup Group{gPrevChar, gLen, gStr, gStart} !seenBasePath !groupsCount Gro
 
   -- Update score for trailing separator of current group.
   let !trailingSep = end
-  when (trailingSep < PM.length scores && gcWordIdx >= 0) $
+  when (trailingSep < scoresLen && gcWordIdx >= 0) $
     update trailingSep (Heat $ fi32 $ gcWordIdx * (-3) - gcWordCharIdx) scores
 
   let !isBasePath = not seenBasePath && gcWordCount /= 0
 
   let !groupScore = calcGroupScore isBasePath groupsCount gcWordCount gsGroupIdx
 
-  applyGroupScore groupScore start end scores
+  applyGroupScore groupScore start end scoresLen scores
 
   let res = GroupState
         { gsIsBasePath = isBasePath
@@ -911,19 +911,20 @@ calcGroupScore isBasePath groupsCount wordCount gcGroupIdx
 penaliseIfLeading :: Int# -> Bool
 penaliseIfLeading x = isTrue# (x ==# 46#) -- 46 is '.'in ascii
 
-update :: Int -> Heat -> PM.MVector s Heat -> ST s ()
-update !idx !val vec =
-  PM.unsafeModify vec (+ val) idx
+update :: Int -> Heat -> MutablePrimArray s Heat -> ST s ()
+update !idx !val arr = do
+  x <- readPrimArray arr idx
+  writePrimArray arr idx (x + val)
 
-applyGroupScore :: Heat -> Int -> Int -> PM.MVector s Heat -> ST s ()
-applyGroupScore !score !start !end !scores =
+applyGroupScore :: Heat -> Int -> Int -> Int -> MutablePrimArray s Heat -> ST s ()
+applyGroupScore !score !start !end !arrLen !scores =
   go start
   where
     go !i
       | i < end
       = update i score scores *> go (i + 1)
       -- If we reached here then i == end
-      | i < PM.length scores
+      | i < arrLen
       = update i score scores
       | otherwise
       = pure ()
