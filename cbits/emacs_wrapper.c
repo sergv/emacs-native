@@ -53,8 +53,8 @@ bind_function(emacs_env *env, const char *name, emacs_value Sfun) {
   /* Prepare the arguments array */
   emacs_value args[] = { Qsym, Sfun };
 
-  /* Make the call (2 == nb of arguments) */
-  env->funcall(env, Qfset, 2, args);
+  /* Make the call */
+  env->funcall(env, Qfset, ARR_SIZE(args), args);
 }
 
 int emacs_module_init(struct emacs_runtime *ert) {
