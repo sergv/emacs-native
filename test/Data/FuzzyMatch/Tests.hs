@@ -185,7 +185,8 @@ heatMap = testGroup "Heatmap"
         let Heatmap heatmap = runST $ do
               store <- mkReusableState 3 (prepareNeedle "foo")
               computeHeatmap store str (T.length str) groupSeps
-        heatmap @?= primArrayFromList (map Heat result)
+            heatmap' = clonePrimArray heatmap 0 (length result)
+        heatmap' @?= primArrayFromList (map Heat result)
       where
         seps
           | sizeofPrimArray groupSeps == 0 = mempty

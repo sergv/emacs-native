@@ -80,6 +80,7 @@ import Data.Vector.Unboxed.Base qualified as U
 import Data.Word
 import GHC.Exts
 import GHC.Generics (Generic)
+import GHC.Int
 import GHC.ST
 import GHC.Word
 import Numeric (showHex)
@@ -705,6 +706,7 @@ data Group = Group
   , gStart    :: {-# UNPACK #-} !Int
   } deriving (Show)
 
+{-# INLINE splitWithSeps #-}
 splitWithSeps
   :: Char -- ^ Fake separator to add at the start
   -> PrimArray Int32
@@ -787,7 +789,7 @@ computeHeatmap ReusableState{rsHeatmapStore} !haystack !haystackLen groupSeps = 
 
       !groupsCount = case split of
         Left Group{} -> 1
-        Right xs     -> length xs
+        Right xs     -> fi32 $ length xs
 
   let initScore, initAdjustment :: Heat
       initScore = (-35)
@@ -800,8 +802,9 @@ computeHeatmap ReusableState{rsHeatmapStore} !haystack !haystackLen groupSeps = 
 
   let initGroupState = GroupState
         { gsIsBasePath = False
-        , gsGroupIdx   = fi32 $ groupsCount - 1
+        , gsGroupIdx   = groupsCount - 1
         }
+
   case split of
     Left  g      -> void $ analyzeGroup g False groupsCount initGroupState haystackLen scores
     Right groups -> goGroups False initGroupState groups
@@ -822,9 +825,9 @@ data GroupState = GroupState
 data GroupChar = GroupChar
   { gcIsWord      :: !Bool
   , gcIsUpper     :: !Bool
-  , gcWordCount   :: {-# UNPACK #-} !Int
-  , gcWordIdx     :: {-# UNPACK #-} !Int
-  , gcWordCharIdx :: {-# UNPACK #-} !Int
+  , gcWordCount   :: {-# UNPACK #-} !Int32
+  , gcWordIdx     :: {-# UNPACK #-} !Int32
+  , gcWordCharIdx :: {-# UNPACK #-} !Int32
   , gcPrevChar    :: Int#
   } deriving (Show)
 
@@ -835,66 +838,91 @@ fi32 = fromIntegral
 unST :: State# s -> ST s a -> (# State# s, a #)
 unST s (ST f) = f s
 
-analyzeGroup :: Group -> Bool -> Int -> GroupState -> Int -> MutablePrimArray s Heat -> ST s GroupState
+-- | True is 1, False is 0.
+{-# INLINE boolToInt32# #-}
+boolToInt32# :: Bool -> Int32#
+boolToInt32# x =
+  intToInt32# (dataToTag# x)
+
+analyzeGroup :: Group -> Bool -> Int32 -> GroupState -> Int -> MutablePrimArray s Heat -> ST s GroupState
 analyzeGroup Group{gPrevChar, gLen, gStr, gStart} !seenBasePath !groupsCount GroupState{gsGroupIdx} !scoresLen !scores = do
   let start :: Int
       !start = gStart
       !end = start + gLen
 
-  let wordStart, leadingPenalty :: Heat
+  let wordStart :: Heat
       !wordStart = 85
-      !leadingPenalty = (-45)
 
-  GroupChar{gcWordIdx, gcWordCharIdx, gcWordCount} <- ST $ \s -> T.textFoldIdxMIntIdx
+  let wordStart#, leadingPenalty# :: Int32#
+      wordStart#      = intToInt32# 85#
+      leadingPenalty# = intToInt32# (-45#)
+
+  GroupChar{gcWordIdx, gcWordCharIdx, gcWordCount} <- {-# SCC "analyzeGroup.loop" #-} ST $ \s -> T.textFoldIntIdxM
     (\ (!idx :: Int) (c :: Int#) GroupChar{gcIsWord, gcIsUpper, gcWordCount, gcWordIdx, gcWordCharIdx, gcPrevChar} s' -> unST s' $ do
-      let j :: Int
-          !j = start + idx
 
-          !currWord   = isWord c
+      let !currWord   = isWord c
           !currUpper  = isUpper (chr (I# c))
 
           !isWord'    = not gcIsWord && currWord
           !isBoundary = isWord' || not gcIsUpper && currUpper
 
-      let (!gcWordIdx', !gcWordCharIdx')
-            | isBoundary = (gcWordIdx + 1, 0)
-            | otherwise  = (gcWordIdx,     gcWordCharIdx)
-      when isBoundary $
-        update j wordStart scores
+          !gcWordIdx'@(I32# gcWordIdx'#)
+            | isBoundary = gcWordIdx + 1
+            | otherwise  = gcWordIdx
 
-      when (gcWordIdx' >= 0) $
-        update j (Heat $ fi32 $ gcWordIdx' * (-3) - gcWordCharIdx') scores
+          !gcWordCharIdx'@(I32# gcWordCharIdx'#)
+            | isBoundary = 0
+            | otherwise  = gcWordCharIdx
+
+          condMul :: Bool -> Int32# -> Int32#
+          condMul test other =
+            boolToInt32# test `timesInt32#` other
+
+          delta :: Heat
+          !delta =
+            Heat
+             (I32#
+               (condMul isBoundary wordStart# `plusInt32#`
+                condMul (gcWordIdx' >= 0) (gcWordIdx'# `timesInt32#` intToInt32# (-3#) `subInt32#` gcWordCharIdx'#) `plusInt32#`
+                condMul (penaliseIfLeading gcPrevChar) leadingPenalty#))
+
+            -- GHC pushes update under these ifs and thus wreaks performance.
+            -- Heat
+            -- $ (if isBoundary then unHeat wordStart else 0)
+            -- + (if gcWordIdx' >= 0 then gcWordIdx' * (-3) - gcWordCharIdx' else 0)
+            -- + (if penaliseIfLeading gcPrevChar then unHeat leadingPenalty else 0)
+
+      update idx delta scores
 
       let !gcWordCharIdx'' = gcWordCharIdx' + 1
 
-      when (penaliseIfLeading gcPrevChar) $
-        update j leadingPenalty scores
-
       pure GroupChar
         { gcIsWord      = currWord
-        , gcWordCount   = if isWord' then gcWordCount + 1 else gcWordCount
+        , gcWordCount   = gcWordCount + I32# (boolToInt32# isWord')
         , gcIsUpper     = currUpper
         , gcWordIdx     = gcWordIdx'
         , gcWordCharIdx = gcWordCharIdx''
         , gcPrevChar    = c
         })
+
     (GroupChar { gcIsWord = isWordC gPrevChar, gcIsUpper = isUpper gPrevChar, gcWordCount = 0, gcWordIdx = (-1), gcWordCharIdx = 0, gcPrevChar = let !(I# x) = ord gPrevChar in x })
+    start
     gStr
     s
 
-  when (gStart == 0 && gLen == 0) $
+  {-# SCC "analyzeGroup.wordStart.update" #-} when (gStart == 0 && gLen == 0) $
     update gStart wordStart scores
 
   -- Update score for trailing separator of current group.
   let !trailingSep = end
-  when (trailingSep < scoresLen && gcWordIdx >= 0) $
-    update trailingSep (Heat $ fi32 $ gcWordIdx * (-3) - gcWordCharIdx) scores
+  {-# SCC "analyzeGroup.trailing.update" #-} when (trailingSep < scoresLen && gcWordIdx >= 0) $
+    update trailingSep (Heat $ gcWordIdx * (-3) - gcWordCharIdx) scores
 
   let !isBasePath = not seenBasePath && gcWordCount /= 0
 
   let !groupScore = calcGroupScore isBasePath groupsCount gcWordCount gsGroupIdx
 
-  applyGroupScore groupScore start end scoresLen scores
+  {-# SCC "analyzeGroup.applyGroupScore" #-} applyGroupScore groupScore start end scoresLen scores
 
   let res = GroupState
         { gsIsBasePath = isBasePath
@@ -903,16 +931,16 @@ analyzeGroup Group{gPrevChar, gLen, gStr, gStart} !seenBasePath !groupsCount Gro
 
   pure res
 
-calcGroupScore :: Bool -> Int -> Int -> Int32 -> Heat
+calcGroupScore :: Bool -> Int32 -> Int32 -> Int32 -> Heat
 calcGroupScore isBasePath groupsCount wordCount gcGroupIdx
-  | isBasePath = Heat $ fi32 $ 35 + max (groupsCount - 2) 0 - wordCount
+  | isBasePath = Heat $ 35 + max (groupsCount - 2) 0 - wordCount
   | otherwise  = if gcGroupIdx == 0 then (- 3) else Heat $ gcGroupIdx - 6
 
 penaliseIfLeading :: Int# -> Bool
-penaliseIfLeading x = isTrue# (x ==# 46#) -- 46 is '.'in ascii
+penaliseIfLeading x = isTrue# (x ==# 46#) -- 46 is '.' in ascii
 
 update :: Int -> Heat -> MutablePrimArray s Heat -> ST s ()
-update !idx !val arr = do
+update !idx !val !arr = do
   x <- readPrimArray arr idx
   writePrimArray arr idx (x + val)
 

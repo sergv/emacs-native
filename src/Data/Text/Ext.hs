@@ -19,8 +19,9 @@ module Data.Text.Ext
   ( textFoldIdx
   , textFoldM
   , textFoldIdxM
+  , textCountMatches
   , textFoldIdxM'
-  , textFoldIdxMIntIdx
+  , textFoldIntIdxM
   , textTraverse_
   , textFor_
   , textTraverseIdx_
@@ -32,6 +33,7 @@ module Data.Text.Ext
   ) where
 
 import Control.Monad.ST.Strict
+import Data.Int
 import Data.Primitive.PrimArray
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -42,6 +44,7 @@ import Data.Vector.Primitive qualified as P
 import Data.Vector.Primitive.Mutable qualified as PM
 import Data.Word
 import GHC.Exts
+import GHC.Int
 import GHC.Word
 
 {-# INLINE textFoldIdx #-}
@@ -82,6 +85,19 @@ textFoldIdxM f !seed (TI.Text arr off len) = textFoldIdxMLoop seed 0 off
         x' <- f i c x
         textFoldIdxMLoop x' (i + 1) (j + delta)
 
+{-# INLINE textCountMatches #-}
+textCountMatches :: (Char -> Bool) -> Text -> Int32 -> Int32
+textCountMatches f (TI.Text arr off len) (I32# start) = countMatchesLoop start off
+  where
+    !end = off + len
+
+    countMatchesLoop :: Int32# -> Int -> Int32
+    countMatchesLoop matches !j
+      | j >= end  = I32# matches
+      | otherwise =
+        let TU.Iter c delta = TU.iterArray arr j
+        in countMatchesLoop (if f c then matches `plusInt32#` intToInt32# 1# else matches) (j + delta)
+
 {-# INLINE textFoldIdxM' #-}
 textFoldIdxM'
   -- :: forall s (a :: TYPE ('BoxedRep 'Unlifted)).
@@ -104,27 +120,28 @@ textFoldIdxM' f seed (TI.Text arr off len) = textFoldIdxMLoop seed 0 off
               (# s2, x' #) ->
                 textFoldIdxMLoop x' (i + 1) (j + delta) s2
 
-{-# INLINE textFoldIdxMIntIdx #-}
-textFoldIdxMIntIdx
+{-# INLINE textFoldIntIdxM #-}
+textFoldIntIdxM
   -- :: forall s (a :: TYPE ('BoxedRep 'Unlifted)).
   :: forall s a.
       (Int -> Int# -> a -> State# s -> (# State# s, a #))
    -> a
+   -> Int
    -> Text
    -> State# s
    -> (# State# s, a #)
-textFoldIdxMIntIdx f seed (TI.Text arr off len) = textFoldIdxMLoop seed 0 off
+textFoldIntIdxM f seed start (TI.Text arr off len) = textFoldIntIdxMLoop seed start off
   where
     !end = off + len
-    textFoldIdxMLoop :: a -> Int -> Int -> State# s -> (# State# s, a #)
-    textFoldIdxMLoop acc !i !j s
+    textFoldIntIdxMLoop :: a -> Int -> Int -> State# s -> (# State# s, a #)
+    textFoldIntIdxMLoop !acc !i !j s
       | j >= end  = (# s, acc #)
       | otherwise =
-        case iterArray' arr j of
-          (# charCode, delta #) ->
+        case {-# SCC "textFoldIntIdxM.iterArray'" #-} iterArray' arr j of
+          (# charCode, !delta #) ->
             case inline f i charCode acc s of
-              (# s2, x' #) ->
-                textFoldIdxMLoop x' (i + 1) (j + delta) s2
+              (# s2, !x' #) ->
+                textFoldIntIdxMLoop x' (i + 1) (j + delta) s2
 
 reverseIterArray' :: TA.Array -> Int -> (# Int#, Int #)
 reverseIterArray' arr j =
