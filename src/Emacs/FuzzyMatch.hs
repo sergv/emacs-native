@@ -68,7 +68,7 @@ extractSeps !xs = do
 scoreMatches
   :: forall m v s. (WithCallStack, MonadEmacs m v, MonadIO (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)), NFData (v s), Prim (v s))
   => EmacsFunction ('S ('S ('S 'Z))) 'Z 'False m v s
-scoreMatches (R seps (R needle (R haystacks Stop))) = {-# SCC "scoreMatches" #-} do
+scoreMatches (R seps (R needle (R haystacks Stop))) = do
   seps'      <- extractSeps seps
   needle'    <- extractText needle
 

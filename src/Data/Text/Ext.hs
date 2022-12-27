@@ -137,7 +137,7 @@ textFoldIntIdxM f seed start (TI.Text arr off len) = textFoldIntIdxMLoop seed st
     textFoldIntIdxMLoop !acc !i !j s
       | j >= end  = (# s, acc #)
       | otherwise =
-        case {-# SCC "textFoldIntIdxM.iterArray'" #-} iterArray' arr j of
+        case iterArray' arr j of
           (# charCode, !delta #) ->
             case inline f i charCode acc s of
               (# s2, !x' #) ->
