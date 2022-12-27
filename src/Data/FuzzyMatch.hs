@@ -17,6 +17,7 @@
 {-# LANGUAGE MultiWayIf                 #-}
 {-# LANGUAGE NamedFieldPuns             #-}
 {-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE PatternSynonyms            #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE StandaloneDeriving         #-}
 {-# LANGUAGE TupleSections              #-}
@@ -24,9 +25,12 @@
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE UnboxedTuples              #-}
 {-# LANGUAGE UnliftedFFITypes           #-}
+{-# LANGUAGE UnliftedNewtypes           #-}
 {-# LANGUAGE ViewPatterns               #-}
 
 {-# OPTIONS_GHC -O2 #-}
+
+{-# OPTIONS_GHC -ddump-simpl -dsuppress-uniques -dsuppress-idinfo -dsuppress-module-prefixes -dsuppress-type-applications -dsuppress-coercions -dppr-cols200 -dsuppress-type-signatures -ddump-to-file #-}
 
 module Data.FuzzyMatch
   ( fuzzyMatch'
@@ -89,71 +93,24 @@ import Prettyprinter.Show
 
 import Emacs.Module.Assert (WithCallStack)
 
--- {-# INLINE isWordSeparator #-}
--- isWordSeparator :: Char -> Bool
--- isWordSeparator = \case
---   ' '  -> True
---   '\t' -> True
---   '\r' -> True
---   '\n' -> True
---   '*'  -> True
---   '+'  -> True
---   '-'  -> True
---   '_'  -> True
---   ':'  -> True
---   ';'  -> True
---   '.'  -> True
---   ','  -> True
---   '/'  -> True
---   '\\' -> True
---   _    -> False
-
--- {-# INLINE isWordSeparator #-}
--- isWordSeparator :: Char -> Bool
--- isWordSeparator c =
---   not $ '0' <= c && c <= '9' || 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z'
-
-wordSeps :: Bytes16
-wordSeps = Bytes16
-  (c8 ' ' '\t' '\r' '\n' '*' '+' '-' '_')
-  (c8 ':' ';' '.' ',' '/' '\\' ' ' ' ')
-  where
-    c8 :: Char -> Char -> Char -> Char -> Char -> Char -> Char -> Char -> Word64
-    c8 !x1 !x2 !x3 !x4 !x5 !x6 !x7 !x8 =
-      w8
-        (fromIntegral (ord x1))
-        (fromIntegral (ord x2))
-        (fromIntegral (ord x3))
-        (fromIntegral (ord x4))
-        (fromIntegral (ord x5))
-        (fromIntegral (ord x6))
-        (fromIntegral (ord x7))
-        (fromIntegral (ord x8))
-
-    w8 :: Word64 -> Word64 -> Word64 -> Word64 -> Word64 -> Word64 -> Word64 -> Word64 -> Word64
-    w8 !x1 !x2 !x3 !x4 !x5 !x6 !x7 !x8 =
-      x1 .|.
-      x2 `unsafeShiftL` 8 .|.
-      x3 `unsafeShiftL` 16 .|.
-      x4 `unsafeShiftL` 24 .|.
-      x5 `unsafeShiftL` 32 .|.
-      x6 `unsafeShiftL` 40 .|.
-      x7 `unsafeShiftL` 48 .|.
-      x8 `unsafeShiftL` 56
-
-{-# INLINE isWordSeparator #-}
-isWordSeparator :: Int# -> Bool
-isWordSeparator x = charMember x wordSeps
-
 {-# INLINE isWord #-}
-isWord :: Int# -> Bool
-isWord x = not(isWordSeparator x)
-
-{-# INLINE isWordC #-}
-isWordC :: Char -> Bool
-isWordC c = isWord x
-  where
-    !(I# x) = ord c
+isWord :: Int# -> Bool#
+isWord x = case chr# x of
+  ' '#  -> False#
+  '\t'# -> False#
+  '\r'# -> False#
+  '\n'# -> False#
+  '*'#  -> False#
+  '+'#  -> False#
+  '-'#  -> False#
+  '_'#  -> False#
+  ':'#  -> False#
+  ';'#  -> False#
+  '.'#  -> False#
+  ','#  -> False#
+  '/'#  -> False#
+  '\\'# -> False#
+  _     -> True#
 
 data ReusableState s = ReusableState
   { rsHaystackStore :: !(STRef s (MutableByteArray s))
@@ -391,7 +348,7 @@ mkHaystack ReusableState{rsHaystackStore} !needleChars !str@(TI.Text _ _ haystac
         | memberPred charCode =
           case writeByteArray# mbarr j (combineCharIdx (W64# c') i) s1 of
             s2 ->
-              if isTrue# (isUpperASCII charCode)
+              if toBool (isUpperASCII charCode)
               then
                 case writeByteArray# mbarr (j +# 1#) (combineCharIdx (fromIntegral (I# (toLowerASCII charCode))) i) s2 of
                   s3 -> (# s3, j +# 2# #)
@@ -399,7 +356,7 @@ mkHaystack ReusableState{rsHaystackStore} !needleChars !str@(TI.Text _ _ haystac
         | otherwise =
           (# s1, j #)
         where
-          c' = wordToWord64# (int2Word# charCode)
+          !c' = wordToWord64# (int2Word# charCode)
 
   arrLen <- case needleChars of
     NeedleChars8    needleChars' -> do
@@ -455,8 +412,8 @@ foreign import ccall unsafe "u_towlower"
 foreign import ccall unsafe "u_iswupper"
   iswupper :: Int# -> Int#
 
-isUpperASCII :: Int# -> Int#
-isUpperASCII x = (64# <# x) `andI#` (x <# 91#)
+isUpperASCII :: Int# -> Bool#
+isUpperASCII x = Bool# ((64# <# x) `andI#` (x <# 91#))
 
 toLowerASCII :: Int# -> Int#
 toLowerASCII x = x +# 32#
@@ -789,15 +746,15 @@ computeHeatmap ReusableState{rsHeatmapStore} !haystack !haystackLen groupSeps = 
 
       !groupsCount = case split of
         Left Group{} -> 1
-        Right xs     -> fi32 $ length xs
+        Right xs     -> length xs
 
-  let initScore, initAdjustment :: Heat
+  let initScore, initAdjustment :: Int
       initScore = (-35)
-      !initAdjustment = if groupsCount > 1 then fromIntegral groupsCount * (-2) else 0
+      !initAdjustment = if groupsCount > 1 then groupsCount * (-2) else 0
       lastCharBonus :: Heat
       !lastCharBonus = 1
 
-  setPrimArray scores 0 haystackLen (initScore + initAdjustment)
+  setPrimArray scores 0 haystackLen (Heat (fi32 (initScore + initAdjustment)))
   update (haystackLen - 1) lastCharBonus scores
 
   let initGroupState = GroupState
@@ -819,17 +776,17 @@ computeHeatmap ReusableState{rsHeatmapStore} !haystack !haystackLen groupSeps = 
 
 data GroupState = GroupState
   { gsIsBasePath        :: !Bool
-  , gsGroupIdx          :: {-# UNPACK #-} !Int32
+  , gsGroupIdx          :: {-# UNPACK #-} !Int
   } deriving (Show)
 
 data GroupChar = GroupChar
-  { gcIsWord      :: !Bool
-  , gcIsUpper     :: !Bool
-  , gcWordCount   :: {-# UNPACK #-} !Int32
-  , gcWordIdx     :: {-# UNPACK #-} !Int32
-  , gcWordCharIdx :: {-# UNPACK #-} !Int32
+  { gcIsWord      :: Bool#
+  , gcIsUpper     :: Bool#
+  , gcWordCount   :: {-# UNPACK #-} !Int
+  , gcWordIdx     :: {-# UNPACK #-} !Int
+  , gcWordCharIdx :: {-# UNPACK #-} !Int
   , gcPrevChar    :: Int#
-  } deriving (Show)
+  }
 
 {-# INLINE fi32 #-}
 fi32 :: Integral a => a -> Int32
@@ -838,13 +795,52 @@ fi32 = fromIntegral
 unST :: State# s -> ST s a -> (# State# s, a #)
 unST s (ST f) = f s
 
--- | True is 1, False is 0.
-{-# INLINE boolToInt32# #-}
-boolToInt32# :: Bool -> Int32#
-boolToInt32# x =
-  intToInt32# (dataToTag# x)
+newtype Bool# = Bool# Int#
 
-analyzeGroup :: Group -> Bool -> Int32 -> GroupState -> Int -> MutablePrimArray s Heat -> ST s GroupState
+pattern True# :: Bool#
+pattern True#  = Bool# 1#
+
+pattern False# :: Bool#
+pattern False# = Bool# 0#
+
+toBool :: Bool# -> Bool
+toBool (Bool# x) = isTrue# x
+
+toInt :: Bool# -> Int
+toInt (Bool# x) = I# x
+
+toInt# :: Bool# -> Int#
+toInt# (Bool# x) = x
+
+{-# INLINE bnot# #-}
+bnot# :: Bool# -> Bool#
+bnot# (Bool# x) = Bool# (1# -# x)
+
+{-# INLINE band# #-}
+band# :: Bool# -> Bool# -> Bool#
+band# (Bool# x) (Bool# y) = Bool# (andI# x y)
+
+{-# INLINE bor# #-}
+bor# :: Bool# -> Bool# -> Bool#
+-- bor# x y = (y *# cmp) +# (x *# bnot# cmp)
+-- bor# x y = (y *# cmp) +# (x -# x *# cmp)
+-- bor# x y = (y *# cmp) +# (x -# x *# cmp)
+-- bor# x y = x +# (y *# cmp) -# x *# cmp
+-- bor# x y = x +# ((y -# x) *# cmp)
+--   where
+--     cmp :: Int#
+--     cmp = x <# y
+ -- bor# = x +# y -# x *# y
+bor# (Bool# x) (Bool# y) = Bool# (orI# x y)
+
+isUpper# :: Int# -> Bool#
+isUpper# x
+  | isTrue# (x <# 128#)
+  = isUpperASCII x
+  | otherwise
+  = Bool# (iswupper x ># 0#)
+
+analyzeGroup :: Group -> Bool -> Int -> GroupState -> Int -> MutablePrimArray s Heat -> ST s GroupState
 analyzeGroup Group{gPrevChar, gLen, gStr, gStart} !seenBasePath !groupsCount GroupState{gsGroupIdx} !scoresLen !scores = do
   let start :: Int
       !start = gStart
@@ -853,38 +849,41 @@ analyzeGroup Group{gPrevChar, gLen, gStr, gStart} !seenBasePath !groupsCount Gro
   let wordStart :: Heat
       !wordStart = 85
 
-  let wordStart#, leadingPenalty# :: Int32#
-      wordStart#      = intToInt32# 85#
-      leadingPenalty# = intToInt32# (-45#)
+  let wordStart#, leadingPenalty# :: Int#
+      wordStart#      = 85#
+      leadingPenalty# = (-45#)
 
-  GroupChar{gcWordIdx, gcWordCharIdx, gcWordCount} <- {-# SCC "analyzeGroup.loop" #-} ST $ \s -> T.textFoldIntIdxM
+  GroupChar{gcWordIdx, gcWordCharIdx, gcWordCount} <- ST $ \s -> T.textFoldIntIdxM
     (\ (!idx :: Int) (c :: Int#) GroupChar{gcIsWord, gcIsUpper, gcWordCount, gcWordIdx, gcWordCharIdx, gcPrevChar} s' -> unST s' $ do
 
-      let !currWord   = isWord c
-          !currUpper  = isUpper (chr (I# c))
+      let currWord, currUpper :: Bool#
+          !currWord   = isWord c
+          !currUpper  = isUpper# c
 
-          !isWord'    = not gcIsWord && currWord
-          !isBoundary = isWord' || not gcIsUpper && currUpper
+          isWord' :: Bool#
+          !isWord'    = bnot# gcIsWord `band#` currWord
+          isBoundary :: Bool#
+          !isBoundary = isWord' `bor#` (bnot# gcIsUpper `band#` currUpper)
 
-          !gcWordIdx'@(I32# gcWordIdx'#)
-            | isBoundary = gcWordIdx + 1
-            | otherwise  = gcWordIdx
+          !gcWordIdx'@(I# gcWordIdx'#) = gcWordIdx + toInt isBoundary
+            -- | isBoundary = gcWordIdx + 1
+            -- | otherwise  = gcWordIdx
 
-          !gcWordCharIdx'@(I32# gcWordCharIdx'#)
-            | isBoundary = 0
-            | otherwise  = gcWordCharIdx
+          !gcWordCharIdx'@(I# gcWordCharIdx'#) = toInt (bnot# isBoundary) * gcWordCharIdx
+            -- | isBoundary = 0
+            -- | otherwise  = gcWordCharIdx
 
-          condMul :: Bool -> Int32# -> Int32#
-          condMul test other =
-            boolToInt32# test `timesInt32#` other
+          condMul# :: Bool# -> Int# -> Int#
+          condMul# x y = toInt# x *# y
 
           delta :: Heat
           !delta =
             Heat
              (I32#
-               (condMul isBoundary wordStart# `plusInt32#`
-                condMul (gcWordIdx' >= 0) (gcWordIdx'# `timesInt32#` intToInt32# (-3#) `subInt32#` gcWordCharIdx'#) `plusInt32#`
-                condMul (penaliseIfLeading gcPrevChar) leadingPenalty#))
+               (intToInt32#
+                 (condMul# isBoundary wordStart# +#
+                  condMul# (Bool# (gcWordIdx'# >=# 0#)) (gcWordIdx'# *# (-3#) -# gcWordCharIdx'#) +#
+                  condMul# (penaliseIfLeading gcPrevChar) leadingPenalty#)))
 
             -- GHC pushes update under these ifs and thus wreaks performance.
             -- Heat
@@ -898,31 +897,32 @@ analyzeGroup Group{gPrevChar, gLen, gStr, gStart} !seenBasePath !groupsCount Gro
 
       pure GroupChar
         { gcIsWord      = currWord
-        , gcWordCount   = gcWordCount + I32# (boolToInt32# isWord')
+        , gcWordCount   = gcWordCount + toInt isWord'
         , gcIsUpper     = currUpper
         , gcWordIdx     = gcWordIdx'
         , gcWordCharIdx = gcWordCharIdx''
         , gcPrevChar    = c
         })
 
-    (GroupChar { gcIsWord = isWordC gPrevChar, gcIsUpper = isUpper gPrevChar, gcWordCount = 0, gcWordIdx = (-1), gcWordCharIdx = 0, gcPrevChar = let !(I# x) = ord gPrevChar in x })
+    (let !(I# prevChar) = ord gPrevChar
+     in GroupChar { gcIsWord = isWord prevChar, gcIsUpper = isUpper# prevChar, gcWordCount = 0, gcWordIdx = (-1), gcWordCharIdx = 0, gcPrevChar = prevChar })
     start
     gStr
     s
 
-  {-# SCC "analyzeGroup.wordStart.update" #-} when (gStart == 0 && gLen == 0) $
+  when (gStart == 0 && gLen == 0) $
     update gStart wordStart scores
 
   -- Update score for trailing separator of current group.
   let !trailingSep = end
-  {-# SCC "analyzeGroup.trailing.update" #-} when (trailingSep < scoresLen && gcWordIdx >= 0) $
-    update trailingSep (Heat $ gcWordIdx * (-3) - gcWordCharIdx) scores
+  when (trailingSep < scoresLen && gcWordIdx >= 0) $
+    update trailingSep (Heat $ fi32 $ gcWordIdx * (-3) - gcWordCharIdx) scores
 
   let !isBasePath = not seenBasePath && gcWordCount /= 0
 
   let !groupScore = calcGroupScore isBasePath groupsCount gcWordCount gsGroupIdx
 
-  {-# SCC "analyzeGroup.applyGroupScore" #-} applyGroupScore groupScore start end scoresLen scores
+  applyGroupScore groupScore start end scoresLen scores
 
   let res = GroupState
         { gsIsBasePath = isBasePath
@@ -931,13 +931,13 @@ analyzeGroup Group{gPrevChar, gLen, gStr, gStart} !seenBasePath !groupsCount Gro
 
   pure res
 
-calcGroupScore :: Bool -> Int32 -> Int32 -> Int32 -> Heat
+calcGroupScore :: Bool -> Int -> Int -> Int -> Heat
 calcGroupScore isBasePath groupsCount wordCount gcGroupIdx
-  | isBasePath = Heat $ 35 + max (groupsCount - 2) 0 - wordCount
-  | otherwise  = if gcGroupIdx == 0 then (- 3) else Heat $ gcGroupIdx - 6
+  | isBasePath = Heat $ fi32 $ 35 + max (groupsCount - 2) 0 - wordCount
+  | otherwise  = if gcGroupIdx == 0 then (- 3) else Heat $ fi32 $ gcGroupIdx - 6
 
-penaliseIfLeading :: Int# -> Bool
-penaliseIfLeading x = isTrue# (x ==# 46#) -- 46 is '.' in ascii
+penaliseIfLeading :: Int# -> Bool#
+penaliseIfLeading x = Bool# (x <=# 46#) `band#` Bool# (x >=# 46#) -- 46 is '.' in ascii
 
 update :: Int -> Heat -> MutablePrimArray s Heat -> ST s ()
 update !idx !val !arr = do
