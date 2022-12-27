@@ -15,7 +15,6 @@ import Test.Tasty
 
 import Control.LensBlaze.Tests qualified
 import Data.FuzzyMatch.Tests qualified
-import Data.FuzzyMatchBaseline.Tests qualified
 import Data.Vector.Ext.Tests qualified
 
 main :: IO ()
@@ -25,7 +24,6 @@ tests :: TestTree
 tests = testGroup "Tests"
   [ Control.LensBlaze.Tests.tests
   , Data.FuzzyMatch.Tests.tests
-  , Data.FuzzyMatchBaseline.Tests.tests
   , Data.Vector.Ext.Tests.tests
   ]
 
