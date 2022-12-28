@@ -19,7 +19,7 @@ extern HsBool initialise(struct emacs_runtime *ert);
 int plugin_is_GPL_compatible = 1;
 
 HsBool init(void) {
-  char *argv[] = { "libemacs-native", "+RTS", "-N", "-s", "-A8m", "-n1m", "-qg", "-qb", "-RTS", NULL };
+  char *argv[] = { "libemacs-native", "+RTS", "-N", "-s", "-A16m", "-n1m", "-qg", "-qb", "-RTS", NULL };
   int argc = ARR_SIZE(argv) - 1;
   char **pargv = argv;
 

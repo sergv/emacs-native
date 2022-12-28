@@ -14,19 +14,21 @@
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections       #-}
-
-{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE TypeOperators       #-}
 
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 module Emacs.FuzzyMatch (initialise) where
 
+import Control.Concurrent
 import Control.Concurrent.Async.Lifted.Safe
 import Control.LensBlaze
 import Control.Monad.IO.Class
 import Control.Monad.Par
 import Control.Monad.ST.Strict
 import Control.Monad.Trans.Control
+import Data.Foldable
+import Data.IORef
 import Data.Int
 import Data.Primitive.PrimArray
 import Data.Primitive.Sort
@@ -37,6 +39,7 @@ import Data.Vector qualified as V
 import Data.Vector.PredefinedSorts
 import Data.Vector.Primitive qualified as P
 import Data.Vector.Primitive.Mutable qualified as PM
+import GHC.IO (unsafeIOToST)
 
 import Data.Emacs.Module.Doc qualified as Doc
 import Data.FuzzyMatch.SortKey
@@ -69,38 +72,65 @@ scoreMatches
   :: forall m v s. (WithCallStack, MonadEmacs m v, MonadIO (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)), NFData (v s), Prim (v s))
   => EmacsFunction ('S ('S ('S 'Z))) 'Z 'False m v s
 scoreMatches (R seps (R needle (R haystacks Stop))) = do
-  seps'      <- extractSeps seps
-  needle'    <- extractText needle
+  seps'   <- extractSeps seps
+  needle' <- extractText needle
 
   (haystacks' :: V.Vector (Text, v s)) <- extractVectorWith (\str -> (, str) <$> extractText str) haystacks
 
-  let matches :: P.Vector SortKey
-      matches = runST $ do
-        let !needleChars    = prepareNeedle needle'
-            !totalHaystacks = V.length haystacks'
-        store <- mkReusableState (T.length needle') needleChars
+  matches <- liftIO $ do
+    let chunk :: Int
+        !chunk = 256
+        needleChars :: NeedleChars
+        !needleChars = prepareNeedle needle'
+        totalHaystacks :: Int
+        !totalHaystacks = V.length haystacks'
 
-        scores <- PM.new totalHaystacks
+    jobs <- getNumCapabilities
 
-        let go !n
-              | n == totalHaystacks
-              = pure ()
-              | otherwise
-              = do
-                let !haystack    = fst $ haystacks' `V.unsafeIndex` n
-                    !haystackLen = T.length haystack
-                !match <- fuzzyMatch' store (computeHeatmap store haystack haystackLen seps') needle' needleChars haystack
-                PM.unsafeWrite scores n $!
-                  mkSortKey (fi32 (mScore match)) (fromIntegral haystackLen) (fromIntegral n)
-                go (n + 1)
+    jobSync <- newIORef (jobs * chunk)
 
-        go 0
-        qsortSortKey scores
-        P.unsafeFreeze scores
+    (scores :: PM.MVector RealWorld SortKey) <- PM.new totalHaystacks
 
-        -- for haystacks' $ \(haystack, emacsStr) -> do
-        --   !match <- fuzzyMatch' store (computeHeatmap store haystack seps') needle' needleChars haystack
-        --   pure $ mkSortKey (fi32 (mScore match)) (fromIntegral (T.length haystack)) emacsStr
+    let processOne :: forall ss. ReusableState ss -> Text -> Int -> ST ss SortKey
+        processOne !store !haystack !n = do
+          let haystackLen :: Int
+              !haystackLen = T.length haystack
+          !match <-
+            fuzzyMatch'
+              store
+              (computeHeatmap store haystack haystackLen seps')
+              needle'
+              needleChars
+              haystack
+          pure $! mkSortKey (fi32 (mScore match)) (fromIntegral haystackLen) (fromIntegral n)
+
+        processChunk :: forall ss. ReusableState ss -> Int -> Int -> ST ss ()
+        processChunk !store !start !end =
+          loopM start end $ \ !n -> do
+            let !haystack = fst $ haystacks' `V.unsafeIndex` n
+            unsafeIOToST . PM.unsafeWrite scores n =<< processOne store haystack n
+
+        processChunks :: forall ss. Int -> ST ss ()
+        processChunks !k = do
+          store <- mkReusableState (T.length needle') needleChars
+
+          let go :: Int -> ST ss ()
+              go !start
+                | start < totalHaystacks
+                = do
+                  processChunk store start (min totalHaystacks (start + chunk))
+                  go =<< unsafeIOToST (atomicModifyIORef' jobSync (\old -> (old + chunk, old)))
+                | otherwise
+                = pure ()
+          let !initStart = chunk * k
+          go initStart
+
+    tasks <- traverse (async . stToIO . processChunks) [0..jobs - 1]
+
+    traverse_ wait tasks
+
+    stToIO (qsortSortKey scores)
+    P.unsafeFreeze scores
 
   nilVal <- nil
 
@@ -114,33 +144,15 @@ scoreMatches (R seps (R needle (R haystacks Stop))) = do
 
   mkListLoop (P.length matches) nilVal
 
-  -- let matches
-  --       =
-  --       -- = fmap (\(SortKey (_, _, emacsStr)) -> emacsStr)
-  --       -- $ sortVectorUnsafeSortKey
-  --       -- $ (\xs -> coerce xs :: V.Vector (SortKey (v s)))
-  --
-  --       -- $ L.sortOn (\(score, len, _emacsStr) -> (Down score, len))
-  --       -- $ runPar
-  --       -- $ parMap (\(str, emacsStr) -> (mScore $ fuzzyMatch (computeHeatmap str seps') needle' str, str, emacsStr)) haystacks'
-  --         sortVectorUnsafeWord64
-  --       $ haystacks''
-  -- makeListFromVector matches
-
--- {-# INLINE makeListFromVector #-}
--- -- | Construct vanilla Emacs list from a Haskell list.
--- makeListFromVector
---   :: (WithCallStack, MonadEmacs m v)
---   => V.Vector (v s)
---   -> m s (v s)
--- makeListFromVector xs = do
---   nilVal <- nil
---   mkListLoop (V.length xs) nilVal
---   where
---     mkListLoop 0 res = pure res
---     mkListLoop i res = do
---       let !j = i - 1
---       mkListLoop j =<< cons (xs `V.unsafeIndex` j) res
+{-# INLINE loopM #-}
+loopM :: Applicative m => Int -> Int -> (Int -> m ()) -> m ()
+loopM !from !to action = go from
+  where
+    go !n
+      | n == to
+      = pure ()
+      | otherwise
+      = action n *> go (n + 1)
 
 {-# INLINE fi32 #-}
 fi32 :: Integral a => a -> Int32
