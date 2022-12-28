@@ -21,6 +21,7 @@
 module Emacs.FuzzyMatch (initialise) where
 
 import Control.Concurrent
+import Control.Concurrent.STM
 import Control.Concurrent.Async.Lifted.Safe
 import Control.LensBlaze
 import Control.Monad.IO.Class
@@ -28,7 +29,6 @@ import Control.Monad.Par
 import Control.Monad.ST.Strict
 import Control.Monad.Trans.Control
 import Data.Foldable
-import Data.IORef
 import Data.Int
 import Data.Primitive.PrimArray
 import Data.Primitive.Sort
@@ -87,7 +87,7 @@ scoreMatches (R seps (R needle (R haystacks Stop))) = do
 
     jobs <- getNumCapabilities
 
-    jobSync <- newIORef (jobs * chunk)
+    jobSync <- newTVarIO (jobs * chunk)
 
     (scores :: PM.MVector RealWorld SortKey) <- PM.new totalHaystacks
 
@@ -119,15 +119,13 @@ scoreMatches (R seps (R needle (R haystacks Stop))) = do
                 | start < totalHaystacks
                 = do
                   processChunk store start (min totalHaystacks (start + chunk))
-                  go =<< unsafeIOToST (atomicModifyIORef' jobSync (\old -> (old + chunk, old)))
+                  go =<< unsafeIOToST (atomically (readTVar jobSync >>= \old -> old <$ writeTVar jobSync (old + chunk)))
                 | otherwise
                 = pure ()
           let !initStart = chunk * k
           go initStart
 
-    tasks <- traverse (async . stToIO . processChunks) [0..jobs - 1]
-
-    traverse_ wait tasks
+    traverse_ wait =<< traverse (async . stToIO . processChunks) [0..jobs - 1]
 
     stToIO (qsortSortKey scores)
     P.unsafeFreeze scores
