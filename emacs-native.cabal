@@ -83,6 +83,7 @@ library
   hs-source-dirs:
     src
   build-depends:
+    , atomic-counter
     , base >= 4.7
     , bimap
     , bytestring

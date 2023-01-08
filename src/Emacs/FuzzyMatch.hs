@@ -21,8 +21,8 @@
 module Emacs.FuzzyMatch (initialise) where
 
 import Control.Concurrent
-import Control.Concurrent.STM
 import Control.Concurrent.Async.Lifted.Safe
+import Control.Concurrent.Counter qualified as Counter
 import Control.LensBlaze
 import Control.Monad.IO.Class
 import Control.Monad.Par
@@ -87,7 +87,7 @@ scoreMatches (R seps (R needle (R haystacks Stop))) = do
 
     jobs <- getNumCapabilities
 
-    jobSync <- newTVarIO (jobs * chunk)
+    jobSync <- Counter.new (jobs * chunk)
 
     (scores :: PM.MVector RealWorld SortKey) <- PM.new totalHaystacks
 
@@ -119,7 +119,7 @@ scoreMatches (R seps (R needle (R haystacks Stop))) = do
                 | start < totalHaystacks
                 = do
                   processChunk store start (min totalHaystacks (start + chunk))
-                  go =<< unsafeIOToST (atomically (readTVar jobSync >>= \old -> old <$ writeTVar jobSync (old + chunk)))
+                  go =<< unsafeIOToST (Counter.add jobSync chunk)
                 | otherwise
                 = pure ()
           let !initStart = chunk * k
