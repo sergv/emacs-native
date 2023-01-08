@@ -24,11 +24,11 @@ import Control.Monad.Trans.Control
 import Data.Foldable
 import Data.Int
 import Data.Primitive.PrimArray
-import Data.Primitive.Sort
 import Data.Primitive.Types
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Vector qualified as V
+import Data.Vector.Ext qualified as VExt
 import Data.Vector.PredefinedSorts
 import Data.Vector.Primitive qualified as P
 import Data.Vector.Primitive.Mutable qualified as PM
@@ -56,13 +56,26 @@ scoreMatchesDoc =
   "Given a query string and a list of strings to match against, \
   \sort the strings according to score of fuzzy matching them against the query."
 
-extractSeps :: (MonadEmacs m v, Prim (v s)) => v s -> m s (PrimArray Int32)
+extractSeps
+  :: (MonadEmacs m v, Prim (v s), MonadIO (m s), PM.PrimState (m s) ~ RealWorld)
+  => v s -> m s (PrimArray Int32)
 extractSeps !xs = do
-  ys <- extractVectorAsPrimArrayWith (fmap fromIntegral . extractInt) xs
-  pure $ runST $ unsafeFreezePrimArray =<< sortUniqueMutable =<< unsafeThawPrimArray ys
+  ys <- extractVectorMutableWith (fmap fromIntegral . extractInt) xs
+  liftIO $ stToIO $ qsortInt32 ys
+  fmap VExt.primVectorToPrimArray $ P.unsafeFreeze ys
 
 scoreMatches
-  :: forall m v s. (WithCallStack, MonadEmacs m v, MonadIO (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)), NFData (v s), Prim (v s))
+  :: forall m v s.
+     ( WithCallStack
+     , MonadEmacs m v
+     , MonadIO (m s)
+     , MonadThrow (m s)
+     , MonadBaseControl IO (m s)
+     , Forall (Pure (m s))
+     , NFData (v s)
+     , Prim (v s)
+     , PM.PrimState (m s) ~ RealWorld
+     )
   => EmacsFunction ('S ('S ('S 'Z))) 'Z 'False m v s
 scoreMatches (R seps (R needle (R haystacks Stop))) = do
   seps'   <- extractSeps seps
@@ -155,7 +168,16 @@ scoreSingleMatchDoc =
   \positions where the match occured."
 
 scoreSingleMatch
-  :: forall m v s. (WithCallStack, MonadEmacs m v, MonadIO (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)), Prim (v s))
+  :: forall m v s.
+     ( WithCallStack
+     , MonadEmacs m v
+     , MonadIO (m s)
+     , MonadThrow (m s)
+     , MonadBaseControl IO (m s)
+     , Forall (Pure (m s))
+     , Prim (v s)
+     , PM.PrimState (m s) ~ RealWorld
+     )
   => EmacsFunction ('S ('S ('S 'Z))) 'Z 'False m v s
 scoreSingleMatch (R seps (R needle (R haystack Stop))) = do
   seps'     <- extractSeps seps

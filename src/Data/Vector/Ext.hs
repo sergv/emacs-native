@@ -15,9 +15,7 @@ module Data.Vector.Ext
   , sortVectorUnsafe
   , qsort
   , forM
-  -- , bitonicSort
-  -- , sort3
-  -- , sort4
+  , primVectorToPrimArray
   ) where
 
 import Prelude hiding (last)
@@ -25,9 +23,12 @@ import Prelude hiding (last)
 import Control.Monad.Primitive
 import Control.Monad.ST
 import Data.Bits
+import Data.Primitive.ByteArray
+import Data.Primitive.PrimArray
 import Data.Vector.FixedSort
 import Data.Vector.Generic qualified as G
 import Data.Vector.Generic.Mutable qualified as GM
+import Data.Vector.Primitive qualified as P
 
 {-# INLINE forM #-}
 forM :: (PrimMonad m, G.Vector v a, G.Vector v b) => v a -> (a -> m b) -> m (v b)
@@ -348,3 +349,7 @@ heapSort !v = do
       GM.unsafeSwap v 0 k
       shiftDown (GM.unsafeSlice 0 k v) 0
       go k
+
+{-# INLINE primVectorToPrimArray #-}
+primVectorToPrimArray :: P.Vector a -> PrimArray a
+primVectorToPrimArray (P.Vector _ _ (ByteArray xs)) = PrimArray xs
