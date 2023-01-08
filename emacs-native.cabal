@@ -65,6 +65,7 @@ library
   if flag(runtime-checks)
     cpp-options: -DRUNTIME_CHECKS
   exposed-modules:
+    Control.Concurrent.ParPair
     Control.LensBlaze
 
     Data.ByteString.Char8.Ext
@@ -88,6 +89,7 @@ library
   hs-source-dirs:
     src
   build-depends:
+    , async
     , atomic-counter
     , base >= 4.7
     , bimap
