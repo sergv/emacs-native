@@ -6,9 +6,7 @@
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
 
-{-# LANGUAGE CPP                 #-}
-{-# LANGUAGE ImportQualifiedPost #-}
-{-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE CPP #-}
 
 module Data.Emacs.Path (pathForEmacs) where
 

@@ -1,12 +1,10 @@
 ----------------------------------------------------------------------------
 -- |
 -- Module      :  Data.FuzzyMatch.SortKey
--- Copyright   :  (c) sergey 2022
+-- Copyright   :  (c) Sergey Vinokurov 2022
 -- License     :  Apache-2.0 (see LICENSE)
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
-
-{-# LANGUAGE GeneralisedNewtypeDeriving #-}
 
 {-# OPTIONS_GHC -O2 #-}
 

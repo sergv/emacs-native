@@ -6,8 +6,7 @@
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
 
-{-# LANGUAGE CPP                 #-}
-{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE CPP #-}
 
 module Data.ByteString.Char8.Ext
   ( take

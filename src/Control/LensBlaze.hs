@@ -1,14 +1,10 @@
 ----------------------------------------------------------------------------
 -- |
 -- Module      :  Control.LensBlaze
--- Copyright   :  (c) sergey 2022
+-- Copyright   :  (c) Sergey Vinokurov 2022
 -- License     :  Apache-2.0 (see LICENSE)
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
-
-{-# LANGUAGE BangPatterns        #-}
-{-# LANGUAGE RankNTypes          #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 
 module Control.LensBlaze
   ( Lens
@@ -52,7 +48,7 @@ over :: Lens s t a b -> (a -> b) -> s -> t
 over l f = runIdentity . l (Identity . f)
 
 {-# INLINE boolL #-}
-boolL :: (Integral b, Bits b) => Int -> Lens' b Bool
+boolL :: Bits b => Int -> Lens' b Bool
 boolL !offset = \f x ->
   (\b' -> if b' then setBit x offset else clearBit x offset) <$> f (testBit x offset)
 

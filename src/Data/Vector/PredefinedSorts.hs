@@ -6,8 +6,6 @@
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
 
-{-# LANGUAGE ImportQualifiedPost #-}
-
 {-# OPTIONS_GHC -Wno-orphans #-}
 
 {-# OPTIONS_GHC -O2 #-}

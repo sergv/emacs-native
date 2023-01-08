@@ -6,11 +6,6 @@
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
 
-{-# LANGUAGE FlexibleContexts    #-}
-{-# LANGUAGE ImportQualifiedPost #-}
-{-# LANGUAGE MultiWayIf          #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-
 module Data.Filesystem
   ( FollowSymlinks(..)
   , findRec

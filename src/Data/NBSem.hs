@@ -7,9 +7,6 @@
 -- Created     :   5 March 2018
 ----------------------------------------------------------------------------
 
-{-# LANGUAGE BangPatterns     #-}
-{-# LANGUAGE FlexibleContexts #-}
-
 module Data.NBSem
   ( NBSem
   , newNBSem

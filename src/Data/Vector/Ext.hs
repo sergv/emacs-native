@@ -6,10 +6,6 @@
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
 
-{-# LANGUAGE BangPatterns        #-}
-{-# LANGUAGE ImportQualifiedPost #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-
 module Data.Vector.Ext
   ( binSearchMember
   , linSearchMember
@@ -34,7 +30,7 @@ import Data.Vector.Generic qualified as G
 import Data.Vector.Generic.Mutable qualified as GM
 
 {-# INLINE forM #-}
-forM :: (Monad m, PrimMonad m, G.Vector v a, G.Vector v b) => v a -> (a -> m b) -> m (v b)
+forM :: (PrimMonad m, G.Vector v a, G.Vector v b) => v a -> (a -> m b) -> m (v b)
 forM !xs f = do
   ys <- GM.unsafeNew end
   let go !i

@@ -6,10 +6,6 @@
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
 
-{-# LANGUAGE BangPatterns        #-}
-{-# LANGUAGE ImportQualifiedPost #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-
 module Data.Vector.FixedSort
   ( sort3
   , sort4

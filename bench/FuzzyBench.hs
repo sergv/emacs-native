@@ -6,13 +6,8 @@
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
 
-{-# LANGUAGE BangPatterns             #-}
 {-# LANGUAGE ForeignFunctionInterface #-}
-{-# LANGUAGE ImportQualifiedPost      #-}
-{-# LANGUAGE InstanceSigs             #-}
 {-# LANGUAGE OverloadedStrings        #-}
-{-# LANGUAGE RankNTypes               #-}
-{-# LANGUAGE ScopedTypeVariables      #-}
 
 module FuzzyBench (main) where
 

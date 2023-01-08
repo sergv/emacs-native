@@ -6,9 +6,6 @@
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
 
-{-# LANGUAGE BangPatterns        #-}
-{-# LANGUAGE ImportQualifiedPost #-}
-
 module Data.Primitive.PrimArray.Ext
   ( binSearchMember
   , primToByteArr

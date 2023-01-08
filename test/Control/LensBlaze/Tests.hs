@@ -1,7 +1,7 @@
 ----------------------------------------------------------------------------
 -- |
 -- Module      :  Control.LensBlaze.Tests
--- Copyright   :  (c) sergey 2022
+-- Copyright   :  (c) Sergey Vinokurov 2022
 -- License     :  Apache-2.0 (see LICENSE)
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
@@ -10,7 +10,6 @@
 {-# LANGUAGE ImportQualifiedPost  #-}
 {-# LANGUAGE KindSignatures       #-}
 {-# LANGUAGE ScopedTypeVariables  #-}
-{-# LANGUAGE TypeApplications     #-}
 {-# LANGUAGE TypeOperators        #-}
 {-# LANGUAGE UndecidableInstances #-}
 

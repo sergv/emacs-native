@@ -6,19 +6,10 @@
 --
 -- Maintainer  :  serg.foo@gmail.com
 -- Created     :   3 May 2018
--- Stability   :
--- Portability :
---
---
 ----------------------------------------------------------------------------
 
-{-# LANGUAGE DataKinds             #-}
-{-# LANGUAGE FlexibleContexts      #-}
-{-# LANGUAGE ImportQualifiedPost   #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverloadedStrings     #-}
-{-# LANGUAGE ScopedTypeVariables   #-}
-{-# LANGUAGE TypeApplications      #-}
+{-# LANGUAGE DataKinds         #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
