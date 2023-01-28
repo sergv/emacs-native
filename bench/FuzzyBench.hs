@@ -11,14 +11,17 @@
 
 module FuzzyBench (main) where
 
-import GHC.IO
-
 import Prelude hiding (pi, last)
 
+import Control.Concurrent (getNumCapabilities)
+import Control.Concurrent.Counter qualified as Counter
+import Control.Concurrent.Fork
+import Control.Concurrent.STM
 import Control.DeepSeq
+import Control.Monad
 import Control.Monad.ST
+import Data.Bits
 import Data.Char
-import Data.Coerce
 import Data.Int
 import Data.Ord
 import Data.Primitive.PrimArray
@@ -28,8 +31,13 @@ import Data.Text.IO qualified as T
 import Data.Traversable
 import Data.Vector qualified as V
 import Data.Vector.Ext qualified as VExt
+import Data.Vector.Primitive qualified as P
+import Data.Vector.Primitive.Mutable qualified as PM
+import Data.Word
+import GHC.IO
 
 import Data.FuzzyMatch qualified
+import Data.Vector.PredefinedSorts
 
 import Test.Tasty.Bench
 
@@ -45,6 +53,40 @@ instance Ord (SortKey v) where
 fi32 :: Integral a => a -> Int32
 fi32 = fromIntegral
 
+-- {-# SPECIALISE VExt.qsort :: Parallel -> PM.MVector RealWorld Word64 -> IO () #-}
+--
+-- qsortWord64Par :: PM.MVector RealWorld Word64 -> IO ()
+-- qsortWord64Par xs = do
+--   p@(Parallel pp) <- mkParallel =<< getNumCapabilities
+--   VExt.qsort p xs
+--   val <- Counter.get pp -- atomically $ readTVar pp
+--   when (val > 0) $
+--     putStrLn $ "qsort forked " ++ show val ++ " times"
+
+
+w64 :: Integral a => a -> Word64
+w64 = fromIntegral
+
+{-# NOINLINE qsortSeq #-}
+qsortSeq :: P.Vector Word64 -> IO (PM.MVector RealWorld Word64)
+qsortSeq xs = do
+  ys <- P.thaw xs
+  stToIO $ qsortWord64 ys
+  -- VExt.qsort Sequential ys
+  pure ys
+
+{-# NOINLINE qsortPar #-}
+qsortPar :: P.Vector Word64 -> IO (PM.MVector RealWorld Word64)
+qsortPar xs = do
+  ys <- P.thaw xs
+  qsortWord64Par ys
+  -- Parallel pp <- qsortWord64Par ys
+  -- val <- Counter.get pp -- atomically $ readTVar pp
+  -- when (val > 0) $
+  --   putStrLn $ "qsort forked " ++ show val ++ " times"
+  pure ys
+
+
 
 main :: IO ()
 main = do
@@ -56,6 +98,7 @@ main = do
       seps32 = primArrayFromList [fromIntegral $ ord '/']
 
   candidates <- T.lines <$> T.readFile "/home/sergey/projects/emacs/projects/emacs-native/candidates.txt"
+
   let candidatesV = V.fromList candidates
   evaluate $ rnf candidates
   putStrLn $ "Number of candidates = " ++ show (length candidates)
@@ -67,11 +110,13 @@ main = do
   --
   -- _ <- die "We're done"
 
-  let fuzzyMatchOpt xs =
+  let fuzzyMatchOpt :: V.Vector Text -> P.Vector Word64
+      fuzzyMatchOpt xs =
 
-        fmap (\(SortKey (_, _, str)) -> str) $
-          VExt.sortVectorUnsafe $
-            (\zs -> coerce zs :: V.Vector (SortKey Text)) ys
+        P.convert ((\(x, _, _) -> w64 x) <$> ys)
+        -- fmap (\(SortKey (_, _, str)) -> str) $
+        --   VExt.sortVectorUnsafe $
+        --     (\zs -> coerce zs :: V.Vector (SortKey Text)) ys
 
         where
           needleChars = Data.FuzzyMatch.prepareNeedle needle
@@ -83,7 +128,23 @@ main = do
               !match <- Data.FuzzyMatch.fuzzyMatch' store (Data.FuzzyMatch.computeHeatmap store str len seps32) needle needleChars str
               pure (fi32 $ Data.FuzzyMatch.mScore match, len, str)
 
+  let candidates' :: [P.Vector Word64]
+      candidates' =
+        map (P.fromList . zipWith (\(n :: Int) (c :: Int) -> (w64 c `unsafeShiftL` 32) .|. w64 n) [0..] . map ord . T.unpack) candidates
+
+  let scores     = fuzzyMatchOpt candidatesV
+      scoresHuge = P.concat $ replicate 100 scores
+
+  putStrLn $ "P.length scores = " ++ show (P.length scores)
+  putStrLn $ "P.length scoresHuge = " ++ show (P.length scoresHuge)
 
   defaultMain
-    [ bench "Optimized Haskell fuzzy match" $ nf fuzzyMatchOpt candidatesV
+    [ -- bench "Optimized Haskell fuzzy match" $ nf fuzzyMatchOpt candidatesV
+    -- bench "Optimized Haskell fuzzy match" $ nf fuzzyMatchOpt candidatesV
+      -- bench "Many small Sequential" $ nfAppIO (traverse qsortSeq) candidates'
+    -- , bench "Many small Parallel"   $ nfAppIO (traverse qsortPar) candidates'
+      bench "One large Sequential" $ nfAppIO qsortSeq scores
+    , bench "One large Parallel"   $ nfAppIO qsortPar scores
+    , bench "One huge Sequential" $ nfAppIO qsortSeq scoresHuge
+    , bench "One huge Parallel"   $ nfAppIO qsortPar scoresHuge
     ]

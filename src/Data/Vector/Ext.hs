@@ -20,9 +20,12 @@ module Data.Vector.Ext
 
 import Prelude hiding (last)
 
+import Control.Concurrent.Fork
+import Control.Monad (void)
 import Control.Monad.Primitive
 import Control.Monad.ST
 import Data.Bits
+import Data.Foldable
 import Data.Primitive.ByteArray
 import Data.Primitive.PrimArray
 import Data.Vector.FixedSort
@@ -87,27 +90,27 @@ binSearchMemberByBounds !a !as = go
        m :: Int
        !m = (u + l) `unsafeShiftR` 1
 
-{-# INLINE binSearchMemberByBoundsM #-}
-binSearchMemberByBoundsM
-  :: (PrimMonad m, Ord a, GM.MVector v a)
-  => a
-  -> v (PrimState m) a
-  -> Int
-  -> Int
-  -> m Bool
-binSearchMemberByBoundsM !a !as = go
-  where
-    go !l !u
-      | u <= l    = pure False
-      | otherwise = do
-        a' <- as `GM.unsafeRead` m
-        case compare a' a of
-          LT -> go (m + 1) u
-          EQ -> pure True
-          GT -> go l m
-     where
-       m :: Int
-       !m = (u + l) `unsafeShiftR` 1
+-- {-# INLINE binSearchMemberByBoundsM #-}
+-- binSearchMemberByBoundsM
+--   :: (PrimMonad m, Ord a, GM.MVector v a)
+--   => a
+--   -> v (PrimState m) a
+--   -> Int
+--   -> Int
+--   -> m Bool
+-- binSearchMemberByBoundsM !a !as = go
+--   where
+--     go !l !u
+--       | u <= l    = pure False
+--       | otherwise = do
+--         a' <- as `GM.unsafeRead` m
+--         case compare a' a of
+--           LT -> go (m + 1) u
+--           EQ -> pure True
+--           GT -> go l m
+--      where
+--        m :: Int
+--        !m = (u + l) `unsafeShiftR` 1
 
 {-# INLINE binSearchMemberIdx #-}
 binSearchMemberIdx
@@ -166,47 +169,54 @@ binSearchMemberLByBounds !target !as =
         !k = (u + l) `unsafeShiftR` 1
 
 {-# INLINE uniq #-}
-uniq :: (Ord a, G.Vector v a) => v a -> v a
-uniq !xs = runST $ do
-  let !end = G.length xs
-  ys <- GM.unsafeNew end
-  let go !i !j
-        | i == end  = pure j
-        | otherwise = do
-          let !x = xs `G.unsafeIndex` i
-          isMember <- binSearchMemberByBoundsM x ys 0 j
-          if isMember
-          then go (i + 1) j
-          else do
-            GM.unsafeWrite ys j x
-            go (i + 1) (j + 1)
-  last <- go 0 0
-  G.unsafeFreeze $ GM.unsafeSlice 0 last ys
+uniq :: (Eq a, G.Vector v a) => v a -> v a
+uniq !xs
+  | G.null xs = G.empty
+  | otherwise = runST $ do
+    let !end = G.length xs
+    ys <- GM.unsafeNew end
+
+    let !firstItem = G.unsafeHead xs
+    GM.unsafeWrite ys 0 firstItem
+
+    let go !lastItem !i !j
+          | i == end  = pure j
+          | otherwise = do
+            let !x = xs `G.unsafeIndex` i
+            if x == lastItem
+            then go lastItem (i + 1) j
+            else do
+              GM.unsafeWrite ys j x
+              go x (i + 1) (j + 1)
+    last <- go firstItem 1 1
+    G.unsafeFreeze $ GM.unsafeSlice 0 last ys
 
 {-# INLINE sortVectorUnsafe #-}
 sortVectorUnsafe :: (Ord a, G.Vector v a) => v a -> v a
 sortVectorUnsafe !xs = runST $ do
   ys <- G.unsafeThaw xs
-  qsort ys
+  qsort Sequential ys
   G.unsafeFreeze ys
 
 {-# INLINABLE qsort #-}
-qsort :: (PrimMonad m, Ord a, GM.MVector v a) => v (PrimState m) a -> m ()
+qsort :: (Fork p x m, PrimMonad m, Ord a, GM.MVector v a) => p -> v (PrimState m) a -> m ()
 qsort = qsortImpl
 
 {-# INLINE qsortImpl #-}
-qsortImpl :: forall m a v. (PrimMonad m, Ord a, GM.MVector v a) => v (PrimState m) a -> m ()
-qsortImpl !vector = qsortLoop vector threshold
+qsortImpl :: forall p x m a v. (Fork p x m, PrimMonad m, Ord a, GM.MVector v a) => p -> v (PrimState m) a -> m ()
+qsortImpl !p !vector = do
+  releaseToken <- startWork p
+  qsortLoop (Just releaseToken) threshold vector
   where
     threshold :: Int
     !threshold = binlog2 (GM.length vector)
 
-    qsortLoop :: v (PrimState m) a -> Int -> m ()
-    qsortLoop !v !cutoff
+    qsortLoop :: Maybe x -> Int -> v (PrimState m) a -> m ()
+    qsortLoop releaseToken !cutoff !v
       | len < 17
-      = bitonicSort len v
+      = bitonicSort len v *> traverse_ (endWork p) releaseToken
       | cutoff == 0
-      = heapSort v
+      = heapSort v *> traverse_ (endWork p) releaseToken
       | otherwise = do
         let pi0, pi1, pi2 :: Int
             !pi0  = 0
@@ -259,8 +269,14 @@ qsortImpl !vector = qsortLoop vector threshold
             !left    = GM.unsafeSlice 0 pi' v
             !right   = GM.unsafeSlice pi'' (len - pi'') v
             !cutoff' = cutoff - 1
-        qsortLoop left cutoff'
-        qsortLoop right cutoff'
+        void $ fork p
+          releaseToken
+          (\token -> qsortLoop token cutoff')
+          (\token -> qsortLoop token cutoff')
+          left
+          right
+        -- qsortLoop cutoff' left
+        -- qsortLoop cutoff' right
       where
         !len = GM.length v
 

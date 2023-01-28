@@ -12,9 +12,12 @@
 
 module FuzzyProf (main) where
 
+import Control.Concurrent.Counter qualified as Counter
+import Control.Concurrent.Fork
 import Control.DeepSeq
 import Control.Exception
 import Control.LensBlaze
+import Control.Monad
 import Control.Monad.ST
 import Data.Int
 import Data.Primitive.PrimArray
@@ -25,7 +28,9 @@ import Data.Vector qualified as V
 import Data.Vector.PredefinedSorts
 import Data.Vector.Primitive qualified as P
 import Data.Vector.Primitive.Mutable qualified as PM
+import Data.Word
 import System.Environment
+import System.IO.Unsafe
 
 import Data.FuzzyMatch qualified as FuzzyMatch
 import Data.FuzzyMatch.SortKey
@@ -48,29 +53,43 @@ doMatch seps needle haystacks =
     haystacks' = V.fromList haystacks
 
     ys :: P.Vector SortKey
-    ys = runST $ do
+    ys = unsafePerformIO $ do
+      scores' <- stToIO $ do
 
-      let !totalHaystacks = V.length haystacks'
+        let !totalHaystacks = V.length haystacks'
 
-      store <- FuzzyMatch.mkReusableState (T.length needle) needleChars
+        store <- FuzzyMatch.mkReusableState (T.length needle) needleChars
 
-      scores <- PM.new totalHaystacks
+        scores <- PM.new totalHaystacks
 
-      let go !n
-            | n == totalHaystacks
-            = pure ()
-            | otherwise
-            = do
-              let !haystack    = haystacks' `V.unsafeIndex` n
-                  !haystackLen = T.length haystack
-              !match <- FuzzyMatch.fuzzyMatch' store (FuzzyMatch.computeHeatmap store haystack haystackLen seps) needle needleChars haystack
-              PM.unsafeWrite scores n $!
-                mkSortKey (FuzzyMatch.mScore match) (fromIntegral haystackLen) (fromIntegral n)
-              go (n + 1)
+        let go !n
+              | n == totalHaystacks
+              = pure ()
+              | otherwise
+              = do
+                let !haystack    = haystacks' `V.unsafeIndex` n
+                    !haystackLen = T.length haystack
+                !match <- FuzzyMatch.fuzzyMatch' store (FuzzyMatch.computeHeatmap store haystack haystackLen seps) needle needleChars haystack
+                PM.unsafeWrite scores n $!
+                  mkSortKey (FuzzyMatch.mScore match) (fromIntegral haystackLen) (fromIntegral n)
+                go (n + 1)
 
-      go 0
-      qsortSortKey scores
-      P.unsafeFreeze scores
+        go 0
+        pure scores
+      qsortSortKeyPar scores'
+      P.unsafeFreeze scores'
+
+{-# NOINLINE qsortPar #-}
+qsortPar :: P.Vector Word64 -> IO (P.Vector Word64)
+qsortPar xs = do
+  ys <- P.thaw xs
+  _ <- qsortWord64Par ys
+  -- Parallel pp <- qsortWord64Par ys
+  -- val <- Counter.get pp -- atomically $ readTVar pp
+  -- when (val > 0) $
+  --   putStrLn $ "qsort forked " ++ show val ++ " times"
+  P.unsafeFreeze ys
+
 
 main :: IO ()
 main = do
@@ -88,8 +107,15 @@ main = do
   evaluate $ rnf candidates
   putStrLn $ "Number of candidates = " ++ show (length candidates)
 
-  let !totalScore = sum $ map (\i -> sum $ map fst $ doMatch (primArrayFromList [fromIntegral i]) needle candidates) [1..n']
-  putStrLn $ "totalScore = " ++ show totalScore
+  let scoress :: [P.Vector Word64]
+      scoress = map (\i -> P.fromList $ map (fromIntegral . fst) $ doMatch (primArrayFromList [fromIntegral i]) needle candidates) [1..n']
+
+  scoress' <- qsortPar $ P.concat $ concat $ replicate 25 scoress
+  putStrLn $ "totalScore = " ++ show (P.sum scoress')
+
+
+  -- let !totalScore = map (\i -> map fst $ doMatch (primArrayFromList [fromIntegral i]) needle candidates) [1..n']
+  -- putStrLn $ "totalScore = " ++ show totalScore
 
   pure ()
 

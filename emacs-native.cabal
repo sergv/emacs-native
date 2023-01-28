@@ -65,7 +65,7 @@ library
   if flag(runtime-checks)
     cpp-options: -DRUNTIME_CHECKS
   exposed-modules:
-    Control.Concurrent.ParPair
+    Control.Concurrent.Fork
     Control.LensBlaze
 
     Data.ByteString.Char8.Ext
@@ -188,6 +188,7 @@ benchmark fuzzyprof
     .
     bench
   build-depends:
+    , atomic-counter
     , base >= 4.9
     , deepseq
     , emacs-native
@@ -196,8 +197,8 @@ benchmark fuzzyprof
     , vector
   ghc-options:
     -rtsopts
---     -threaded
---     "-with-rts-opts=-N -A32M"
+    -threaded
+    "-with-rtsopts=-N -A16m -n1m -qg -qb"
     -main-is FuzzyProf
   ghc-prof-options:
     -fprof-late
@@ -212,15 +213,17 @@ benchmark fuzzybench
     .
     bench
   build-depends:
+    , atomic-counter
     , base >= 4.9
     , deepseq
     , emacs-native
     , primitive
+    , stm
     , tasty-bench
     , text
     , vector
   ghc-options:
     -rtsopts
---     -threaded
---     "-with-rts-opts=-N -A32M"
+    -threaded
+    "-with-rtsopts=-N -A16m -n1m -qg -qb"
     -main-is FuzzyBench

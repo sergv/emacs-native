@@ -133,7 +133,7 @@ scoreMatches (R seps (R needle (R haystacks Stop))) = do
 
     traverse_ wait =<< traverse (async . stToIO . processChunks) [0..jobs - 1]
 
-    stToIO (qsortSortKey scores)
+    qsortSortKeyPar scores
     P.unsafeFreeze scores
 
   nilVal <- nil
