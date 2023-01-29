@@ -376,9 +376,10 @@ mkHaystack ReusableState{rsHaystackStore} !needleChars !str@(TI.Text _ _ haystac
             | charMember charCode needleChars' =
               case writeByteArray# mbarr j (combineCharIdx (W64# c') i) s1 of
                 s2 ->
-                  if isTrue# (0# /=# iswupper charCode)
+                  let !c = chr (I# charCode) in
+                  if isUpper c
                   then
-                    case writeByteArray# mbarr (j +# 1#) (combineCharIdx (fromIntegral (I# (towlower charCode))) i) s2 of
+                    case writeByteArray# mbarr (j +# 1#) (combineCharIdx (fromIntegral (ord (toLower c))) i) s2 of
                       s3 -> (# s3, j +# 2# #)
                   else (# s2, j +# 1# #)
             | otherwise =
@@ -391,12 +392,6 @@ mkHaystack ReusableState{rsHaystackStore} !needleChars !str@(TI.Text _ _ haystac
           (# s2, arrLen #) -> (# s2, I# arrLen #)
 
   pure $ P.MVector 0 arrLen arr'
-
-foreign import ccall unsafe "u_towlower"
-  towlower :: Int# -> Int#
-
-foreign import ccall unsafe "u_iswupper"
-  iswupper :: Int# -> Int#
 
 isUpperASCII :: Int# -> Bool#
 isUpperASCII x = Bool# ((64# <# x) `andI#` (x <# 91#))
@@ -824,7 +819,7 @@ isUpper# x
   | isTrue# (x <# 128#)
   = isUpperASCII x
   | otherwise
-  = Bool# (iswupper x ># 0#)
+  = if isUpper (chr (I# x)) then Bool# 1# else Bool# 0#
 
 analyzeGroup :: Group -> Bool -> Int -> GroupState -> Int -> MutablePrimArray s Heat -> ST s GroupState
 analyzeGroup Group{gPrevChar, gLen, gStr, gStart} !seenBasePath !groupsCount GroupState{gsGroupIdx} !scoresLen !scores = do
