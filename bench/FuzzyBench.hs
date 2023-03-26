@@ -9,6 +9,8 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE OverloadedStrings        #-}
 
+{-# OPTIONS_GHC -O2 -ddump-simpl -dsuppress-uniques -dsuppress-idinfo -dsuppress-module-prefixes -dsuppress-type-applications -dsuppress-coercions -dppr-cols200 -dsuppress-type-signatures -ddump-to-file #-}
+
 module FuzzyBench (main) where
 
 import Prelude hiding (pi, last)
@@ -38,6 +40,9 @@ import GHC.IO
 
 import Data.FuzzyMatch qualified
 import Data.Vector.PredefinedSorts
+import Data.Vector.PredefinedSortsPar
+import Data.Vector.PredefinedSortsParFake
+import Data.Vector.PredefinedSortsParStrategies
 
 import Test.Tasty.Bench
 
@@ -85,6 +90,38 @@ qsortPar xs = do
   -- when (val > 0) $
   --   putStrLn $ "qsort forked " ++ show val ++ " times"
   pure ys
+
+{-# NOINLINE qsortParFake #-}
+qsortParFake :: P.Vector Word64 -> IO (PM.MVector RealWorld Word64)
+qsortParFake xs = do
+  ys <- P.thaw xs
+  qsortWord64ParFake ys
+  -- Parallel pp <- qsortWord64Par ys
+  -- val <- Counter.get pp -- atomically $ readTVar pp
+  -- when (val > 0) $
+  --   putStrLn $ "qsort forked " ++ show val ++ " times"
+  pure ys
+
+{-# NOINLINE qsortParStrategies #-}
+qsortParStrategies :: P.Vector Word64 -> IO (PM.MVector RealWorld Word64)
+qsortParStrategies xs = do
+  ys <- P.thaw xs
+  qsortWord64ParStrategies ys
+  -- Parallel pp <- qsortWord64Par ys
+  -- val <- Counter.get pp -- atomically $ readTVar pp
+  -- when (val > 0) $
+  --   putStrLn $ "qsort forked " ++ show val ++ " times"
+  pure ys
+
+
+
+incrementTVar :: TVar Int -> Int -> IO ()
+incrementTVar v = go
+  where
+    go 0 = pure ()
+    go n = do
+      atomically $ modifyTVar' v (+ 1)
+      go (n - 1)
 
 
 
@@ -138,13 +175,22 @@ main = do
   putStrLn $ "P.length scores = " ++ show (P.length scores)
   putStrLn $ "P.length scoresHuge = " ++ show (P.length scoresHuge)
 
+  v <- newTVarIO 0
+
   defaultMain
     [ -- bench "Optimized Haskell fuzzy match" $ nf fuzzyMatchOpt candidatesV
     -- bench "Optimized Haskell fuzzy match" $ nf fuzzyMatchOpt candidatesV
       -- bench "Many small Sequential" $ nfAppIO (traverse qsortSeq) candidates'
     -- , bench "Many small Parallel"   $ nfAppIO (traverse qsortPar) candidates'
-      bench "One large Sequential" $ nfAppIO qsortSeq scores
-    , bench "One large Parallel"   $ nfAppIO qsortPar scores
-    , bench "One huge Sequential" $ nfAppIO qsortSeq scoresHuge
-    , bench "One huge Parallel"   $ nfAppIO qsortPar scoresHuge
+      bench "Increment TVar 50 times"   $ nfAppIO (incrementTVar v) 50
+    , bench "Increment TVar 2000 times" $ nfAppIO (incrementTVar v) 2000
+
+    , bench "One large Sequential"    $ nfAppIO qsortSeq scores
+    , bench "One large Parallel"      $ nfAppIO qsortPar scores
+    , bench "One large ParallelFake"  $ nfAppIO qsortParFake scores
+    , bench "One large ParStrategies" $ nfAppIO qsortParStrategies scores
+    , bench "One huge Sequential"     $ nfAppIO qsortSeq scoresHuge
+    , bench "One huge Parallel"       $ nfAppIO qsortPar scoresHuge
+    , bench "One huge ParallelFake"   $ nfAppIO qsortParFake scoresHuge
+    , bench "One huge ParStrategies"  $ nfAppIO qsortParStrategies scoresHuge
     ]

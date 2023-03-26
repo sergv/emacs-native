@@ -8,6 +8,7 @@
 
 {-# LANGUAGE DataKinds         #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeFamilies      #-}
 
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
@@ -16,9 +17,9 @@ module Emacs.FuzzyMatch (initialise) where
 import Control.Concurrent
 import Control.Concurrent.Async.Lifted.Safe
 import Control.Concurrent.Counter qualified as Counter
+import Control.DeepSeq
 import Control.LensBlaze
 import Control.Monad.IO.Class
-import Control.Monad.Par
 import Control.Monad.ST.Strict
 import Control.Monad.Trans.Control
 import Data.Foldable
@@ -30,6 +31,7 @@ import Data.Text qualified as T
 import Data.Vector qualified as V
 import Data.Vector.Ext qualified as VExt
 import Data.Vector.PredefinedSorts
+import Data.Vector.PredefinedSortsPar
 import Data.Vector.Primitive qualified as P
 import Data.Vector.Primitive.Mutable qualified as PM
 import GHC.IO (unsafeIOToST)

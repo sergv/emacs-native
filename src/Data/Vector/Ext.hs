@@ -21,11 +21,10 @@ module Data.Vector.Ext
 import Prelude hiding (last)
 
 import Control.Concurrent.Fork
-import Control.Monad (void)
 import Control.Monad.Primitive
 import Control.Monad.ST
 import Data.Bits
-import Data.Foldable
+import Data.Median
 import Data.Primitive.ByteArray
 import Data.Primitive.PrimArray
 import Data.Vector.FixedSort
@@ -192,87 +191,54 @@ uniq !xs
     G.unsafeFreeze $ GM.unsafeSlice 0 last ys
 
 {-# INLINE sortVectorUnsafe #-}
-sortVectorUnsafe :: (Ord a, G.Vector v a) => v a -> v a
+sortVectorUnsafe :: forall a v. (Ord a, G.Vector v a, Median (Median3 a) a) => v a -> v a
 sortVectorUnsafe !xs = runST $ do
   ys <- G.unsafeThaw xs
-  qsort Sequential ys
+  qsort Sequential (Median3 @a) ys
   G.unsafeFreeze ys
 
 {-# INLINABLE qsort #-}
-qsort :: (Fork p x m, PrimMonad m, Ord a, GM.MVector v a) => p -> v (PrimState m) a -> m ()
+qsort
+  :: (Fork p x m, Median med a, PrimMonad m, Ord a, GM.MVector v a)
+  => p -> med -> v (PrimState m) a -> m ()
 qsort = qsortImpl
 
 {-# INLINE qsortImpl #-}
-qsortImpl :: forall p x m a v. (Fork p x m, PrimMonad m, Ord a, GM.MVector v a) => p -> v (PrimState m) a -> m ()
-qsortImpl !p !vector = do
-  releaseToken <- startWork p
-  qsortLoop (Just releaseToken) threshold vector
+qsortImpl
+  :: forall p med x m a v.
+     (Fork p x m, Median med a, PrimMonad m, Ord a, GM.MVector v a)
+  => p
+  -> med
+  -> v (PrimState m) a
+  -> m ()
+qsortImpl !p !med !vector = do
+  !releaseToken <- startWork p
+  qsortLoop 0 releaseToken threshold vector
   where
     threshold :: Int
     !threshold = binlog2 (GM.length vector)
 
-    qsortLoop :: Maybe x -> Int -> v (PrimState m) a -> m ()
-    qsortLoop releaseToken !cutoff !v
+    qsortLoop :: Int -> x -> Int -> v (PrimState m) a -> m ()
+    qsortLoop !depth !releaseToken !cutoff !v
       | len < 17
-      = bitonicSort len v *> traverse_ (endWork p) releaseToken
+      = bitonicSort len v *> endWork p releaseToken
       | cutoff == 0
-      = heapSort v *> traverse_ (endWork p) releaseToken
+      = heapSort v *> endWork p releaseToken
       | otherwise = do
-        let pi0, pi1, pi2 :: Int
-            !pi0  = 0
-            !pi1  = len `unsafeShiftR` 1
+        let last :: Int
             !last = len - 1
-            !pi2  = last
-        pv0 <- GM.unsafeRead v pi0
-        pv1 <- GM.unsafeRead v pi1
-        pv2 <- GM.unsafeRead v pi2
-        pv  <-
-          if pv0 > pv1
-          then
-            -- ... p1 < p0 ...
-            if pv0 > pv2
-            then
-              if pv1 > pv2
-              then do
-                -- p2 < p1 < p0
-                GM.unsafeWrite v pi1 pv2
-                GM.unsafeWrite v pi2 pv1
-                pure pv1
-              else do
-                -- p1 <= p2 < p0
-                pure pv2
-            else do
-              --  p1 < p0 <= p2
-              GM.unsafeWrite v pi0 pv2
-              GM.unsafeWrite v pi2 pv0
-              pure pv0
-          else
-            -- ... p0 <= p1 ...
-            if pv1 > pv2
-            then
-              if pv0 > pv2
-              then do
-                -- p2 < p0 <= p1
-                GM.unsafeWrite v pi0 pv2
-                GM.unsafeWrite v pi2 pv0
-                pure pv0
-              else do
-                -- p0 <= p2 <= p1
-                pure pv2
-            else do
-              -- p0 <= p1 <= p2
-              GM.unsafeWrite v pi1 pv2
-              GM.unsafeWrite v pi2 pv1
-              pure pv1
+        !pv  <- selectMedian med v
         !pi' <- partitionTwoWays pv last v
-        let !pi''    = pi' + 1
-            !left    = GM.unsafeSlice 0 pi' v
-            !right   = GM.unsafeSlice pi'' (len - pi'') v
+        let !left    = GM.unsafeSlice 0 pi' v
+            !right   = GM.unsafeSlice pi' (len - pi') v
             !cutoff' = cutoff - 1
-        void $ fork p
+            !depth'  = depth + 1
+        fork
+          p
           releaseToken
-          (\token -> qsortLoop token cutoff')
-          (\token -> qsortLoop token cutoff')
+          depth
+          (\token -> qsortLoop depth' token cutoff')
+          (\token -> qsortLoop depth' token cutoff')
           left
           right
         -- qsortLoop cutoff' left
@@ -285,7 +251,7 @@ partitionTwoWays
   :: forall m a v. (PrimMonad m, Ord a, GM.MVector v a)
   => a -> Int -> v (PrimState m) a -> m Int
 partitionTwoWays !pv !lastIdx !v =
-  go 0 (lastIdx - 1)
+  go 0 lastIdx
   where
     go :: Int -> Int -> m Int
     go !i !j = do
@@ -296,9 +262,7 @@ partitionTwoWays !pv !lastIdx !v =
         GM.unsafeWrite v j' xi
         GM.unsafeWrite v i' xj
         go (i' + 1) (j' - 1)
-      else do
-        GM.unsafeWrite v i' pv
-        GM.unsafeWrite v lastIdx xi
+      else
         pure i'
       where
         goLT !k = do

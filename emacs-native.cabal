@@ -36,6 +36,7 @@ common ghc-options
   default-extensions:
     ImportQualifiedPost
     LambdaCase
+    UnboxedTuples
 
   ghc-options:
     -funbox-strict-fields
@@ -66,6 +67,9 @@ library
     cpp-options: -DRUNTIME_CHECKS
   exposed-modules:
     Control.Concurrent.Fork
+    Data.Median
+    Data.Vector.Ext
+
     Control.LensBlaze
 
     Data.ByteString.Char8.Ext
@@ -78,9 +82,12 @@ library
     Data.Regex
     Data.Primitive.PrimArray.Ext
     Data.Text.Ext
-    Data.Vector.Ext
     Data.Vector.FixedSort
     Data.Vector.PredefinedSorts
+    Data.Vector.PredefinedSortsPar
+    Data.Vector.PredefinedSortsParFake
+    Data.Vector.PredefinedSortsParStrategies
+    Data.Vector.PredefinedSortsCommon
 
     Emacs.EprojTagIndex
     Emacs.FastFileSearch
@@ -95,13 +102,16 @@ library
     , bimap
     , bytestring
     , containers
+    , deepseq
     , emacs-module >= 0.2
     , exceptions
     , filepath
+    , ghc-prim
     , lifted-async
     , monad-control
-    , monad-par
+    , monad-interleave
     , mtl
+    , parallel
     , path >= 0.6.1
     , path-io
     , prettyprinter >= 1.7
@@ -119,6 +129,8 @@ library
     -- , regex-tdfa-text
   ghc-prof-options:
     -fprof-late
+
+  extra-libraries: c stdc++
 
 foreign-library emacs-native
   import: ghc-options
@@ -188,11 +200,17 @@ benchmark fuzzyprof
     .
     bench
   build-depends:
+    , async
     , atomic-counter
     , base >= 4.9
+    , bytestring
+    , clock
+    , containers
     , deepseq
     , emacs-native
     , primitive
+    , random >= 1.2.1
+    , store
     , text
     , vector
   ghc-options:

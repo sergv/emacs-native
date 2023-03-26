@@ -6,6 +6,8 @@
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
 
+{-# LANGUAGE CPP #-}
+
 {-# LANGUAGE MagicHash         #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms   #-}
@@ -68,16 +70,32 @@ import Data.Vector.Primitive.Mutable qualified as PM
 import Data.Vector.Unboxed qualified as U
 import Data.Vector.Unboxed.Base qualified as U
 import Data.Word
-import GHC.Exts
 import GHC.Generics (Generic)
-import GHC.Int
+import GHC.Int (Int32(I32#))
+import GHC.Magic (inline)
 import GHC.ST
-import GHC.Word
+import GHC.Types
+import GHC.Word (Word64(W64#))
 import Numeric (showHex)
 import Prettyprinter
 import Prettyprinter.Show
 
 import Emacs.Module.Assert (WithCallStack)
+
+#if __GLASGOW_HASKELL__ < 904
+
+import GHC.Prim hiding (Word64#)
+
+type Word64# = Word#
+
+wordToWord64# :: Word# -> Word64#
+wordToWord64# x = x
+
+#else
+
+import GHC.Prim
+
+#endif
 
 {-# INLINE isWord #-}
 isWord :: Int# -> Bool#

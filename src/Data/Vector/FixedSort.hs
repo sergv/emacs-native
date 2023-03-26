@@ -25,31 +25,31 @@ sort3
   :: (PrimMonad m, GM.MVector v a, Ord a)
   => v (PrimState m) a -> m ()
 sort3 !xs = do
-  a0 <- GM.unsafeRead xs 0
+  x0 <- GM.unsafeRead xs 0
   x1 <- GM.unsafeRead xs 1
   x2 <- GM.unsafeRead xs 2
-  if a0 > x1
+  if x1 < x0
   then
-    if a0 > x2
+    if x2 < x0
     then
       if x2 < x1
       then do
         GM.unsafeWrite xs 0 x2
-        GM.unsafeWrite xs 2 a0
+        GM.unsafeWrite xs 2 x0
       else do
          GM.unsafeWrite xs 0 x1
          GM.unsafeWrite xs 1 x2
-         GM.unsafeWrite xs 2 a0
+         GM.unsafeWrite xs 2 x0
     else do
       GM.unsafeWrite xs 0 x1
-      GM.unsafeWrite xs 1 a0
+      GM.unsafeWrite xs 1 x0
   else
-    if x1 > x2
+    if x2 < x1
     then
-      if a0 > x2
+      if x2 < x0
       then do
         GM.unsafeWrite xs 0 x2
-        GM.unsafeWrite xs 1 a0
+        GM.unsafeWrite xs 1 x0
         GM.unsafeWrite xs 2 x1
       else do
         GM.unsafeWrite xs 1 x2
@@ -65,172 +65,172 @@ sort4
   :: (PrimMonad m, GM.MVector v a, Ord a)
   => v (PrimState m) a -> m ()
 sort4 !xs = do
-  a0 <- GM.unsafeRead xs 0
+  x0 <- GM.unsafeRead xs 0
   x1 <- GM.unsafeRead xs 1
   x2 <- GM.unsafeRead xs 2
   x3 <- GM.unsafeRead xs 3
-  if a0 > x1
+  if x1 < x0
   then
-    if a0 > x2
+    if x2 < x0
     then
-      if x1 > x2
+      if x2 < x1
       then
-        if x1 > x3
+        if x3 < x1
         then
-          if x2 > x3
+          if x3 < x2
           then do
             GM.unsafeWrite xs 0 x3
             GM.unsafeWrite xs 1 x2
             GM.unsafeWrite xs 2 x1
-            GM.unsafeWrite xs 3 a0
+            GM.unsafeWrite xs 3 x0
           else do
             GM.unsafeWrite xs 0 x2
             GM.unsafeWrite xs 1 x3
             GM.unsafeWrite xs 2 x1
-            GM.unsafeWrite xs 3 a0
+            GM.unsafeWrite xs 3 x0
         else
-          if a0 > x3
+          if x3 < x0
           then do
             GM.unsafeWrite xs 0 x2
-            GM.unsafeWrite xs 1 x1
+            -- GM.unsafeWrite xs 1 x1
             GM.unsafeWrite xs 2 x3
-            GM.unsafeWrite xs 3 a0
+            GM.unsafeWrite xs 3 x0
           else do
             GM.unsafeWrite xs 0 x2
-            GM.unsafeWrite xs 1 x1
-            GM.unsafeWrite xs 2 a0
+            -- GM.unsafeWrite xs 1 x1
+            GM.unsafeWrite xs 2 x0
             GM.unsafeWrite xs 3 x3
       else
-        if x2 > x3
+        if x3 < x2
         then
-          if x1 > x3
+          if x3 < x1
           then do
             GM.unsafeWrite xs 0 x3
-            GM.unsafeWrite xs 1 x1
+            -- GM.unsafeWrite xs 1 x1
             GM.unsafeWrite xs 2 x2
-            GM.unsafeWrite xs 3 a0
+            GM.unsafeWrite xs 3 x0
           else do
             GM.unsafeWrite xs 0 x1
             GM.unsafeWrite xs 1 x3
             GM.unsafeWrite xs 2 x2
-            GM.unsafeWrite xs 3 a0
+            GM.unsafeWrite xs 3 x0
         else
-          if a0 > x3
+          if x3 < x0
           then do
             GM.unsafeWrite xs 0 x1
             GM.unsafeWrite xs 1 x2
             GM.unsafeWrite xs 2 x3
-            GM.unsafeWrite xs 3 a0
+            GM.unsafeWrite xs 3 x0
           else do
             GM.unsafeWrite xs 0 x1
             GM.unsafeWrite xs 1 x2
-            GM.unsafeWrite xs 2 a0
+            GM.unsafeWrite xs 2 x0
             -- GM.unsafeWrite xs 3 x3
     else
-      if a0 > x3
+      if x3 < x0
       then
-        if x1 > x3
+        if x3 < x1
         then do
           GM.unsafeWrite xs 0 x3
           -- GM.unsafeWrite xs 1 x1
-          GM.unsafeWrite xs 2 a0
+          GM.unsafeWrite xs 2 x0
           GM.unsafeWrite xs 3 x2
         else do
           GM.unsafeWrite xs 0 x1
           GM.unsafeWrite xs 1 x3
-          GM.unsafeWrite xs 2 a0
+          GM.unsafeWrite xs 2 x0
           GM.unsafeWrite xs 3 x2
       else
-        if x2 > x3
+        if x3 < x2
         then do
           GM.unsafeWrite xs 0 x1
-          GM.unsafeWrite xs 1 a0
+          GM.unsafeWrite xs 1 x0
           GM.unsafeWrite xs 2 x3
           GM.unsafeWrite xs 3 x2
         else do
           GM.unsafeWrite xs 0 x1
-          GM.unsafeWrite xs 1 a0
+          GM.unsafeWrite xs 1 x0
           -- GM.unsafeWrite xs 2 x2
           -- GM.unsafeWrite xs 3 x3
   else
-    if x1 > x2
+    if x2 < x1
     then
-      if a0 > x2
+      if x2 < x0
       then
-        if a0 > x3
+        if x3 < x0
         then
-          if x2 > x3
+          if x3 < x2
           then do
             GM.unsafeWrite xs 0 x3
             GM.unsafeWrite xs 1 x2
-            GM.unsafeWrite xs 2 a0
+            GM.unsafeWrite xs 2 x0
             GM.unsafeWrite xs 3 x1
           else do
             GM.unsafeWrite xs 0 x2
             GM.unsafeWrite xs 1 x3
-            GM.unsafeWrite xs 2 a0
+            GM.unsafeWrite xs 2 x0
             GM.unsafeWrite xs 3 x1
         else
-          if x1 > x3
+          if x3 < x1
           then do
             GM.unsafeWrite xs 0 x2
-            GM.unsafeWrite xs 1 a0
+            GM.unsafeWrite xs 1 x0
             GM.unsafeWrite xs 2 x3
             GM.unsafeWrite xs 3 x1
           else do
             GM.unsafeWrite xs 0 x2
-            GM.unsafeWrite xs 1 a0
+            GM.unsafeWrite xs 1 x0
             GM.unsafeWrite xs 2 x1
             -- GM.unsafeWrite xs 3 x3
       else
-        if x2 > x3
+        if x3 < x2
         then
-          if a0 > x3
+          if x3 < x0
           then do
             GM.unsafeWrite xs 0 x3
-            GM.unsafeWrite xs 1 a0
+            GM.unsafeWrite xs 1 x0
             -- GM.unsafeWrite xs 2 x2
             GM.unsafeWrite xs 3 x1
           else do
-            -- GM.unsafeWrite xs 0 a0
+            -- GM.unsafeWrite xs 0 x0
             GM.unsafeWrite xs 1 x3
             -- GM.unsafeWrite xs 2 x2
             GM.unsafeWrite xs 3 x1
         else
-          if x1 > x3
+          if x3 < x1
           then do
-            -- GM.unsafeWrite xs 0 a0
+            -- GM.unsafeWrite xs 0 x0
             GM.unsafeWrite xs 1 x2
             GM.unsafeWrite xs 2 x3
             GM.unsafeWrite xs 3 x1
           else do
-            -- GM.unsafeWrite xs 0 a0
+            -- GM.unsafeWrite xs 0 x0
             GM.unsafeWrite xs 1 x2
             GM.unsafeWrite xs 2 x1
             -- GM.unsafeWrite xs 3 x3
     else
-      if x1 > x3
+      if x3 < x1
       then
-        if a0 > x3
+        if x3 < x0
         then do
           GM.unsafeWrite xs 0 x3
-          GM.unsafeWrite xs 1 a0
+          GM.unsafeWrite xs 1 x0
           GM.unsafeWrite xs 2 x1
           GM.unsafeWrite xs 3 x2
         else do
-          -- GM.unsafeWrite xs 0 a0
+          -- GM.unsafeWrite xs 0 x0
           GM.unsafeWrite xs 1 x3
           GM.unsafeWrite xs 2 x1
           GM.unsafeWrite xs 3 x2
       else
-        if x2 > x3
+        if x3 < x2
         then do
-          -- GM.unsafeWrite xs 0 a0
+          -- GM.unsafeWrite xs 0 x0
           -- GM.unsafeWrite xs 1 x1
           GM.unsafeWrite xs 2 x3
           GM.unsafeWrite xs 3 x2
         else do
-          -- GM.unsafeWrite xs 0 a0
+          -- GM.unsafeWrite xs 0 x0
           -- GM.unsafeWrite xs 1 x1
           -- GM.unsafeWrite xs 2 x2
           -- GM.unsafeWrite xs 3 x3
@@ -669,7 +669,7 @@ bitonicSort !n !v = do
     swap !i !j = do
       x <- GM.unsafeRead v i
       y <- GM.unsafeRead v j
-      when (x > y) $ do
+      when (y < x) $ do
         GM.unsafeWrite v i y
         GM.unsafeWrite v j x
 

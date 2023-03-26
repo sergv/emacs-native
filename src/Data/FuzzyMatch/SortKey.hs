@@ -31,6 +31,9 @@ newtype SortKey = SortKey Word64
 unSortKey :: SortKey -> Word64
 unSortKey = coerce
 
+instance Show SortKey where
+  show x = "SortKey " ++ show (getScore x, view lenL x, view idxL x)
+
 instance Eq SortKey where
   {-# INLINE (==) #-}
   x == y = getScore x == getScore y && view lenL x == view lenL y
