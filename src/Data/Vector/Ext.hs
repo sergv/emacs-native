@@ -12,22 +12,17 @@ module Data.Vector.Ext
   , binSearchMemberIdx
   , binSearchMemberL
   , uniq
-  , sortVectorUnsafe
-  , qsort
   , forM
   , primVectorToPrimArray
   ) where
 
 import Prelude hiding (last)
 
-import Control.Concurrent.Fork
 import Control.Monad.Primitive
 import Control.Monad.ST
 import Data.Bits
-import Data.Median
 import Data.Primitive.ByteArray
 import Data.Primitive.PrimArray
-import Data.Vector.FixedSort
 import Data.Vector.Generic qualified as G
 import Data.Vector.Generic.Mutable qualified as GM
 import Data.Vector.Primitive qualified as P
@@ -189,146 +184,6 @@ uniq !xs
               go x (i + 1) (j + 1)
     last <- go firstItem 1 1
     G.unsafeFreeze $ GM.unsafeSlice 0 last ys
-
-{-# INLINE sortVectorUnsafe #-}
-sortVectorUnsafe :: forall a v. (Ord a, G.Vector v a, Median (Median3 a) a) => v a -> v a
-sortVectorUnsafe !xs = runST $ do
-  ys <- G.unsafeThaw xs
-  qsort Sequential (Median3 @a) ys
-  G.unsafeFreeze ys
-
-{-# INLINABLE qsort #-}
-qsort
-  :: (Fork p x m, Median med a, PrimMonad m, Ord a, GM.MVector v a)
-  => p -> med -> v (PrimState m) a -> m ()
-qsort = qsortImpl
-
-{-# INLINE qsortImpl #-}
-qsortImpl
-  :: forall p med x m a v.
-     (Fork p x m, Median med a, PrimMonad m, Ord a, GM.MVector v a)
-  => p
-  -> med
-  -> v (PrimState m) a
-  -> m ()
-qsortImpl !p !med !vector = do
-  !releaseToken <- startWork p
-  qsortLoop 0 releaseToken threshold vector
-  where
-    threshold :: Int
-    !threshold = binlog2 (GM.length vector)
-
-    qsortLoop :: Int -> x -> Int -> v (PrimState m) a -> m ()
-    qsortLoop !depth !releaseToken !cutoff !v
-      | len < 17
-      = bitonicSort len v *> endWork p releaseToken
-      | cutoff == 0
-      = heapSort v *> endWork p releaseToken
-      | otherwise = do
-        let last :: Int
-            !last = len - 1
-        !pv  <- selectMedian med v
-        !pi' <- partitionTwoWays pv last v
-        let !left    = GM.unsafeSlice 0 pi' v
-            !right   = GM.unsafeSlice pi' (len - pi') v
-            !cutoff' = cutoff - 1
-            !depth'  = depth + 1
-        fork
-          p
-          releaseToken
-          depth
-          (\token -> qsortLoop depth' token cutoff')
-          (\token -> qsortLoop depth' token cutoff')
-          left
-          right
-        -- qsortLoop cutoff' left
-        -- qsortLoop cutoff' right
-      where
-        !len = GM.length v
-
-{-# INLINE partitionTwoWays #-}
-partitionTwoWays
-  :: forall m a v. (PrimMonad m, Ord a, GM.MVector v a)
-  => a -> Int -> v (PrimState m) a -> m Int
-partitionTwoWays !pv !lastIdx !v =
-  go 0 lastIdx
-  where
-    go :: Int -> Int -> m Int
-    go !i !j = do
-      (i', xi) <- goLT i
-      (j', xj) <- goGT j
-      if i' < j'
-      then do
-        GM.unsafeWrite v j' xi
-        GM.unsafeWrite v i' xj
-        go (i' + 1) (j' - 1)
-      else
-        pure i'
-      where
-        goLT !k = do
-          x <- GM.unsafeRead v k
-          if x < pv && k <= j
-          then goLT (k + 1)
-          else pure (k, x)
-        goGT !k = do
-          x <- GM.unsafeRead v k
-          if x >= pv && k > i
-          then goGT (k - 1)
-          else pure (k, x)
-
-{-# INLINE binlog2 #-}
-binlog2 :: Int -> Int
-binlog2 x = 63 - countLeadingZeros x
-
-{-# INLINE shiftDown #-}
-shiftDown :: (PrimMonad m, Ord a, GM.MVector v a) => v (PrimState m) a -> Int -> m ()
-shiftDown !v = go
-  where
-    !end = GM.length v
-    go !p
-      | c1 < end
-      = do
-        let !c2 = c1 + 1
-        c1Val <- GM.unsafeRead v c1
-        (maxIdx, maxVal) <-
-          if c2 < end
-          then do
-            c2Val <- GM.unsafeRead v c2
-            pure $ if c1Val > c2Val then (c1, c1Val) else (c2, c2Val)
-          else pure (c1, c1Val)
-        pVal <- GM.unsafeRead v p
-        if maxVal > pVal
-        then do
-          GM.unsafeWrite v p maxVal
-          GM.unsafeWrite v maxIdx pVal
-          go maxIdx
-        else
-          pure ()
-      | otherwise
-      = pure ()
-      where
-        !c1 = p * 2 + 1
-
-{-# INLINE heapify #-}
-heapify :: (PrimMonad m, Ord a, GM.MVector v a) => v (PrimState m) a -> m ()
-heapify !v = do
-  go (GM.length v `unsafeShiftR` 1)
-  where
-    go 0 = shiftDown v 0
-    go n = shiftDown v n *> go (n - 1)
-
-{-# INLINE heapSort #-}
-heapSort :: (PrimMonad m, Ord a, GM.MVector v a) => v (PrimState m) a -> m ()
-heapSort !v = do
-  heapify v
-  go (GM.length v)
-  where
-    go 0 = pure ()
-    go n = do
-      let !k = n - 1
-      GM.unsafeSwap v 0 k
-      shiftDown (GM.unsafeSlice 0 k v) 0
-      go k
 
 {-# INLINE primVectorToPrimArray #-}
 primVectorToPrimArray :: P.Vector a -> PrimArray a

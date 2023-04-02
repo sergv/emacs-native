@@ -6,8 +6,7 @@
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
 
-{-# LANGUAGE CPP #-}
-
+{-# LANGUAGE CPP               #-}
 {-# LANGUAGE MagicHash         #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE PatternSynonyms   #-}
@@ -15,10 +14,6 @@
 {-# LANGUAGE UnboxedTuples     #-}
 {-# LANGUAGE UnliftedFFITypes  #-}
 {-# LANGUAGE UnliftedNewtypes  #-}
-
-{-# OPTIONS_GHC -O2 #-}
-
-{-# OPTIONS_GHC -ddump-simpl -dsuppress-uniques -dsuppress-idinfo -dsuppress-module-prefixes -dsuppress-type-applications -dsuppress-coercions -dppr-cols200 -dsuppress-type-signatures -ddump-to-file #-}
 
 module Data.FuzzyMatch
   ( fuzzyMatch'
@@ -445,7 +440,7 @@ characterOccurrences
 characterOccurrences store@ReusableState{rsNeedleStore} !needle !needleChars !haystack = do
   -- rsNeedleStore <- VM.unsafeNew (T.length needle)
   haystackMut <- mkHaystack store needleChars haystack
-  qsortWord64 haystackMut
+  sortWord64 haystackMut
   (haystack' :: U.Vector Word64) <- U.V_Word64 <$> P.unsafeFreeze haystackMut
 
   let

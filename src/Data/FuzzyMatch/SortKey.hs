@@ -6,8 +6,6 @@
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
 
-{-# OPTIONS_GHC -O2 #-}
-
 module Data.FuzzyMatch.SortKey
   ( SortKey(..)
   , mkSortKey

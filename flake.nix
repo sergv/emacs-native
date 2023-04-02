@@ -21,8 +21,8 @@
 
           buildInputs = nativeDeps;
 
-          nativeBuildInputs = [
-          ] ++ map (x: if builtins.hasAttr "dev" x then x.dev else x) nativeDeps;
+          nativeBuildInputs =
+            map (x: if builtins.hasAttr "dev" x then x.dev else x) nativeDeps;
 
           LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath nativeDeps;
 

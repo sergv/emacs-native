@@ -3,7 +3,7 @@ cabal-version: 3.0
 name:
   emacs-native
 version:
-  0.1.0.0
+  0.1
 synopsis:
   Emacs modules implemented in Haskell for my configuration
 license:
@@ -66,12 +66,7 @@ library
   if flag(runtime-checks)
     cpp-options: -DRUNTIME_CHECKS
   exposed-modules:
-    Control.Concurrent.Fork
-    Data.Median
-    Data.Vector.Ext
-
     Control.LensBlaze
-
     Data.ByteString.Char8.Ext
     Data.Emacs.Path
     Data.Eproj
@@ -82,12 +77,8 @@ library
     Data.Regex
     Data.Primitive.PrimArray.Ext
     Data.Text.Ext
-    Data.Vector.FixedSort
+    Data.Vector.Ext
     Data.Vector.PredefinedSorts
-    Data.Vector.PredefinedSortsPar
-    Data.Vector.PredefinedSortsParFake
-    Data.Vector.PredefinedSortsParStrategies
-    Data.Vector.PredefinedSortsCommon
 
     Emacs.EprojTagIndex
     Emacs.FastFileSearch
@@ -96,7 +87,6 @@ library
   hs-source-dirs:
     src
   build-depends:
-    , async
     , atomic-counter
     , base >= 4.7
     , bimap
@@ -109,9 +99,7 @@ library
     , ghc-prim
     , lifted-async
     , monad-control
-    , monad-interleave
     , mtl
-    , parallel
     , path >= 0.6.1
     , path-io
     , prettyprinter >= 1.7
@@ -126,9 +114,8 @@ library
     , transformers-base
     , tuples-homogenous-h98
     , vector >= 0.13
+    , vector-quicksort
     -- , regex-tdfa-text
-  ghc-prof-options:
-    -fprof-late
 
   extra-libraries: c stdc++
 
@@ -175,7 +162,6 @@ test-suite emacs-native-test
   other-modules:
     Control.LensBlaze.Tests
     Data.FuzzyMatch.Tests
-    Data.Vector.Ext.Tests
   build-depends:
     , QuickCheck
     , base
@@ -185,7 +171,6 @@ test-suite emacs-native-test
     , tasty-hunit
     , tasty-quickcheck
     , text
-    , vector
   ghc-options:
     -rtsopts
     -main-is EmacsNativeTest
@@ -200,17 +185,10 @@ benchmark fuzzyprof
     .
     bench
   build-depends:
-    , async
-    , atomic-counter
     , base >= 4.9
-    , bytestring
-    , clock
-    , containers
     , deepseq
     , emacs-native
     , primitive
-    , random >= 1.2.1
-    , store
     , text
     , vector
   ghc-options:
@@ -218,30 +196,3 @@ benchmark fuzzyprof
     -threaded
     "-with-rtsopts=-N -A16m -n1m -qg -qb"
     -main-is FuzzyProf
-  ghc-prof-options:
-    -fprof-late
-
-benchmark fuzzybench
-  import: ghc-options
-  type:
-    exitcode-stdio-1.0
-  main-is:
-    bench/FuzzyBench.hs
-  hs-source-dirs:
-    .
-    bench
-  build-depends:
-    , atomic-counter
-    , base >= 4.9
-    , deepseq
-    , emacs-native
-    , primitive
-    , stm
-    , tasty-bench
-    , text
-    , vector
-  ghc-options:
-    -rtsopts
-    -threaded
-    "-with-rtsopts=-N -A16m -n1m -qg -qb"
-    -main-is FuzzyBench

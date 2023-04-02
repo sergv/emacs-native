@@ -6,51 +6,41 @@
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
 
-{-# OPTIONS_GHC -Wno-orphans #-}
-
-{-# OPTIONS_GHC -O2 #-}
-
--- {-# OPTIONS_GHC -ddump-simpl -dsuppress-uniques -dsuppress-coercions -dppr-cols200 -ddump-to-file #-}
-
-{-# OPTIONS_GHC -ddump-simpl -dsuppress-uniques -dsuppress-idinfo -dsuppress-module-prefixes -dsuppress-type-applications -dsuppress-coercions -dppr-cols200 -dsuppress-type-signatures -ddump-to-file #-}
-
 module Data.Vector.PredefinedSorts
-  ( qsortInt32
-  , qsortWord64
+  ( sortInt32
+  , sortWord64
   , sortVectorUnsafeChar
+  , sortSortKeyPar
   ) where
 
--- import Control.Concurrent (getNumCapabilities)
-import Control.Concurrent.Fork
 import Control.Monad.ST
--- import Data.FuzzyMatch.SortKey
+import Data.FuzzyMatch.SortKey
 import Data.Int
-import Data.Median
-import Data.Vector.Ext qualified as VExt
-import Data.Vector.FixedSort qualified as FixedSort
 import Data.Vector.Primitive qualified as P
 import Data.Vector.Primitive.Mutable qualified as PM
 import Data.Word
 
-import Data.Vector.PredefinedSortsCommon ()
+import Data.Vector.Algorithms.Quicksort.Parameterised qualified as Quick
 
-{-# SPECIALISE VExt.qsort            :: Sequential -> Median3 Int32  -> PM.MVector s Int32  -> ST s () #-}
+{-# NOINLINE sortInt32 #-}
+sortInt32 :: PM.MVector s Int32 -> ST s ()
+sortInt32 = Quick.sortFM Quick.Sequential (Quick.Median3 @Int32)
 
-{-# SPECIALISE VExt.qsort            :: Sequential -> Median3 Word64 -> PM.MVector s Word64 -> ST s () #-}
+{-# NOINLINE sortWord64 #-}
+sortWord64 :: PM.MVector s Word64 -> ST s ()
+sortWord64 = Quick.sortFM Quick.Sequential (Quick.Median3 @Word64)
 
-{-# SPECIALISE FixedSort.bitonicSort :: Int -> P.MVector s Char -> ST s () #-}
-{-# SPECIALISE VExt.qsort            :: Sequential -> Median3 Char -> P.MVector s Char -> ST s () #-}
-{-# SPECIALISE FixedSort.sort3       :: P.MVector s Char -> ST s () #-}
-{-# SPECIALISE FixedSort.sort4       :: P.MVector s Char -> ST s () #-}
-
-{-# NOINLINE qsortInt32 #-}
-qsortInt32 :: PM.MVector s Int32 -> ST s ()
-qsortInt32 = VExt.qsort Sequential (Median3 @Int32)
-
-{-# NOINLINE qsortWord64 #-}
-qsortWord64 :: PM.MVector s Word64 -> ST s ()
-qsortWord64 = VExt.qsort Sequential (Median3 @Word64)
+sortChar :: PM.MVector s Char -> ST s ()
+sortChar = Quick.sortFM Quick.Sequential (Quick.Median3 @Char)
 
 {-# NOINLINE sortVectorUnsafeChar #-}
 sortVectorUnsafeChar :: P.Vector Char -> P.Vector Char
-sortVectorUnsafeChar = VExt.sortVectorUnsafe
+sortVectorUnsafeChar !xs = runST $ do
+  ys <- P.unsafeThaw xs
+  sortChar ys
+  P.unsafeFreeze ys
+
+{-# NOINLINE sortSortKeyPar #-}
+sortSortKeyPar :: PM.MVector s SortKey -> ST s ()
+sortSortKeyPar =
+  Quick.sortFM Quick.ParStrategies (Quick.Median3or5 @SortKey)

@@ -31,7 +31,6 @@ import Data.Text qualified as T
 import Data.Vector qualified as V
 import Data.Vector.Ext qualified as VExt
 import Data.Vector.PredefinedSorts
-import Data.Vector.PredefinedSortsPar
 import Data.Vector.Primitive qualified as P
 import Data.Vector.Primitive.Mutable qualified as PM
 import GHC.IO (unsafeIOToST)
@@ -63,7 +62,7 @@ extractSeps
   => v s -> m s (PrimArray Int32)
 extractSeps !xs = do
   ys <- extractVectorMutableWith (fmap fromIntegral . extractInt) xs
-  liftIO $ stToIO $ qsortInt32 ys
+  liftIO $ stToIO $ sortInt32 ys
   fmap VExt.primVectorToPrimArray $ P.unsafeFreeze ys
 
 scoreMatches
@@ -135,7 +134,7 @@ scoreMatches (R seps (R needle (R haystacks Stop))) = do
 
     traverse_ wait =<< traverse (async . stToIO . processChunks) [0..jobs - 1]
 
-    qsortSortKeyPar scores
+    stToIO $ sortSortKeyPar scores
     P.unsafeFreeze scores
 
   nilVal <- nil
