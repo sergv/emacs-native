@@ -10,8 +10,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies      #-}
 
-{-# OPTIONS_GHC -Wno-redundant-constraints #-}
-
 module Emacs.FuzzyMatch (initialise) where
 
 import Control.Concurrent
@@ -40,6 +38,7 @@ import Data.FuzzyMatch.SortKey
 import Emacs.Module
 import Emacs.Module.Assert (WithCallStack)
 import Emacs.Module.Monad qualified as Emacs
+import Emacs.Utils
 
 import Data.FuzzyMatch
 
@@ -84,7 +83,8 @@ scoreMatches (R seps (R needle (R haystacks Stop))) = do
 
   (haystacks' :: V.Vector (Text, v s)) <- extractVectorWith (\str -> (, str) <$> extractText str) haystacks
 
-  matches <- liftIO $ do
+  -- Will rethrow EarlyTermination if user aborted.
+  (matches :: P.Vector SortKey) <- runWithEarlyTermination $ liftIO $ do
     let chunk :: Int
         !chunk = 256
         needleChars :: NeedleChars

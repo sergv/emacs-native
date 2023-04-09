@@ -84,6 +84,7 @@ library
     Emacs.FastFileSearch
     Emacs.FuzzyMatch
     Emacs.Grep
+    Emacs.Utils
   hs-source-dirs:
     src
   build-depends:
