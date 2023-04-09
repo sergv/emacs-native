@@ -39,6 +39,7 @@ common ghc-options
     UnboxedTuples
 
   ghc-options:
+    -O2
     -funbox-strict-fields
 
     -Weverything
