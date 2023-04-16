@@ -24,14 +24,14 @@ import Data.Vector.Algorithms.Quicksort.Parameterised qualified as Quick
 
 {-# NOINLINE sortInt32 #-}
 sortInt32 :: PM.MVector s Int32 -> ST s ()
-sortInt32 = Quick.sortFM Quick.Sequential (Quick.Median3 @Int32)
+sortInt32 = Quick.sortInplaceFM Quick.Sequential (Quick.Median3 @Int32)
 
 {-# NOINLINE sortWord64 #-}
 sortWord64 :: PM.MVector s Word64 -> ST s ()
-sortWord64 = Quick.sortFM Quick.Sequential (Quick.Median3 @Word64)
+sortWord64 = Quick.sortInplaceFM Quick.Sequential (Quick.Median3 @Word64)
 
 sortChar :: PM.MVector s Char -> ST s ()
-sortChar = Quick.sortFM Quick.Sequential (Quick.Median3 @Char)
+sortChar = Quick.sortInplaceFM Quick.Sequential (Quick.Median3 @Char)
 
 {-# NOINLINE sortVectorUnsafeChar #-}
 sortVectorUnsafeChar :: P.Vector Char -> P.Vector Char
@@ -43,4 +43,4 @@ sortVectorUnsafeChar !xs = runST $ do
 {-# NOINLINE sortSortKeyPar #-}
 sortSortKeyPar :: PM.MVector s SortKey -> ST s ()
 sortSortKeyPar =
-  Quick.sortFM Quick.ParStrategies (Quick.Median3or5 @SortKey)
+  Quick.sortInplaceFM (Quick.setParStrategiesCutoff 1000 Quick.defaultParStrategies) (Quick.Median3or5 @SortKey)
