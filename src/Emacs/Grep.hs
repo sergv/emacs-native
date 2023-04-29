@@ -6,8 +6,9 @@
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
 
-{-# LANGUAGE DataKinds         #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DataKinds             #-}
+{-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE QuantifiedConstraints #-}
 
 module Emacs.Grep (initialise) where
 
@@ -16,22 +17,25 @@ import Control.Concurrent
 import Control.Concurrent.Async.Lifted.Safe
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TMQueue
-import Control.Exception (finally)
 import Control.Monad
 import Control.Monad.Base
+import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Control
 import Data.ByteString.Char8 qualified as C8
 import Data.ByteString.Char8.Ext qualified as C8.Ext
+import Data.ByteString.Short qualified as BSS
+import Data.Coerce
+import Data.Foldable
 import Data.List qualified as L
-import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as M
 import Data.Ord
 import Data.Semigroup as Semi
-import Data.Text qualified as T
-import Data.Traversable
 import Data.Tuple.Homogenous
 import Prettyprinter (pretty, (<+>))
+import System.Directory.OsPath
+import System.File.OsPath as OsPath
+import System.OsPath
 
 import Data.Emacs.Module.Args
 import Emacs.Module
@@ -42,9 +46,8 @@ import Data.Emacs.Module.Doc qualified as Doc
 import Data.Emacs.Path
 import Data.Filesystem
 import Data.Regex
+import Emacs.EarlyTermination
 import Emacs.Module.Monad qualified as Emacs
-import Path
-import Path.IO
 
 initialise
   :: WithCallStack
@@ -58,10 +61,17 @@ emacsGrepRecDoc =
   "Recursively find files leveraging multiple cores."
 
 emacsGrepRec
-  :: forall m v s. (WithCallStack, MonadEmacs m v, MonadIO (m s), MonadThrow (m s), MonadBaseControl IO (m s), Forall (Pure (m s)))
+  :: forall m v s.
+     ( WithCallStack
+     , MonadEmacs m v
+     , MonadIO (m s)
+     , MonadBaseControl IO (m s)
+     , Forall (Pure (m s))
+     , forall ss. MonadThrow (m ss)
+     )
   => EmacsFunction ('S ('S ('S ('S ('S ('S ('S ('S 'Z)))))))) 'Z 'False m v s
 emacsGrepRec (R roots (R regexp (R extsGlobs (R ignoredFileGlobs (R ignoredDirGlobs (R ignoredDirPrefixes (R _ignoredAbsDirs (R ignoreCase Stop)))))))) = do
-  roots'              <- extractListWith extractText roots
+  roots'              <- extractListWith extractOsPath roots
   regexp'             <- extractText regexp
   extsGlobs'          <- extractListWith extractText extsGlobs
   ignoredFileGlobs'   <- extractListWith extractText ignoredFileGlobs
@@ -69,16 +79,11 @@ emacsGrepRec (R roots (R regexp (R extsGlobs (R ignoredFileGlobs (R ignoredDirGl
   ignoredDirPrefixes' <- extractListWith extractText ignoredDirPrefixes
   ignoreCase'         <- extractBool ignoreCase
 
-  roots'' <- for roots' $ \root ->
-    case parseAbsDir $ T.unpack root of
-      Nothing -> throwM $ mkUserError "emacsGrepRec" $
-        "One of the search roots is not a valid absolute directory:" <+> pretty root
-      Just x  -> do
-        exists <- doesDirExist x
-        unless exists $
-          throwM $ mkUserError "emacsGrepRec" $
-            "Search root does not exist:" <+> pretty root
-        pure x
+  for_ roots' $ \root -> do
+    exists <- liftBase $ doesDirectoryExist root
+    unless exists $
+      throwM $ mkUserError "emacsGrepRec" $
+        "Search root does not exist:" <+> pretty (pathToText root)
 
   let compOpts =
         defaultCompOpt
@@ -94,44 +99,18 @@ emacsGrepRec (R roots (R regexp (R extsGlobs (R ignoredFileGlobs (R ignoredDirGl
   ignoredFilesRE <- fileGlobsToRegex ignoredFileGlobs'
   ignoredDirsRE  <- fileGlobsToRegex (ignoredDirGlobs' ++ map (<> "*") ignoredDirPrefixes')
 
-  let shouldVisit :: Path Abs Dir -> Bool
-      shouldVisit = not . reMatchesPath ignoredDirsRE
-      shouldCollect :: Path Abs Dir -> Path Abs File -> IO [MatchEntry]
-      shouldCollect root path
-        | reMatchesPath ignoredFilesRE path = pure []
-        | Just ext <- fileExtension path
-        , reMatchesString extsToFindRE ext = do
-            contents <- C8.readFile $ toFilePath path
+  let shouldVisit :: AbsDir -> Bool
+      shouldVisit = not . reMatchesOsPath ignoredDirsRE . unAbsDir
+      shouldCollect :: AbsDir -> AbsFile -> IO [MatchEntry]
+      shouldCollect root path'@(AbsFile path)
+        | reMatchesOsPath ignoredFilesRE path = pure []
+        | hasExtension path
+        , reMatches extsToFindRE $ pathToText $ takeExtension path = do
+            contents <- OsPath.readFile' path
             case reAllByteStringMatches regexp'' contents of
               AllMatches [] -> pure []
-              AllMatches ms -> makeMatches root path ms contents
+              AllMatches ms -> makeMatches root path' ms contents
         | otherwise = pure []
-
-  let collectEntries :: TMQueue MatchEntry -> m s (v s)
-      collectEntries results = go mempty
-        where
-          -- Accumulator is a map from file names and positions within file
-          -- to Emacs strings that could be presented to the user.
-          go :: Map (C8.ByteString, Word) (v s) -> m s (v s)
-          go !acc = do
-            res <- liftBase $ atomically $ readTMQueue results
-            case res of
-              Nothing ->
-                makeList acc
-              Just MatchEntry{matchAbsPath, matchRelPath, matchPos, matchLineNum, matchLinePrefix, matchLineStr, matchLineSuffix} -> do
-                let relPathBS = pathForEmacs matchRelPath
-                pathEmacs        <- makeString $ pathForEmacs matchAbsPath
-                shortPathEmacs   <- makeString relPathBS
-                matchLineNum'    <- makeInt (fromIntegral matchLineNum)
-                matchPos'        <- makeInt (fromIntegral matchPos)
-                matchLinePrefix' <- makeString matchLinePrefix
-                matchLineStr'    <- makeString matchLineStr
-                matchLineSuffix' <- makeString matchLineSuffix
-                emacsMatchStruct <-
-                  funcallPrimitiveSym
-                    "make-egrep-match"
-                    (Tuple7 (pathEmacs, shortPathEmacs, matchLineNum', matchPos', matchLinePrefix', matchLineStr', matchLineSuffix'))
-                go $ M.insert (relPathBS, matchPos) emacsMatchStruct acc
 
   results <- liftBase newTMQueueIO
   let collect :: MatchEntry -> IO ()
@@ -143,14 +122,30 @@ emacsGrepRec (R roots (R regexp (R extsGlobs (R ignoredFileGlobs (R ignoredDirGl
           shouldVisit
           shouldCollect
           collect
-          roots''
+          (coerce roots' :: [AbsDir])
 
-  withAsync (liftBase (doFind `finally` atomically (closeTMQueue results))) $ \searchAsync ->
-    collectEntries results <* wait searchAsync
+  withAsync (liftBase (doFind `finally` atomically (closeTMQueue results))) $ \searchAsync -> do
+    matches <- consumeTMQueueWithEarlyTermination results mempty $
+      \ !acc MatchEntry{matchAbsPath, matchRelPath, matchPos, matchLineNum, matchLinePrefix, matchLineStr, matchLineSuffix} -> do
+        let relPathBS = pathForEmacs $ unRelFile matchRelPath
+        pathEmacs        <- makeString $ BSS.fromShort $ pathForEmacs $ unAbsFile matchAbsPath
+        shortPathEmacs   <- makeString $ BSS.fromShort relPathBS
+        matchLineNum'    <- makeInt (fromIntegral matchLineNum)
+        matchPos'        <- makeInt (fromIntegral matchPos)
+        matchLinePrefix' <- makeString matchLinePrefix
+        matchLineStr'    <- makeString matchLineStr
+        matchLineSuffix' <- makeString matchLineSuffix
+        emacsMatchStruct <-
+          funcallPrimitiveSym
+            "make-egrep-match"
+            (Tuple7 (pathEmacs, shortPathEmacs, matchLineNum', matchPos', matchLinePrefix', matchLineStr', matchLineSuffix'))
+        pure $! M.insert (relPathBS, matchPos) emacsMatchStruct acc
+    wait searchAsync
+    makeList matches
 
 data MatchEntry = MatchEntry
-  { matchAbsPath    :: !(Path Abs File)
-  , matchRelPath    :: !(Path Rel File)
+  { matchAbsPath    :: !AbsFile
+  , matchRelPath    :: !RelFile
   , matchPos        :: !Word
   , matchLineNum    :: !Word
   , -- | What comes before the matched text on the relevant line.
@@ -162,7 +157,7 @@ data MatchEntry = MatchEntry
   , -- | What comes after the matched text on the relevant line.
     -- Contains no newlines.
     matchLineSuffix :: !C8.ByteString
-  } deriving (Show)
+  }
 
 data MatchState = MatchState
   { msPos     :: !Word
@@ -180,16 +175,16 @@ isNewline = \case
 
 makeMatches
   :: MonadThrow m
-  => Path Abs Dir  -- ^ Directory where recursive search was initiated
-  -> Path Abs File -- ^ Matched file under the directory
+  => AbsDir  -- ^ Directory where recursive search was initiated
+  -> AbsFile -- ^ Matched file under the directory
   -> [(MatchOffset, MatchLength)]
   -> C8.ByteString
   -> m [MatchEntry]
-makeMatches searchRoot fileAbsPath ms str =
+makeMatches (AbsDir searchRoot) fileAbsPath'@(AbsFile fileAbsPath) ms str =
   case stripProperPrefix searchRoot fileAbsPath of
     Nothing -> throwM $ mkUserError "emacsGrepRec" $
-      "Internal error: findRec produced wrong root for path" <+> pretty (toFilePath fileAbsPath) Semi.<>
-      ". The root is" <+> pretty (toFilePath searchRoot)
+      "Internal error: findRec produced wrong root for path" <+> pretty (pathToText fileAbsPath) Semi.<>
+      ". The root is" <+> pretty (pathToText searchRoot)
     Just relPath ->
       pure $ msResult $ C8.foldl' (\acc c -> accumulateMatch $ bumpPos acc c) initState str
       where
@@ -219,8 +214,8 @@ makeMatches searchRoot fileAbsPath ms str =
               first (map snd) $ span ((== msPos') . fst) remainingMatches
             newEntries =
               [ MatchEntry
-                 { matchAbsPath    = fileAbsPath
-                 , matchRelPath    = relPath
+                 { matchAbsPath    = fileAbsPath'
+                 , matchRelPath    = RelFile relPath
                  , matchPos        = msPos
                  , matchLineNum    = msLine
                  , matchLinePrefix = C8.copy prefix

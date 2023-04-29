@@ -29,6 +29,14 @@ flag runtime-checks
   manual:
     True
 
+flag profiling
+  description:
+    Enable profiling
+  default:
+    False
+  manual:
+    True
+
 common ghc-options
   default-language:
     GHC2021
@@ -81,29 +89,30 @@ library
     Data.Vector.Ext
     Data.Vector.PredefinedSorts
 
+    Emacs.EarlyTermination
     Emacs.EprojTagIndex
     Emacs.FastFileSearch
     Emacs.FuzzyMatch
     Emacs.Grep
-    Emacs.Utils
   hs-source-dirs:
     src
   build-depends:
+    , async >= 2
     , atomic-counter
     , base >= 4.7
     , bimap
     , bytestring
     , containers
     , deepseq
+    , directory
+    , directory-ospath-streaming
     , emacs-module >= 0.2
     , exceptions
+    , file-io
     , filepath
     , ghc-prim
     , lifted-async
     , monad-control
-    , mtl
-    , path >= 0.6.1
-    , path-io
     , prettyprinter >= 1.7
     , prettyprinter-combinators
     , primitive
@@ -111,7 +120,6 @@ library
     , regex-tdfa
     , stm
     , stm-chans
-    , streaming-commons
     , text
     , transformers-base
     , tuples-homogenous-h98
@@ -136,6 +144,8 @@ foreign-library emacs-native
     emacs-module.h
   include-dirs:
     cbits
+  if flag(profiling)
+    cpp-options: -DPROFILING
 
   if os(Windows)
     options: standalone

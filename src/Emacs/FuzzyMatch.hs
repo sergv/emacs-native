@@ -6,9 +6,10 @@
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
 
-{-# LANGUAGE DataKinds         #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeFamilies      #-}
+{-# LANGUAGE DataKinds             #-}
+{-# LANGUAGE OverloadedStrings     #-}
+{-# LANGUAGE QuantifiedConstraints #-}
+{-# LANGUAGE TypeFamilies          #-}
 
 module Emacs.FuzzyMatch (initialise) where
 
@@ -17,6 +18,7 @@ import Control.Concurrent.Async.Lifted.Safe
 import Control.Concurrent.Counter qualified as Counter
 import Control.DeepSeq
 import Control.LensBlaze
+import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.ST.Strict
 import Control.Monad.Trans.Control
@@ -35,10 +37,10 @@ import GHC.IO (unsafeIOToST)
 
 import Data.Emacs.Module.Doc qualified as Doc
 import Data.FuzzyMatch.SortKey
+import Emacs.EarlyTermination
 import Emacs.Module
 import Emacs.Module.Assert (WithCallStack)
 import Emacs.Module.Monad qualified as Emacs
-import Emacs.Utils
 
 import Data.FuzzyMatch
 
@@ -72,6 +74,7 @@ scoreMatches
      , MonadThrow (m s)
      , MonadBaseControl IO (m s)
      , Forall (Pure (m s))
+     , forall ss. MonadThrow (m ss)
      , NFData (v s)
      , Prim (v s)
      , PM.PrimState (m s) ~ RealWorld
@@ -84,7 +87,7 @@ scoreMatches (R seps (R needle (R haystacks Stop))) = do
   (haystacks' :: V.Vector (Text, v s)) <- extractVectorWith (\str -> (, str) <$> extractText str) haystacks
 
   -- Will rethrow EarlyTermination if user aborted.
-  (matches :: P.Vector SortKey) <- runWithEarlyTermination $ liftIO $ do
+  (matches :: P.Vector SortKey) <- runWithEarlyTermination $ do
     let chunk :: Int
         !chunk = 256
         needleChars :: NeedleChars

@@ -14,7 +14,7 @@ module Data.Regex
   , compileRe
   , compileReWithOpts
   , reMatches
-  , reMatchesPath
+  , reMatchesOsPath
   , reMatchesString
   , reMatchesByteString
   , reMatchesShortByteString
@@ -31,11 +31,12 @@ import Data.ByteString.Short qualified as BSS
 import Data.Foldable
 import Data.Text (Text)
 import Data.Text qualified as T
-import Path
 import Prettyprinter
+import System.OsPath
 import Text.Regex.TDFA
 import Text.Regex.TDFA.Text qualified as TDFA
 
+import Data.Emacs.Path
 import Emacs.Module.Assert (WithCallStack)
 import Emacs.Module.Errors
 
@@ -109,8 +110,8 @@ compileReWithOpts compOpts re =
 reMatches :: Regex -> Text -> Bool
 reMatches = match
 
-reMatchesPath :: Regex -> Path a b -> Bool
-reMatchesPath re = match re . toFilePath
+reMatchesOsPath :: Regex -> OsPath -> Bool
+reMatchesOsPath re = match re . pathToText
 
 reMatchesString :: Regex -> String -> Bool
 reMatchesString = match
