@@ -109,14 +109,13 @@ library
     , emacs-module >= 0.2
     , exceptions
     , file-io
-    , filepath
+    , filepath >= 1.4.100
     , ghc-prim
     , lifted-async
     , monad-control
     , prettyprinter >= 1.7
     , prettyprinter-combinators
     , primitive
-    -- , radix-tree
     , regex-tdfa
     , stm
     , stm-chans
@@ -125,7 +124,6 @@ library
     , tuples-homogenous-h98
     , vector >= 0.13
     , vector-quicksort
-    -- , regex-tdfa-text
 
   extra-libraries: c stdc++
 
