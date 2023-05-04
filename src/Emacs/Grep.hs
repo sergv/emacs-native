@@ -131,10 +131,10 @@ emacsGrepRec (R roots (R regexp (R extsGlobs (R ignoredFileGlobs (R ignoredDirGl
             !key       = (relPathBS, matchLineNum)
             f :: Maybe (v s) -> m s (Maybe (v s))
             f = \case
-              x@Just{}  -> pure x
-              Nothing   -> do
-                !pathEmacs        <- makeString $ BSS.fromShort $ pathForEmacs $ unAbsFile matchAbsPath
-                !shortPathEmacs   <- makeString $ BSS.fromShort relPathBS
+              x@Just{} -> pure x
+              Nothing  -> do
+                !pathEmacs        <- makeShortByteString $ pathForEmacs $ unAbsFile matchAbsPath
+                !shortPathEmacs   <- makeShortByteString relPathBS
                 !matchLineNum'    <- makeInt (fromIntegral matchLineNum)
                 !matchColumnNum'  <- makeInt (fromIntegral matchColumnNum)
                 !matchLinePrefix' <- makeString matchLinePrefix
