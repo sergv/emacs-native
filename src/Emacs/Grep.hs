@@ -126,28 +126,34 @@ emacsGrepRec (R roots (R regexp (R extsGlobs (R ignoredFileGlobs (R ignoredDirGl
 
   withAsync (liftBase (doFind `finally` atomically (closeTMQueue results))) $ \searchAsync -> do
     matches <- consumeTMQueueWithEarlyTermination results mempty $
-      \ !acc MatchEntry{matchAbsPath, matchRelPath, matchPos, matchLineNum, matchLinePrefix, matchLineStr, matchLineSuffix} -> do
-        let relPathBS = pathForEmacs $ unRelFile matchRelPath
-        pathEmacs        <- makeString $ BSS.fromShort $ pathForEmacs $ unAbsFile matchAbsPath
-        shortPathEmacs   <- makeString $ BSS.fromShort relPathBS
-        matchLineNum'    <- makeInt (fromIntegral matchLineNum)
-        matchPos'        <- makeInt (fromIntegral matchPos)
-        matchLinePrefix' <- makeString matchLinePrefix
-        matchLineStr'    <- makeString matchLineStr
-        matchLineSuffix' <- makeString matchLineSuffix
-        emacsMatchStruct <-
-          funcallPrimitiveSym
-            "make-egrep-match"
-            (Tuple7 (pathEmacs, shortPathEmacs, matchLineNum', matchPos', matchLinePrefix', matchLineStr', matchLineSuffix'))
-        pure $! M.insert (relPathBS, matchPos) emacsMatchStruct acc
+      \ !acc MatchEntry{matchAbsPath, matchRelPath, matchLineNum, matchColumnNum, matchLinePrefix, matchLineStr, matchLineSuffix} -> do
+        let !relPathBS = pathForEmacs $ unRelFile matchRelPath
+            !key       = (relPathBS, matchLineNum)
+            f :: Maybe (v s) -> m s (Maybe (v s))
+            f = \case
+              x@Just{}  -> pure x
+              Nothing   -> do
+                !pathEmacs        <- makeString $ BSS.fromShort $ pathForEmacs $ unAbsFile matchAbsPath
+                !shortPathEmacs   <- makeString $ BSS.fromShort relPathBS
+                !matchLineNum'    <- makeInt (fromIntegral matchLineNum)
+                !matchColumnNum'  <- makeInt (fromIntegral matchColumnNum)
+                !matchLinePrefix' <- makeString matchLinePrefix
+                !matchLineStr'    <- makeString matchLineStr
+                !matchLineSuffix' <- makeString matchLineSuffix
+                !emacsMatchStruct <-
+                  funcallPrimitiveSym
+                    "make-egrep-match"
+                    (Tuple7 (pathEmacs, shortPathEmacs, matchLineNum', matchColumnNum', matchLinePrefix', matchLineStr', matchLineSuffix'))
+                pure $ Just emacsMatchStruct
+        M.alterF f key acc
     wait searchAsync
     makeList matches
 
 data MatchEntry = MatchEntry
   { matchAbsPath    :: !AbsFile
   , matchRelPath    :: !RelFile
-  , matchPos        :: !Word
   , matchLineNum    :: !Word
+  , matchColumnNum  :: !Word
   , -- | What comes before the matched text on the relevant line.
     -- Contains no newlines.
     matchLinePrefix :: !C8.ByteString
@@ -216,8 +222,8 @@ makeMatches (AbsDir searchRoot) fileAbsPath'@(AbsFile fileAbsPath) ms str =
               [ MatchEntry
                  { matchAbsPath    = fileAbsPath'
                  , matchRelPath    = RelFile relPath
-                 , matchPos        = msPos
                  , matchLineNum    = msLine
+                 , matchColumnNum  = msCol
                  , matchLinePrefix = C8.copy prefix
                  , matchLineStr    = C8.copy matched
                  , matchLineSuffix = C8.copy suffix
