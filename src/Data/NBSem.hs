@@ -14,24 +14,25 @@ module Data.NBSem
   , releaseNBSem
   ) where
 
-import Data.IORef
+import Control.Concurrent.STM
 
-newtype NBSem = NBSem (IORef Int)
+newtype NBSem = NBSem (TVar Int)
 
 {-# INLINE newNBSem #-}
 newNBSem :: Int -> IO NBSem
-newNBSem i = NBSem <$> newIORef i
+newNBSem i = NBSem <$> newTVarIO i
 
 {-# INLINE tryAcquireNBSem #-}
 tryAcquireNBSem :: NBSem -> IO Bool
-tryAcquireNBSem (NBSem m) =
-  atomicModifyIORef' m $ \i ->
-    if i == 0
-    then (i, False)
-    else let !z = i - 1 in (z, True)
+tryAcquireNBSem (NBSem m) = atomically $ do
+  i <- readTVar m
+  if i == 0
+  then pure False
+  else do
+    writeTVar m $! i - 1
+    pure True
 
 {-# INLINE releaseNBSem #-}
 releaseNBSem :: NBSem -> IO ()
 releaseNBSem (NBSem m) =
-  atomicModifyIORef m $ \i ->
-    let !z = i + 1 in (z, ())
+  atomically $ modifyTVar m (+ 1)
