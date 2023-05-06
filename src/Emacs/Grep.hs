@@ -24,7 +24,6 @@ import Control.Monad.IO.Class
 import Control.Monad.Trans.Control
 import Data.ByteString.Char8 qualified as C8
 import Data.ByteString.Char8.Ext qualified as C8.Ext
-import Data.ByteString.Short qualified as BSS
 import Data.Coerce
 import Data.Foldable
 import Data.List qualified as L
