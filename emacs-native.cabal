@@ -99,7 +99,7 @@ library
   build-depends:
     , async >= 2
     , atomic-counter
-    , base >= 4.7
+    , base >= 4.16
     , bimap
     , bytestring
     , containers
@@ -150,7 +150,7 @@ foreign-library emacs-native
   --   mod-def-file: MyForeignLib.def
 
   build-depends:
-    , base >=4.7
+    , base >= 4.16
     , emacs-module
     , emacs-native
   hs-source-dirs:
