@@ -7,10 +7,12 @@
 ----------------------------------------------------------------------------
 
 {-# LANGUAGE CPP               #-}
+{-# LANGUAGE LinearTypes       #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Data.Regex
   ( fileGlobsToRegex
+
   , compileRe
   , compileReWithOpts
   , reMatches
@@ -30,7 +32,8 @@ import Data.ByteString.Short (ShortByteString)
 import Data.ByteString.Short qualified as BSS
 import Data.Foldable
 import Data.Text (Text)
-import Data.Text qualified as T
+import Data.Text.Builder.Linear.Buffer
+import Data.Text.Ext (textFoldLinear)
 import Prettyprinter
 import System.OsPath
 import Text.Regex.TDFA
@@ -43,36 +46,44 @@ import Emacs.Module.Errors
 fileGlobsToRegex
   :: (WithCallStack, MonadThrow m, Foldable f, Functor f)
   => f Text -> m Regex
-fileGlobsToRegex
-  = compileReWithOpts compOpts
-  . mkStartEnd
-  . mkGroup
-  . T.intercalate "|"
-  . toList
-  . fmap (mkGroup . T.concatMap f)
+fileGlobsToRegex patterns = compileReWithOpts compOpts $ runBuffer initRe
   where
-    mkGroup :: Text -> Text
-    mkGroup = T.cons '(' . (`T.snoc` ')')
-    mkStartEnd :: Text -> Text
-    mkStartEnd = T.cons '^' . (`T.snoc` '$')
-    f :: Char -> Text
-    f '*'  = ".*"
-    f '.'  = "\\."
-    f '+'  = "\\+"
-    f '['  = "\\["
-    f ']'  = "\\]"
-    f '('  = "\\("
-    f ')'  = "\\)"
-    f '^'  = "\\^"
-    f '$'  = "\\$"
-    f '?'  = "\\?"
+    initRe :: Buffer %1 -> Buffer
+    initRe buf =
+      mkRe (toList patterns) (buf |>. '^' |>. '(') |>. ')' |>. '$'
+
+    mkRe :: [Text] -> Buffer %1 -> Buffer
+    mkRe []       buf = buf
+    mkRe (x : xs) buf =
+      -- mkRe' xs ((textFoldLinear f (buf |>. '(') x) |>. ')')
+      mkRe' xs (textFoldLinear f buf x)
+
+    mkRe' :: [Text] -> Buffer %1 -> Buffer
+    mkRe' []       buf = buf
+    mkRe' (x : xs) buf =
+      -- mkRe' xs ((textFoldLinear f (buf |>. '|' |>. '(') x) |>. ')')
+      mkRe' xs (textFoldLinear f (buf |>. '|') x)
+
+    f :: Char -> Buffer %1 -> Buffer
+    f c buf = case c of
+      '*'   -> buf |> ".*"
+      '.'   -> buf |> "\\."
+      '|'   -> buf |> "\\|"
+      '+'   -> buf |> "\\+"
+      '['   -> buf |> "\\["
+      ']'   -> buf |> "\\]"
+      '('   -> buf |> "\\("
+      ')'   -> buf |> "\\)"
+      '^'   -> buf |> "\\^"
+      '$'   -> buf |> "\\$"
+      '?'   -> buf |> "\\?"
 #ifdef mingw32_HOST_OS
-    f '\\' = "[\\/]"
-    f '/'  = "[\\/]"
+      '\\'  -> buf |> "[\\/]"
+      '/'   -> buf |> "[\\/]"
 #else
-    f '\\' = "\\\\"
+      '\\'  -> buf |> "\\\\"
 #endif
-    f c    = T.singleton c
+      other -> buf |>. other
 
     compOpts = defaultCompOpt
       { multiline      = False

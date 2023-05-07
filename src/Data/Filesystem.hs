@@ -10,12 +10,14 @@ module Data.Filesystem
   ( FollowSymlinks(..)
   , findRec
   , AbsDir(..)
+  , RelDir(..)
   , AbsFile(..)
   , RelFile(..)
   ) where
 
 import Control.Concurrent.Async
 import Control.Monad.Catch
+import Data.Coerce
 import Data.Foldable
 import Data.NBSem
 import System.Directory.OsPath.FileType as Streaming
@@ -28,9 +30,10 @@ data FollowSymlinks a =
     -- | Recurse into symlinked directories
     FollowSymlinks
   | -- | Do not recurse into symlinked directories, but possibly report them.
-    ReportSymlinks (AbsDir -> Maybe a)
+    ReportSymlinks (AbsDir -> RelDir -> IO (Maybe a))
 
 newtype AbsDir  = AbsDir  { unAbsDir  :: OsPath }
+newtype RelDir  = RelDir  { unRelDir  :: OsPath }
 newtype AbsFile = AbsFile { unAbsFile :: OsPath }
 newtype RelFile = RelFile { unRelFile :: OsPath }
 
@@ -38,30 +41,31 @@ newtype RelFile = RelFile { unRelFile :: OsPath }
 findRec
   :: forall a f ff. (WithCallStack, Foldable f, Foldable ff)
   => FollowSymlinks a
-  -> Int              -- ^ Extra search threads to run in parallel.
-  -> (AbsDir -> Bool) -- ^ Whether to visit a directory.
-  -> (AbsDir -> AbsFile -> IO (f a))
-                      -- ^ What to do with a file. Receives original directory it was located in.
-  -> (a -> IO ())     -- ^ Consume output
-  -> ff AbsDir        -- ^ Where to start search.
+  -> Int                        -- ^ Extra search threads to run in parallel.
+  -> (AbsDir -> RelDir -> Bool) -- ^ Whether to visit a directory.
+  -> (AbsDir -> AbsFile -> RelFile -> IO (f a))
+                                -- ^ What to do with a file. Receives original directory it was located in.
+  -> (a -> IO ())               -- ^ Consume output
+  -> ff AbsDir                  -- ^ Where to start search.
   -> IO ()
 findRec followSymlinks extraJobs dirPred filePred consumeOutput roots = do
   sem <- newNBSem extraJobs
   let runWithRoot :: AbsDir -> IO () -> IO ()
-      runWithRoot currRoot goNext = doDir currRoot goNext
+      runWithRoot currRoot goNext = doDir currRoot (coerce takeFileName currRoot) goNext
         where
           currRootWithTrailingSep :: AbsDir
           currRootWithTrailingSep = AbsDir $ addTrailingPathSeparator $ unAbsDir currRoot
 
-          doDir :: AbsDir -> IO () -> IO ()
-          doDir path processNextDir
-            | dirPred path = do
+          doDir :: AbsDir -> RelDir -> IO () -> IO ()
+          doDir absPath relPath processNextDir
+            | dirPred absPath relPath = do
               acquired <- tryAcquireNBSem sem
               if acquired
               then
-                withAsync (goDirRelease path) $ \yAsync ->
+                withAsync (goDirRelease absPath) $ \yAsync ->
                   processNextDir *> wait yAsync
-              else goDir path *> processNextDir
+              else
+                goDir absPath *> processNextDir
             | otherwise =
               processNextDir
 
@@ -93,20 +97,17 @@ findRec followSymlinks extraJobs dirPred filePred consumeOutput roots = do
                     ft <- Streaming.getFileType y'
                     case ft of
                       Streaming.Other        -> go
-                      Streaming.File         -> doFile (AbsFile y') *> go
-                      Streaming.FileSym      -> doFile (AbsFile y') *> go
-                      Streaming.Directory    -> doDir (AbsDir y') go
+                      Streaming.File         -> doFile (AbsFile y') (RelFile y) *> go
+                      Streaming.FileSym      -> doFile (AbsFile y') (RelFile y) *> go
+                      Streaming.Directory    -> doDir (AbsDir y') (RelDir y) go
                       Streaming.DirectorySym ->
                         case followSymlinks of
-                          FollowSymlinks        -> doDir (AbsDir y') go
-                          ReportSymlinks report -> reportDir report (AbsDir y') *> go
+                          FollowSymlinks        -> doDir (AbsDir y') (RelDir y) go
+                          ReportSymlinks report ->
+                            traverse_ consumeOutput =<< report (AbsDir y') (RelDir y)
 
-          doFile :: AbsFile -> IO ()
-          doFile path = do
-            traverse_ consumeOutput =<< filePred currRootWithTrailingSep path
-
-          reportDir :: (AbsDir -> Maybe a) -> AbsDir -> IO ()
-          reportDir f path =
-            for_ (f path) consumeOutput
+          doFile :: AbsFile -> RelFile -> IO ()
+          doFile absPath relPath =
+            traverse_ consumeOutput =<< filePred currRootWithTrailingSep absPath relPath
 
   foldr runWithRoot (pure ()) roots

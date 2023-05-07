@@ -31,6 +31,7 @@ import Emacs.Module.Assert
 
 import Data.Emacs.Path
 import Data.Filesystem
+import Data.Ignores
 import Data.Regex
 import Emacs.EarlyTermination
 import Emacs.Module.Monad qualified as Emacs
@@ -55,39 +56,34 @@ emacsFindRec
      , Forall (Pure (m s))
      , forall ss. MonadThrow (m ss)
      )
-  => EmacsFunction ('S ('S ('S ('S 'Z)))) 'Z 'False m v s
-emacsFindRec (R roots (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs Stop)))) = do
-  roots'            <- extractListWith extractOsPath roots
-  globsToFind'      <- extractListWith extractText globsToFind
-  ignoredFileGlobs' <- extractListWith extractText ignoredFileGlobs
-  ignoredDirGlobs'  <- extractListWith extractText ignoredDirGlobs
-
-  ignoredDirsRE  <- fileGlobsToRegex ignoredDirGlobs'
-  ignoredFilesRE <- fileGlobsToRegex ignoredFileGlobs'
-  filesToFindRE  <- fileGlobsToRegex globsToFind'
+  => EmacsFunction ('S ('S ('S ('S ('S ('S 'Z)))))) 'Z 'False m v s
+emacsFindRec (R roots (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs (R ignoredDirPrefixes (R ignoredAbsDirs Stop)))))) = do
+  roots'       <- extractListWith extractOsPath roots
+  globsToFind' <- extractListWith extractText globsToFind
+  ignores      <- mkIgnores ignoredFileGlobs ignoredDirGlobs ignoredDirPrefixes ignoredAbsDirs
 
   nil' <- nil
   jobs <- liftBase getNumCapabilities
+
+  globsToFindRE <- fileGlobsToRegex globsToFind'
 
   let roots'' :: [AbsDir]
       roots'' = coerce roots'
 
   results <- liftBase newTMQueueIO
 
-  let shouldVisit :: AbsDir -> Bool
-      shouldVisit = not . reMatchesOsPath ignoredDirsRE . unAbsDir
-      shouldCollect :: AbsDir -> AbsFile -> IO (Maybe AbsFile)
-      shouldCollect _root (AbsFile path)
-        | reMatchesOsPath ignoredFilesRE path = pure Nothing
-        | reMatchesOsPath filesToFindRE path  = pure $ Just $ AbsFile path
-        | otherwise                           = pure Nothing
+  let shouldCollect :: AbsDir -> AbsFile -> RelFile -> IO (Maybe AbsFile)
+      shouldCollect _root absPath (RelFile relPath)
+        | isIgnoredFile ignores absPath         = pure Nothing
+        | reMatchesOsPath globsToFindRE relPath = pure $ Just absPath
+        | otherwise                             = pure Nothing
 
       collect :: AbsFile -> IO ()
       collect = atomically . writeTMQueue results
 
       doFind =
         findRec FollowSymlinks jobs
-          shouldVisit
+          (shouldVisit ignores)
           shouldCollect
           collect
           roots''

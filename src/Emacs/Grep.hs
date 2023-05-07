@@ -44,6 +44,7 @@ import Emacs.Module.Errors
 import Data.Emacs.Module.Doc qualified as Doc
 import Data.Emacs.Path
 import Data.Filesystem
+import Data.Ignores
 import Data.Regex
 import Emacs.EarlyTermination
 import Emacs.Module.Monad qualified as Emacs
@@ -69,14 +70,12 @@ emacsGrepRec
      , forall ss. MonadThrow (m ss)
      )
   => EmacsFunction ('S ('S ('S ('S ('S ('S ('S ('S 'Z)))))))) 'Z 'False m v s
-emacsGrepRec (R roots (R regexp (R extsGlobs (R ignoredFileGlobs (R ignoredDirGlobs (R ignoredDirPrefixes (R _ignoredAbsDirs (R ignoreCase Stop)))))))) = do
-  roots'              <- extractListWith extractOsPath roots
-  regexp'             <- extractText regexp
-  extsGlobs'          <- extractListWith extractText extsGlobs
-  ignoredFileGlobs'   <- extractListWith extractText ignoredFileGlobs
-  ignoredDirGlobs'    <- extractListWith extractText ignoredDirGlobs
-  ignoredDirPrefixes' <- extractListWith extractText ignoredDirPrefixes
-  ignoreCase'         <- extractBool ignoreCase
+emacsGrepRec (R roots (R regexp (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs (R ignoredDirPrefixes (R ignoredAbsDirs (R ignoreCase Stop)))))))) = do
+  roots'       <- extractListWith extractOsPath roots
+  regexp'      <- extractText regexp
+  globsToFind' <- extractListWith extractText globsToFind
+  ignoreCase'  <- extractBool ignoreCase
+  ignores      <- mkIgnores ignoredFileGlobs ignoredDirGlobs ignoredDirPrefixes ignoredAbsDirs
 
   for_ roots' $ \root -> do
     exists <- liftBase $ doesDirectoryExist root
@@ -94,21 +93,17 @@ emacsGrepRec (R roots (R regexp (R extsGlobs (R ignoredFileGlobs (R ignoredDirGl
   regexp'' <- compileReWithOpts compOpts regexp'
   jobs     <- liftBase getNumCapabilities
 
-  extsToFindRE   <- fileGlobsToRegex extsGlobs'
-  ignoredFilesRE <- fileGlobsToRegex ignoredFileGlobs'
-  ignoredDirsRE  <- fileGlobsToRegex (ignoredDirGlobs' ++ map (<> "*") ignoredDirPrefixes')
+  extsToFindRE <- fileGlobsToRegex globsToFind'
 
-  let shouldVisit :: AbsDir -> Bool
-      shouldVisit = not . reMatchesOsPath ignoredDirsRE . unAbsDir
-      shouldCollect :: AbsDir -> AbsFile -> IO [MatchEntry]
-      shouldCollect root path'@(AbsFile path)
-        | reMatchesOsPath ignoredFilesRE path = pure []
-        | hasExtension path
-        , reMatches extsToFindRE $ pathToText $ takeExtension path = do
-            contents <- OsPath.readFile' path
+  let shouldCollect :: AbsDir -> AbsFile -> RelFile -> IO [MatchEntry]
+      shouldCollect root absPath'@(AbsFile absPath) (RelFile relPath)
+        | isIgnoredFile ignores absPath' = pure []
+        | hasExtension absPath
+        , reMatches extsToFindRE $ pathToText $ takeExtension relPath = do
+            contents <- OsPath.readFile' absPath
             case reAllByteStringMatches regexp'' contents of
               AllMatches [] -> pure []
-              AllMatches ms -> makeMatches root path' ms contents
+              AllMatches ms -> makeMatches root absPath' ms contents
         | otherwise = pure []
 
   results <- liftBase newTMQueueIO
@@ -118,7 +113,7 @@ emacsGrepRec (R roots (R regexp (R extsGlobs (R ignoredFileGlobs (R ignoredDirGl
       doFind :: IO ()
       doFind =
         findRec FollowSymlinks jobs
-          shouldVisit
+          (shouldVisit ignores)
           shouldCollect
           collect
           (coerce roots' :: [AbsDir])

@@ -82,6 +82,7 @@ library
     Data.Filesystem
     Data.FuzzyMatch
     Data.FuzzyMatch.SortKey
+    Data.Ignores
     Data.NBSem
     Data.Regex
     Data.Primitive.PrimArray.Ext
@@ -120,6 +121,7 @@ library
     , stm
     , stm-chans
     , text
+    , text-builder-linear
     , transformers-base
     , tuples-homogenous-h98
     , vector >= 0.13

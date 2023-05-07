@@ -6,11 +6,13 @@
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
 
+{-# LANGUAGE LinearTypes   #-}
 {-# LANGUAGE MagicHash     #-}
 {-# LANGUAGE UnboxedTuples #-}
 
 module Data.Text.Ext
-  ( textFoldIdx
+  ( textFoldLinear
+  , textFoldIdx
   , textFoldM
   , textFoldIdxM
   , textCountMatches
@@ -40,6 +42,18 @@ import Data.Word
 import GHC.Exts
 import GHC.Int
 import GHC.Word
+
+{-# INLINE textFoldLinear #-}
+textFoldLinear :: forall (a :: UnliftedType). (Char -> a %1 -> a) -> a %1 -> Text -> a
+textFoldLinear f seed (TI.Text arr off len) = textFoldLinearLoop seed 0 off
+  where
+    !end = off + len
+    textFoldLinearLoop :: a %1 -> Int -> Int -> a
+    textFoldLinearLoop x !i !j
+      | j >= end  = x
+      | otherwise =
+        let TU.Iter c delta = TU.iterArray arr j
+        in textFoldLinearLoop (f c x) (i + 1) (j + delta)
 
 {-# INLINE textFoldIdx #-}
 textFoldIdx :: forall a. (Int -> Char -> a -> a) -> a -> Text -> a
