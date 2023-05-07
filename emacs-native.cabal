@@ -127,8 +127,6 @@ library
     , vector >= 0.13
     , vector-quicksort
 
-  extra-libraries: c stdc++
-
 foreign-library emacs-native
   import: ghc-options
   -- options: standalone
