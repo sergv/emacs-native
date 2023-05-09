@@ -146,8 +146,10 @@ foreign-library emacs-native
     cpp-options: -DPROFILING
 
   if os(Windows)
-    options: standalone
-    mod-def-file: emacs-native.def
+    options:
+      standalone
+    mod-def-file:
+      emacs-native.def
 
   build-depends:
     , base >= 4.16
