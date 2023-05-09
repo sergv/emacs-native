@@ -147,7 +147,7 @@ foreign-library emacs-native
 
   if os(Windows)
     options: standalone
-  --   mod-def-file: MyForeignLib.def
+    mod-def-file: emacs-native.def
 
   build-depends:
     , base >= 4.16
