@@ -11,13 +11,14 @@
 
 module EmacsNativeTest (main) where
 
+import System.IO.CodePage
 import Test.Tasty
 
 import Control.LensBlaze.Tests qualified
 import Data.FuzzyMatch.Tests qualified
 
 main :: IO ()
-main = defaultMain tests
+main = withCP65001 $ defaultMain tests
 
 tests :: TestTree
 tests = testGroup "Tests"

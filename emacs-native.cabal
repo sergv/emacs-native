@@ -177,6 +177,7 @@ test-suite emacs-native-test
   build-depends:
     , QuickCheck
     , base
+    , code-page
     , emacs-native
     , primitive
     , tasty
