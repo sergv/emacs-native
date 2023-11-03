@@ -116,6 +116,7 @@ fuzzyMatchMultipleTests :: TestTree
 fuzzyMatchMultipleTests = testGroup "fuzzy match multiple"
   [ mkTestCase "foo" ["foobar", "foobaz", "quux", "fqouuxo"] [214, 214, noMatchScore, 75]
   , mkTestCase "vector.hs" ["local-store/ghc-9.4.2/vector-space-0.16-6c2632778a7166806a878ce1c082a8cd55db17dc183ef6153dc43f8064939746/share/doc/html/meta.json", "/home/sergey/projects/haskell/packages/local-store/ghc-9.4.2/mime-types-0.1.1.0-36574ed6c6ba4b463c91ac91e7334e6d64c7e64484e986bb0ef24ae7064fefb6/cabal-hash.txt", "local-store/ghc-9.4.2/mime-types-0.1.1.0-36574ed6c6ba4b463c91ac91e7334e6d64c7e64484e986bb0ef24ae7064fefb6/cabal-hash.txt"] [228, noMatchScore, noMatchScore]
+  , mkTestCase "Trie.hs" ["TradeScriptAux/Fides.hs", "Packages/utils/src/Interlude.hs", "src/Tools/XtrmPricer/XtrmPricer.hs", "Packages/BackendMatrix/src/BackendMatrix/Core.hs",  "src/BackendTaxonomy/Tests/Facts/TargetAccrualEarlyRedemptionTestFact.hs", "Packages/utils/src/Utils/Trie.hs"] [238, noMatchScore, 191, noMatchScore, 114, 523]
   ]
   where
     mkTestCase :: Text -> [Text] -> [Int32] -> TestTree
