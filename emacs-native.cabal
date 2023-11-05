@@ -42,7 +42,6 @@ common ghc-options
     GHC2021
 
   default-extensions:
-    ImportQualifiedPost
     LambdaCase
     UnboxedTuples
 
@@ -69,6 +68,11 @@ common ghc-options
   if impl(ghc >= 9.2)
     ghc-options:
       -Wno-missing-kind-signatures
+
+  if impl(ghc >= 9.8)
+    ghc-options:
+      -Wno-missing-role-annotations
+      -Wno-missing-poly-kind-signatures
 
 library
   import: ghc-options
