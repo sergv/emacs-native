@@ -7,6 +7,7 @@
 ----------------------------------------------------------------------------
 
 {-# LANGUAGE DataKinds             #-}
+{-# LANGUAGE MonoLocalBinds        #-}
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE QuantifiedConstraints #-}
 
