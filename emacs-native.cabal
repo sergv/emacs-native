@@ -111,7 +111,7 @@ library
     , deepseq
     , directory
     , directory-ospath-streaming
-    , emacs-module >= 0.2
+    , emacs-module >= 0.2.1
     , exceptions
     , file-io
     , filepath >= 1.4.100

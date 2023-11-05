@@ -23,6 +23,7 @@ import Control.Monad.Base
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Control
+import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as C8
 import Data.ByteString.Char8.Ext qualified as C8.Ext
 import Data.Coerce
@@ -132,9 +133,9 @@ emacsGrepRec (R roots (R regexp (R globsToFind (R ignoredFileGlobs (R ignoredDir
                 !shortPathEmacs   <- makeShortByteString relPathBS
                 !matchLineNum'    <- makeInt (fromIntegral matchLineNum)
                 !matchColumnNum'  <- makeInt (fromIntegral matchColumnNum)
-                !matchLinePrefix' <- makeString matchLinePrefix
-                !matchLineStr'    <- makeString matchLineStr
-                !matchLineSuffix' <- makeString matchLineSuffix
+                !matchLinePrefix' <- makeString' matchLinePrefix
+                !matchLineStr'    <- makeString' matchLineStr
+                !matchLineSuffix' <- makeString' matchLineSuffix
                 !emacsMatchStruct <-
                   funcallPrimitiveSym
                     "make-egrep-match"
@@ -143,6 +144,14 @@ emacsGrepRec (R roots (R regexp (R globsToFind (R ignoredFileGlobs (R ignoredDir
         M.alterF f key acc
     wait searchAsync
     makeList matches
+
+makeString'
+  :: MonadEmacs m v
+  => C8.ByteString
+  -> m s (v s)
+makeString' x
+  | BS.isValidUtf8 x = makeString x
+  | otherwise        = makeBinaryString x
 
 data MatchEntry = MatchEntry
   { matchAbsPath    :: !AbsFile
