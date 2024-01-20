@@ -9,6 +9,7 @@
 module Data.Vector.PredefinedSorts
   ( sortInt32
   , sortWord64
+  , sortPackedCharAndIdx
   , sortVectorUnsafeChar
   , sortSortKeyPar
   ) where
@@ -20,6 +21,8 @@ import Data.Vector.Primitive qualified as P
 import Data.Vector.Primitive.Mutable qualified as PM
 import Data.Word
 
+import Data.Packed
+
 import Data.Vector.Algorithms.Quicksort.Parameterised qualified as Quick
 
 {-# NOINLINE sortInt32 #-}
@@ -29,6 +32,10 @@ sortInt32 = Quick.sortInplaceFM Quick.Sequential (Quick.Median3 @Int32)
 {-# NOINLINE sortWord64 #-}
 sortWord64 :: PM.MVector s Word64 -> ST s ()
 sortWord64 = Quick.sortInplaceFM Quick.Sequential (Quick.Median3 @Word64)
+
+{-# NOINLINE sortPackedCharAndIdx #-}
+sortPackedCharAndIdx :: PM.MVector s PackedCharAndIdx -> ST s ()
+sortPackedCharAndIdx = Quick.sortInplaceFM Quick.Sequential (Quick.Median3 @PackedCharAndIdx)
 
 sortChar :: PM.MVector s Char -> ST s ()
 sortChar = Quick.sortInplaceFM Quick.Sequential (Quick.Median3 @Char)

@@ -37,7 +37,7 @@ import Prettyprinter.Show
 import Data.StrIdx
 
 newtype PackedCharAndIdx = PackedCharAndIdx { _unPackedCharAndIdx :: Word64 }
-  deriving (Prim, U.Unbox)
+  deriving (Eq, Ord, Prim, U.Unbox)
 
 newtype instance U.MVector s PackedCharAndIdx = MV_PackedCharAndIdx (U.MVector s Word64)
 newtype instance U.Vector    PackedCharAndIdx = V_PackedCharAndIdx  (U.Vector    Word64)
@@ -56,11 +56,11 @@ instance Pretty PackedCharAndIdx where
   pretty = ppShow
 
 {-# INLINE combineCharIdx #-}
-combineCharIdx :: Word64 -> Word64 -> Word64
+combineCharIdx :: Word64 -> Word64 -> PackedCharAndIdx
 -- Safe to omit anding with lower4Bytes because index is unlikely to reach a point where that
 -- operation would have any effect
 -- combineCharIdx c idx = (c `unsafeShiftL` 32) .|. (lower4Bytes .&. w64 idx)
-combineCharIdx c idx = (c `unsafeShiftL` 32) .|. idx
+combineCharIdx c idx = PackedCharAndIdx ((c `unsafeShiftL` 32) .|. idx)
 
 newtype PackedChar = PackedChar { unPackedChar :: Word64 }
   deriving (U.Unbox)
@@ -69,8 +69,8 @@ instance Show PackedChar where
   showsPrec _ =
     (showString "0x" .) . showHex . (`unsafeShiftR` 32) . keepChar
 
-newtype instance U.MVector s PackedChar = MV_PackedChar (U.MVector s Word64)
-newtype instance U.Vector    PackedChar = V_PackedChar  (U.Vector    Word64)
+newtype instance U.MVector s PackedChar = MV_PackedChar (U.MVector s PackedCharAndIdx)
+newtype instance U.Vector    PackedChar = V_PackedChar  (U.Vector    PackedCharAndIdx)
 deriving instance GM.MVector U.MVector PackedChar
 deriving instance G.Vector   U.Vector  PackedChar
 
@@ -109,8 +109,8 @@ mkPackedIdx = PackedIdx . w64 . unStrIdx
 getStrIdx :: PackedIdx -> StrIdx
 getStrIdx = keepIdx
 
-newtype instance U.MVector s PackedIdx = MV_PackedIdx (U.MVector s Word64)
-newtype instance U.Vector    PackedIdx = V_PackedIdx  (U.Vector    Word64)
+newtype instance U.MVector s PackedIdx = MV_PackedIdx (U.MVector s PackedCharAndIdx)
+newtype instance U.Vector    PackedIdx = V_PackedIdx  (U.Vector    PackedCharAndIdx)
 deriving instance GM.MVector U.MVector PackedIdx
 deriving instance G.Vector   U.Vector  PackedIdx
 

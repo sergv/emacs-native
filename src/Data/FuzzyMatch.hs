@@ -232,7 +232,7 @@ instance CharMember NeedleChars where
     NeedleCharsLong xs -> charMember charCode xs
 
 {-# NOINLINE mkHaystack #-}
-mkHaystack :: forall s. ReusableState s -> NeedleChars -> Text -> ST s (PM.MVector s Word64)
+mkHaystack :: forall s. ReusableState s -> NeedleChars -> Text -> ST s (PM.MVector s PackedCharAndIdx)
 mkHaystack ReusableState{rsHaystackStore} !needleChars !str@(TI.Text _ _ haystackBytes) = do
   -- store <- PGM.new (needleCharsCountHint needleChars)
   arr <- readSTRef rsHaystackStore
@@ -342,8 +342,9 @@ characterOccurrences
 characterOccurrences store@ReusableState{rsNeedleStore} !needle !needleChars !haystack = do
   -- rsNeedleStore <- VM.unsafeNew (T.length needle)
   haystackMut <- mkHaystack store needleChars haystack
-  sortWord64 haystackMut
-  (haystack' :: U.Vector Word64) <- U.V_Word64 <$> P.unsafeFreeze haystackMut
+  sortPackedCharAndIdx haystackMut
+  (haystack' :: U.Vector PackedCharAndIdx) <-
+    V_PackedCharAndIdx . U.V_Word64 <$> P.unsafeFreeze (PM.unsafeCoerceMVector haystackMut)
   let
     haystackChars :: U.Vector PackedChar
     !haystackChars = coerce haystack'
