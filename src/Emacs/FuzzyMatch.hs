@@ -15,7 +15,7 @@ module Emacs.FuzzyMatch (initialise) where
 
 import Control.Concurrent
 import Control.Concurrent.Async.Lifted.Safe
-import Control.Concurrent.Counter qualified as Counter
+import Control.Concurrent.Counter.Lifted.IO qualified as Counter
 import Control.DeepSeq
 import Control.LensBlaze
 import Control.Monad.Catch
