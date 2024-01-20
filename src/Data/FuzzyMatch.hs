@@ -37,7 +37,6 @@ import Control.Monad.ST.Strict
 import Data.Bits
 import Data.Char
 import Data.Coerce
-import Data.Function
 import Data.Int
 import Data.IntMap (IntMap)
 import Data.IntMap qualified as IM
@@ -56,8 +55,6 @@ import Data.Text.Internal qualified as TI
 import Data.Text.Unsafe qualified as T
 import Data.Vector qualified as V
 import Data.Vector.Ext qualified as VExt
-import Data.Vector.Generic qualified as G
-import Data.Vector.Generic.Mutable qualified as GM
 import Data.Vector.Mutable qualified as VM
 import Data.Vector.PredefinedSorts
 import Data.Vector.Primitive qualified as P
@@ -71,10 +68,10 @@ import GHC.Magic (inline)
 import GHC.ST
 import GHC.Types
 import GHC.Word (Word64(W64#))
-import Numeric (showHex)
 import Prettyprinter
-import Prettyprinter.Show
 
+import Data.Packed
+import Data.StrIdx
 import Emacs.Module.Assert (WithCallStack)
 
 #if __GLASGOW_HASKELL__ < 904
@@ -234,90 +231,6 @@ instance CharMember NeedleChars where
     NeedleChars32   x  -> charMember charCode x
     NeedleCharsLong xs -> charMember charCode xs
 
-newtype PackedCharAndIdx = PackedCharAndIdx { _unPackedCharAndIdx :: Word64 }
-
-newtype instance U.MVector s PackedCharAndIdx = MV_PackedCharAndIdx (U.MVector s Word64)
-newtype instance U.Vector    PackedCharAndIdx = V_PackedCharAndIdx  (U.Vector    Word64)
-deriving instance GM.MVector U.MVector PackedCharAndIdx
-deriving instance G.Vector   U.Vector  PackedCharAndIdx
-instance U.Unbox PackedCharAndIdx
-
-instance Show PackedCharAndIdx where
-  show (PackedCharAndIdx x) =
-    show
-      ( chr $ fromIntegral $ keepChar (PackedChar x) `unsafeShiftR` 32
-      , showString "0x" . showHex (keepChar (PackedChar x) `unsafeShiftR` 32) $ []
-      , keepIdx (PackedIdx x)
-      )
-
-instance Pretty PackedCharAndIdx where
-  pretty = ppShow
-
-
-newtype PackedChar = PackedChar { unPackedChar :: Word64 }
-
-instance Show PackedChar where
-  showsPrec _ =
-    (showString "0x" .) . showHex . (`unsafeShiftR` 32) . keepChar
-
-newtype instance U.MVector s PackedChar = MV_PackedChar (U.MVector s Word64)
-newtype instance U.Vector    PackedChar = V_PackedChar  (U.Vector    Word64)
-deriving instance GM.MVector U.MVector PackedChar
-deriving instance G.Vector   U.Vector  PackedChar
-instance U.Unbox PackedChar
-
-mkPackedChar :: Char -> PackedChar
-mkPackedChar = PackedChar . (`unsafeShiftL` 32) . w64 . ord
-
-keepChar :: PackedChar -> Word64
-keepChar =
-  (.&. upper4Bytes) . unPackedChar
-
-instance Eq PackedChar where
-  (==) = (==) `on` keepChar
-
-instance Ord PackedChar where
-  compare = compare `on` keepChar
-
-
-newtype PackedIdx = PackedIdx { unPackedIdx :: Word64 }
-
-{-# INLINE upper4Bytes #-}
-{-# INLINE lower4Bytes #-}
-upper4Bytes, lower4Bytes :: Integral a => a
-upper4Bytes = 0xFFFFFFFF00000000
-lower4Bytes = 0x00000000FFFFFFFF
-
-{-# INLINE keepIdx #-}
-keepIdx :: PackedIdx -> StrIdx
-keepIdx = StrIdx . fromIntegral . (.&. lower4Bytes) . unPackedIdx
-
-{-# INLINE mkPackedIdx #-}
-mkPackedIdx :: StrIdx -> PackedIdx
-mkPackedIdx = PackedIdx . w64 . unStrIdx
-
-{-# INLINE getStrIdx #-}
-getStrIdx :: PackedIdx -> StrIdx
-getStrIdx = keepIdx
-
-newtype instance U.MVector s PackedIdx = MV_PackedIdx (U.MVector s Word64)
-newtype instance U.Vector    PackedIdx = V_PackedIdx  (U.Vector    Word64)
-deriving instance GM.MVector U.MVector PackedIdx
-deriving instance G.Vector   U.Vector  PackedIdx
-instance U.Unbox PackedIdx
-
-instance Show PackedIdx where
-  show = show . keepIdx
-
-instance Pretty PackedIdx where
-  pretty = ppShow
-
-instance Eq PackedIdx where
-  (==) = (==) `on` keepIdx
-
-instance Ord PackedIdx where
-  compare = compare `on` keepIdx
-
 {-# NOINLINE mkHaystack #-}
 mkHaystack :: forall s. ReusableState s -> NeedleChars -> Text -> ST s (PM.MVector s Word64)
 mkHaystack ReusableState{rsHaystackStore} !needleChars !str@(TI.Text _ _ haystackBytes) = do
@@ -412,17 +325,6 @@ isUpperASCII x = Bool# ((64# <# x) `andI#` (x <# 91#))
 toLowerASCII :: Int# -> Int#
 toLowerASCII x = x +# 32#
 
-{-# INLINE combineCharIdx #-}
-combineCharIdx :: Word64 -> Word64 -> Word64
--- Safe to omit anding with lower4Bytes because index is unlikely to reach a point where that
--- operation would have any effect
--- combineCharIdx c idx = (c `unsafeShiftL` 32) .|. (lower4Bytes .&. w64 idx)
-combineCharIdx c idx = (c `unsafeShiftL` 32) .|. idx
-
-{-# INLINE w64 #-}
-w64 :: Integral a => a -> Word64
-w64 = fromIntegral
-
 -- | For each character in the argument string compute the set of positions
 -- it occurs in.
 --
@@ -442,7 +344,6 @@ characterOccurrences store@ReusableState{rsNeedleStore} !needle !needleChars !ha
   haystackMut <- mkHaystack store needleChars haystack
   sortWord64 haystackMut
   (haystack' :: U.Vector Word64) <- U.V_Word64 <$> P.unsafeFreeze haystackMut
-
   let
     haystackChars :: U.Vector PackedChar
     !haystackChars = coerce haystack'
@@ -636,18 +537,6 @@ memoizeBy mkKey f = \ !aa !bb -> do
             modifySTRef' cache $ IM.insert k c
             pure c
   g aa bb
-
-newtype StrIdx = StrIdx { unStrIdx :: Int32 }
-  deriving (Eq, Ord, Enum, Pretty)
-
-instance Show StrIdx where
-  show = show . unStrIdx
-
-newtype instance U.MVector s StrIdx = MV_StrIdx (U.MVector s Int32)
-newtype instance U.Vector    StrIdx = V_StrIdx  (U.Vector    Int32)
-deriving instance GM.MVector U.MVector StrIdx
-deriving instance G.Vector   U.Vector  StrIdx
-instance U.Unbox StrIdx
 
 data Group = Group
   { gPrevChar :: {-# UNPACK #-} !Char

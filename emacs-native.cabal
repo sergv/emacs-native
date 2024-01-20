@@ -88,7 +88,9 @@ library
     Data.FuzzyMatch.SortKey
     Data.Ignores
     Data.NBSem
+    Data.Packed
     Data.Regex
+    Data.StrIdx
     Data.Primitive.PrimArray.Ext
     Data.Text.Ext
     Data.Vector.Ext
