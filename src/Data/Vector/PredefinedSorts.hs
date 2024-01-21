@@ -34,8 +34,8 @@ sortWord64 :: PM.MVector s Word64 -> ST s ()
 sortWord64 = Quick.sortInplaceFM Quick.Sequential (Quick.Median3 @Word64)
 
 {-# NOINLINE sortPackedCharAndIdx #-}
-sortPackedCharAndIdx :: PM.MVector s PackedCharAndStrIdx -> ST s ()
-sortPackedCharAndIdx = Quick.sortInplaceFM Quick.Sequential (Quick.Median3 @PackedCharAndStrIdx)
+sortPackedCharAndIdx :: PM.MVector s PackedCharAndStrCharIdx -> ST s ()
+sortPackedCharAndIdx = Quick.sortInplaceFM Quick.Sequential (Quick.Median3 @PackedCharAndStrCharIdx)
 
 sortChar :: PM.MVector s Char -> ST s ()
 sortChar = Quick.sortInplaceFM Quick.Sequential (Quick.Median3 @Char)

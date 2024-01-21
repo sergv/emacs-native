@@ -28,7 +28,7 @@ module Data.FuzzyMatch
   , computeHeatmap
   , Heatmap(..)
   , Heat(..)
-  , StrIdx(..)
+  , StrCharIdx(..)
   ) where
 
 import Control.Monad
@@ -111,7 +111,7 @@ isWord x = case chr# x of
 data ReusableState s = ReusableState
   { rsHaystackStore :: !(STRef s (MutableByteArray s))
   , rsHeatmapStore  :: !(STRef s (MutablePrimArray s Heat))
-  , rsNeedleStore   :: !(VM.MVector s (U.Vector PackedStrIdx))
+  , rsNeedleStore   :: !(VM.MVector s (U.Vector PackedStrCharIdx))
   }
 
 mkReusableState :: Int -> NeedleChars -> ST s (ReusableState s)
@@ -232,7 +232,7 @@ instance CharMember NeedleChars where
     NeedleCharsLong xs -> charMember charCode xs
 
 {-# NOINLINE mkHaystack #-}
-mkHaystack :: forall s. ReusableState s -> NeedleChars -> Text -> ST s (PM.MVector s PackedCharAndStrIdx)
+mkHaystack :: forall s. ReusableState s -> NeedleChars -> Text -> ST s (PM.MVector s PackedCharAndStrCharIdx)
 mkHaystack ReusableState{rsHaystackStore} !needleChars !str@(TI.Text _ _ haystackBytes) = do
   -- store <- PGM.new (needleCharsCountHint needleChars)
   arr <- readSTRef rsHaystackStore
@@ -337,23 +337,23 @@ characterOccurrences
   -> Text
   -> NeedleChars
   -> Text
-  -> ST s (V.MVector s (U.Vector PackedStrIdx), Bool)
+  -> ST s (V.MVector s (U.Vector PackedStrCharIdx), Bool)
 characterOccurrences store@ReusableState{rsNeedleStore} !needle !needleChars !haystack = do
   -- rsNeedleStore <- VM.unsafeNew (T.length needle)
   haystackMut <- mkHaystack store needleChars haystack
   sortPackedCharAndIdx haystackMut
-  (haystack' :: U.Vector PackedCharAndStrIdx) <-
+  (haystack' :: U.Vector PackedCharAndStrCharIdx) <-
     V_PackedCharAndIdx . U.V_Word64 <$> P.unsafeFreeze (PM.unsafeCoerceMVector haystackMut)
   let
     haystackChars :: U.Vector PackedChar
     !haystackChars = coerce haystack'
 
-    haystackIdx :: U.Vector PackedStrIdx
+    haystackIdx :: U.Vector PackedStrCharIdx
     !haystackIdx = coerce haystack'
 
     !haystackLen = U.length haystack'
 
-    findOccurs :: Char -> U.Vector PackedStrIdx
+    findOccurs :: Char -> U.Vector PackedStrCharIdx
     findOccurs !c
       | isMember
       = U.unsafeSlice start (skipSameChars start - start) haystackIdx
@@ -388,12 +388,12 @@ characterOccurrences store@ReusableState{rsNeedleStore} !needle !needleChars !ha
 
 data Match = Match
   { mScore     :: !Int32
-  , mPositions :: !(NonEmpty StrIdx)
+  , mPositions :: !(NonEmpty StrCharIdx)
   } deriving (Eq, Generic, Ord, Show)
 
 data Submatch = Submatch
   { smScore           :: !Heat
-  , smPositions       :: !(NonEmpty StrIdx)
+  , smPositions       :: !(NonEmpty StrCharIdx)
   , smContiguousCount :: !Int32
   } deriving (Generic, Show)
 
@@ -425,14 +425,14 @@ fuzzyMatch'
 fuzzyMatch' store mkHeatmap needle needleChars haystack
   | T.null needle = pure noMatch
   | otherwise     = do
-    (occurs :: V.MVector s (U.Vector PackedStrIdx), anyEmpty) <- characterOccurrences store needle needleChars haystack
+    (occurs :: V.MVector s (U.Vector PackedStrCharIdx), anyEmpty) <- characterOccurrences store needle needleChars haystack
     if anyEmpty -- Also catches occurs == V.empty
     then pure noMatch
     else do
 
       Heatmap heatmap <- unsafeInterleaveST mkHeatmap
       let
-        bigger :: StrIdx -> U.Vector PackedStrIdx -> U.Vector PackedStrIdx
+        bigger :: StrCharIdx -> U.Vector PackedStrCharIdx -> U.Vector PackedStrCharIdx
         bigger x xs
           | isMember
           = let !i' = i + 1
@@ -444,31 +444,31 @@ fuzzyMatch' store mkHeatmap needle needleChars haystack
 
         computeScore
           :: PrimMonad m
-          => (V.MVector (PrimState m) (U.Vector PackedStrIdx) -> StrIdx -> m (Maybe Submatch))
-          -> V.MVector (PrimState m) (U.Vector PackedStrIdx)
-          -> StrIdx
+          => (V.MVector (PrimState m) (U.Vector PackedStrCharIdx) -> StrCharIdx -> m (Maybe Submatch))
+          -> V.MVector (PrimState m) (U.Vector PackedStrCharIdx)
+          -> StrCharIdx
           -> m (Maybe Submatch)
         computeScore recur !needleOccursInHaystack !cutoffIndex = do
           -- Debug.Trace.traceM $ "key = " ++ show (VM.length needleOccursInHaystack, cutoffIndex)
 
-          (remainingOccurrences :: U.Vector PackedStrIdx) <- bigger cutoffIndex <$> VM.unsafeRead needleOccursInHaystack 0
+          (remainingOccurrences :: U.Vector PackedStrCharIdx) <- bigger cutoffIndex <$> VM.unsafeRead needleOccursInHaystack 0
           case VM.length needleOccursInHaystack of
             -- Last character, already checked that vector is never empty
             1 ->
               inline findBestWith remainingOccurrences $ \ !pidx -> do
-                let StrIdx !idx = getStrIdx pidx
+                let StrCharIdx !idx = getStrCharIdx pidx
                 pure $! Just $! Submatch
                   { smScore           = heatmap `indexPrimArray` fromIntegral idx
-                  , smPositions       = StrIdx idx :| []
+                  , smPositions       = StrCharIdx idx :| []
                   , smContiguousCount = 0
                   }
 
             _ ->
               inline findBestWith remainingOccurrences $ \ !pidx -> do
-                let !idx' = getStrIdx pidx
+                let !idx' = getStrCharIdx pidx
                 submatch' <- recur (VM.unsafeTail needleOccursInHaystack) idx'
                 pure $ (`fmap` submatch') $ \Submatch{smScore, smContiguousCount, smPositions} ->
-                  let score'          = smScore + (heatmap `indexPrimArray` fromIntegral (unStrIdx idx'))
+                  let score'          = smScore + (heatmap `indexPrimArray` fromIntegral (unStrCharIdx idx'))
                       contiguousBonus = Heat $ 60 + 15 * min 3 smContiguousCount
                       isContiguous    = NE.head smPositions == succ idx'
                       score
@@ -484,7 +484,7 @@ fuzzyMatch' store mkHeatmap needle needleChars haystack
                     }
 
       !result <- do
-        res <- memoizeBy makeKey computeScore occurs (StrIdx (-1))
+        res <- memoizeBy makeKey computeScore occurs (StrCharIdx (-1))
         pure $ case res of
           Nothing -> noMatch
           Just m  -> submatchToMatch m
@@ -492,16 +492,16 @@ fuzzyMatch' store mkHeatmap needle needleChars haystack
   where
     noMatch = Match
       { mScore     = (-1000000)
-      , mPositions = StrIdx (-1) :| []
+      , mPositions = StrCharIdx (-1) :| []
       }
 
-    makeKey :: V.MVector s (U.Vector a) -> StrIdx -> Int
+    makeKey :: V.MVector s (U.Vector a) -> StrCharIdx -> Int
     makeKey !occs !k =
-      j `unsafeShiftL` 32 .|. fromIntegral (unStrIdx k)
+      j `unsafeShiftL` 32 .|. fromIntegral (unStrCharIdx k)
       where
         !j = VM.length occs
 
-    findBestWith :: forall n. Monad n => U.Vector PackedStrIdx -> (PackedStrIdx -> n (Maybe Submatch)) -> n (Maybe Submatch)
+    findBestWith :: forall n. Monad n => U.Vector PackedStrCharIdx -> (PackedStrCharIdx -> n (Maybe Submatch)) -> n (Maybe Submatch)
     findBestWith !occs f = go Nothing 0
       where
         go :: Maybe Submatch -> Int -> n (Maybe Submatch)

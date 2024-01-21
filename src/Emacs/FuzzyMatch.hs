@@ -192,5 +192,5 @@ scoreSingleMatch (R seps (R needle (R haystack Stop))) = do
         store <- mkReusableState (T.length needle') needleChars
         fuzzyMatch' store (computeHeatmap store haystack' (T.length haystack') seps') needle' needleChars haystack'
   score     <- makeInt $ fromIntegral mScore
-  positions <- makeList =<< traverse (makeInt . fromIntegral . unStrIdx) mPositions
+  positions <- makeList =<< traverse (makeInt . fromIntegral . unStrCharIdx) mPositions
   cons score positions

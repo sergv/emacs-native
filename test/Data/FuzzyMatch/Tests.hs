@@ -45,60 +45,60 @@ noMatchScore = (- 1000000)
 noMatch :: Match
 noMatch = Match
   { mScore     = noMatchScore
-  , mPositions = StrIdx (-1) :| []
+  , mPositions = StrCharIdx (-1) :| []
   }
 
 fuzzyMatchTests :: TestTree
 fuzzyMatchTests = testGroup "fuzzy match"
   [ mkTestCase "foo" "foobar" (\_ -> pure foobarHeatmap) Match
       { mScore     = 214
-      , mPositions = StrIdx 0 :| [StrIdx 1, StrIdx 2]
+      , mPositions = StrCharIdx 0 :| [StrCharIdx 1, StrCharIdx 2]
       }
   , mkTestCase "fo" "foobar" (\_ -> pure foobarHeatmap) Match
       { mScore     = 142
-      , mPositions = StrIdx 0 :| [StrIdx 1]
+      , mPositions = StrCharIdx 0 :| [StrCharIdx 1]
       }
   , mkTestCase "oob" "foobar" (\_ -> pure foobarHeatmap) Match
       { mScore     = 126
-      , mPositions = StrIdx 1 :| [StrIdx 2, StrIdx 3]
+      , mPositions = StrCharIdx 1 :| [StrCharIdx 2, StrCharIdx 3]
       }
   , mkTestCase "ooba" "foobar" (\_ -> pure foobarHeatmap) Match
       { mScore     = 211
-      , mPositions = StrIdx 1 :| [StrIdx 2, StrIdx 3, StrIdx 4]
+      , mPositions = StrCharIdx 1 :| [StrCharIdx 2, StrCharIdx 3, StrCharIdx 4]
       }
   , mkTestCase "or" "foobar" (\_ -> pure foobarHeatmap) Match
       { mScore     = (-7)
-      , mPositions = StrIdx 1 :| [StrIdx 5]
+      , mPositions = StrCharIdx 1 :| [StrCharIdx 5]
       }
   , mkTestCase "oor" "foobar" (\_ -> pure foobarHeatmap) Match
       { mScore     = 50
-      , mPositions = StrIdx 1 :| [StrIdx 2, StrIdx 5]
+      , mPositions = StrCharIdx 1 :| [StrCharIdx 2, StrCharIdx 5]
       }
   , mkTestCase "x" "foobar" (\_ -> pure foobarHeatmap) noMatch
   , mkTestCase "fooxar" "foobar" (\_ -> pure foobarHeatmap) noMatch
 
   , mkTestCase "aaaaaaaaaa" (T.replicate 100 "a") (\_ -> pure (Heatmap (replicatePrimArray 100 1))) Match
       { mScore     = 865
-      , mPositions = NE.fromList [StrIdx 90..StrIdx 99]
+      , mPositions = NE.fromList [StrCharIdx 90..StrCharIdx 99]
       }
   , mkTestCase "aaaaaaaaaa" (T.replicate 200 "a") (\_ -> pure (Heatmap (replicatePrimArray 200 1))) Match
       { mScore     = 865
-      , mPositions = NE.fromList [StrIdx 190..StrIdx 199]
+      , mPositions = NE.fromList [StrCharIdx 190..StrCharIdx 199]
       }
   , let haystack = "sys/dev/acpica/Osd/OsdTable.c" :: Text in
       mkTestCase "cat.c" haystack (\store -> computeHeatmap store haystack (T.length haystack) mempty) Match
         { mScore     = 142
-        , mPositions = NE.fromList (map StrIdx [12, 13, 22, 27, 28])
+        , mPositions = NE.fromList (map StrCharIdx [12, 13, 22, 27, 28])
         }
   , let haystack = "/home/user/projects/Data/Vector.hs" :: Text in
     mkTestCase "vector" haystack (\store -> computeHeatmap store haystack (T.length haystack) mempty) Match
       { mScore     = 397
-      , mPositions = fmap StrIdx $ 25 :| [26, 27, 28, 29, 30]
+      , mPositions = fmap StrCharIdx $ 25 :| [26, 27, 28, 29, 30]
       }
   , let haystack = "all-packages/vector-th-unbox-0.2.2/Data/Vector/Unboxed/Deriving.hs" :: Text in
     mkTestCase "vector.hs" haystack (\store -> computeHeatmap store haystack (T.length haystack) mempty) Match
       { mScore     = 414
-      , mPositions = fmap StrIdx $ 13 :| [14, 15, 16, 17, 18, 63, 64, 65]
+      , mPositions = fmap StrCharIdx $ 13 :| [14, 15, 16, 17, 18, 63, 64, 65]
       }
   ]
   where
@@ -197,95 +197,95 @@ heatMap = testGroup "Heatmap"
 -- heatMapGrouping :: TestTree
 -- heatMapGrouping = testGroup "Grouping for heatmap computation"
 --   [ mkTestCase "foo" mempty $ (:[]) HeatmapGroup
---     { hmgStart           = StrIdx (-1)
---     , hmgEnd             = StrIdx 2
+--     { hmgStart           = StrCharIdx (-1)
+--     , hmgEnd             = StrCharIdx 2
 --     , hmgWordCount       = 1
---     , hmgWordIndices     = [StrIdx 0]
+--     , hmgWordIndices     = [StrCharIdx 0]
 --     , hmgWordIndicesSize = 1
 --     , hmgIsBasePath      = True
 --     }
 --   , mkTestCase "bar" mempty $ (:[]) HeatmapGroup
---     { hmgStart           = StrIdx (-1)
---     , hmgEnd             = StrIdx 2
+--     { hmgStart           = StrCharIdx (-1)
+--     , hmgEnd             = StrCharIdx 2
 --     , hmgWordCount       = 1
---     , hmgWordIndices     = [StrIdx 0]
+--     , hmgWordIndices     = [StrCharIdx 0]
 --     , hmgWordIndicesSize = 1
 --     , hmgIsBasePath      = True
 --     }
 --   , mkTestCase "foo.bar" mempty $ (:[]) HeatmapGroup
---     { hmgStart           = StrIdx (-1)
---     , hmgEnd             = StrIdx 6
+--     { hmgStart           = StrCharIdx (-1)
+--     , hmgEnd             = StrCharIdx 6
 --     , hmgWordCount       = 2
---     , hmgWordIndices     = [StrIdx 4, StrIdx 0]
+--     , hmgWordIndices     = [StrCharIdx 4, StrCharIdx 0]
 --     , hmgWordIndicesSize = 2
 --     , hmgIsBasePath      = True
 --     }
 --   , mkTestCase "foo+bar" mempty $ (:[]) HeatmapGroup
---     { hmgStart           = StrIdx (-1)
---     , hmgEnd             = StrIdx 6
+--     { hmgStart           = StrCharIdx (-1)
+--     , hmgEnd             = StrCharIdx 6
 --     , hmgWordCount       = 2
---     , hmgWordIndices     = [StrIdx 4, StrIdx 0]
+--     , hmgWordIndices     = [StrCharIdx 4, StrCharIdx 0]
 --     , hmgWordIndicesSize = 2
 --     , hmgIsBasePath      = True
 --     }
 --   , mkTestCase "foo/bar/baz" mempty $ (:[]) HeatmapGroup
---     { hmgStart           = StrIdx (-1)
---     , hmgEnd             = StrIdx 10
+--     { hmgStart           = StrCharIdx (-1)
+--     , hmgEnd             = StrCharIdx 10
 --     , hmgWordCount       = 3
---     , hmgWordIndices     = [StrIdx 8, StrIdx 4, StrIdx 0]
+--     , hmgWordIndices     = [StrCharIdx 8, StrCharIdx 4, StrCharIdx 0]
 --     , hmgWordIndicesSize = 3
 --     , hmgIsBasePath      = True
 --     }
 --   , mkTestCase "foo/bar" (primArrayFromList [fi32 $ ord '/'])
 --     [ HeatmapGroup
---       { hmgStart           = StrIdx (-1)
---       , hmgEnd             = StrIdx 2
+--       { hmgStart           = StrCharIdx (-1)
+--       , hmgEnd             = StrCharIdx 2
 --       , hmgWordCount       = 1
---       , hmgWordIndices     = [StrIdx 0]
+--       , hmgWordIndices     = [StrCharIdx 0]
 --       , hmgWordIndicesSize = 1
 --       , hmgIsBasePath      = False
 --       }
 --     , HeatmapGroup
---       { hmgStart           = StrIdx 3
---       , hmgEnd             = StrIdx 6
+--       { hmgStart           = StrCharIdx 3
+--       , hmgEnd             = StrCharIdx 6
 --       , hmgWordCount       = 1
---       , hmgWordIndices     = [StrIdx 4]
+--       , hmgWordIndices     = [StrCharIdx 4]
 --       , hmgWordIndicesSize = 1
 --       , hmgIsBasePath      = True
 --       }
 --     ]
 --   , mkTestCase "foo/bar/baz" (primArrayFromList [fi32 $ ord '/'])
 --     [ HeatmapGroup
---       { hmgStart           = StrIdx (-1)
---       , hmgEnd             = StrIdx 2
+--       { hmgStart           = StrCharIdx (-1)
+--       , hmgEnd             = StrCharIdx 2
 --       , hmgWordCount       = 1
---       , hmgWordIndices     = [StrIdx 0]
+--       , hmgWordIndices     = [StrCharIdx 0]
 --       , hmgWordIndicesSize = 1
 --       , hmgIsBasePath      = False
 --       }
 --     , HeatmapGroup
---       { hmgStart           = StrIdx 3
---       , hmgEnd             = StrIdx 6
+--       { hmgStart           = StrCharIdx 3
+--       , hmgEnd             = StrCharIdx 6
 --       , hmgWordCount       = 1
---       , hmgWordIndices     = [StrIdx 4]
+--       , hmgWordIndices     = [StrCharIdx 4]
 --       , hmgWordIndicesSize = 1
 --       , hmgIsBasePath      = False
 --       }
 --     , HeatmapGroup
---       { hmgStart           = StrIdx 7
---       , hmgEnd             = StrIdx 10
+--       { hmgStart           = StrCharIdx 7
+--       , hmgEnd             = StrCharIdx 10
 --       , hmgWordCount       = 1
---       , hmgWordIndices     = [StrIdx 8]
+--       , hmgWordIndices     = [StrCharIdx 8]
 --       , hmgWordIndicesSize = 1
 --       , hmgIsBasePath      = True
 --       }
 --     ]
 --   , mkTestCase "foo/bar+quuz" mempty
 --       [ HeatmapGroup
---           { hmgStart           = StrIdx (-1)
---           , hmgEnd             = StrIdx 11
+--           { hmgStart           = StrCharIdx (-1)
+--           , hmgEnd             = StrCharIdx 11
 --           , hmgWordCount       = 3
---           , hmgWordIndices     = [StrIdx 8, StrIdx 4, StrIdx 0]
+--           , hmgWordIndices     = [StrCharIdx 8, StrCharIdx 4, StrCharIdx 0]
 --           , hmgWordIndicesSize = 3
 --           , hmgIsBasePath      = True
 --           }
@@ -294,42 +294,42 @@ heatMap = testGroup "Heatmap"
 --       "foo/bar+quux/fizz.buzz/frobnicate/frobulate"
 --       (primArrayFromList [fi32 $ ord '/'])
 --       [ HeatmapGroup
---           { hmgStart           = StrIdx (-1)
---           , hmgEnd             = StrIdx 2
+--           { hmgStart           = StrCharIdx (-1)
+--           , hmgEnd             = StrCharIdx 2
 --           , hmgWordCount       = 1
---           , hmgWordIndices     = [StrIdx 0]
+--           , hmgWordIndices     = [StrCharIdx 0]
 --           , hmgWordIndicesSize = 1
 --           , hmgIsBasePath      = False
 --           }
 --       , HeatmapGroup
---           { hmgStart           = StrIdx 3
---           , hmgEnd             = StrIdx 11
+--           { hmgStart           = StrCharIdx 3
+--           , hmgEnd             = StrCharIdx 11
 --           , hmgWordCount       = 2
---           , hmgWordIndices     = [StrIdx 8, StrIdx 4]
+--           , hmgWordIndices     = [StrCharIdx 8, StrCharIdx 4]
 --           , hmgWordIndicesSize = 2
 --           , hmgIsBasePath      = False
 --           }
 --       , HeatmapGroup
---           { hmgStart           = StrIdx 12
---           , hmgEnd             = StrIdx 21
+--           { hmgStart           = StrCharIdx 12
+--           , hmgEnd             = StrCharIdx 21
 --           , hmgWordCount       = 2
---           , hmgWordIndices     = [StrIdx 18, StrIdx 13]
+--           , hmgWordIndices     = [StrCharIdx 18, StrCharIdx 13]
 --           , hmgWordIndicesSize = 2
 --           , hmgIsBasePath      = False
 --           }
 --       , HeatmapGroup
---           { hmgStart           = StrIdx 22
---           , hmgEnd             = StrIdx 32
+--           { hmgStart           = StrCharIdx 22
+--           , hmgEnd             = StrCharIdx 32
 --           , hmgWordCount       = 1
---           , hmgWordIndices     = [StrIdx 23]
+--           , hmgWordIndices     = [StrCharIdx 23]
 --           , hmgWordIndicesSize = 1
 --           , hmgIsBasePath      = False
 --           }
 --       , HeatmapGroup
---           { hmgStart           = StrIdx 33
---           , hmgEnd             = StrIdx 42
+--           { hmgStart           = StrCharIdx 33
+--           , hmgEnd             = StrCharIdx 42
 --           , hmgWordCount       = 1
---           , hmgWordIndices     = [StrIdx 34]
+--           , hmgWordIndices     = [StrCharIdx 34]
 --           , hmgWordIndicesSize = 1
 --           , hmgIsBasePath      = True
 --           }
