@@ -111,7 +111,7 @@ isWord x = case chr# x of
 data ReusableState s = ReusableState
   { rsHaystackStore :: !(STRef s (MutableByteArray s))
   , rsHeatmapStore  :: !(STRef s (MutablePrimArray s Heat))
-  , rsNeedleStore   :: !(VM.MVector s (U.Vector PackedIdx))
+  , rsNeedleStore   :: !(VM.MVector s (U.Vector PackedStrIdx))
   }
 
 mkReusableState :: Int -> NeedleChars -> ST s (ReusableState s)
@@ -232,7 +232,7 @@ instance CharMember NeedleChars where
     NeedleCharsLong xs -> charMember charCode xs
 
 {-# NOINLINE mkHaystack #-}
-mkHaystack :: forall s. ReusableState s -> NeedleChars -> Text -> ST s (PM.MVector s PackedCharAndIdx)
+mkHaystack :: forall s. ReusableState s -> NeedleChars -> Text -> ST s (PM.MVector s PackedCharAndStrIdx)
 mkHaystack ReusableState{rsHaystackStore} !needleChars !str@(TI.Text _ _ haystackBytes) = do
   -- store <- PGM.new (needleCharsCountHint needleChars)
   arr <- readSTRef rsHaystackStore
@@ -325,36 +325,35 @@ isUpperASCII x = Bool# ((64# <# x) `andI#` (x <# 91#))
 toLowerASCII :: Int# -> Int#
 toLowerASCII x = x +# 32#
 
--- | For each character in the argument string compute the set of positions
--- it occurs in.
+{-# NOINLINE characterOccurrences #-}
+-- | For each character in the needle string compute the set of positions
+-- it occurs within the haystack.
 --
 -- Upper-case characters are counted twice as an upper-case and a
 -- lower-case character. This is done in order to make lower-case
 -- charaters match upper-case ones.
-
-{-# NOINLINE characterOccurrences #-}
 characterOccurrences
   :: ReusableState s
   -> Text
   -> NeedleChars
   -> Text
-  -> ST s (V.MVector s (U.Vector PackedIdx), Bool)
+  -> ST s (V.MVector s (U.Vector PackedStrIdx), Bool)
 characterOccurrences store@ReusableState{rsNeedleStore} !needle !needleChars !haystack = do
   -- rsNeedleStore <- VM.unsafeNew (T.length needle)
   haystackMut <- mkHaystack store needleChars haystack
   sortPackedCharAndIdx haystackMut
-  (haystack' :: U.Vector PackedCharAndIdx) <-
+  (haystack' :: U.Vector PackedCharAndStrIdx) <-
     V_PackedCharAndIdx . U.V_Word64 <$> P.unsafeFreeze (PM.unsafeCoerceMVector haystackMut)
   let
     haystackChars :: U.Vector PackedChar
     !haystackChars = coerce haystack'
 
-    haystackIdx :: U.Vector PackedIdx
+    haystackIdx :: U.Vector PackedStrIdx
     !haystackIdx = coerce haystack'
 
     !haystackLen = U.length haystack'
 
-    findOccurs :: Char -> U.Vector PackedIdx
+    findOccurs :: Char -> U.Vector PackedStrIdx
     findOccurs !c
       | isMember
       = U.unsafeSlice start (skipSameChars start - start) haystackIdx
@@ -426,14 +425,14 @@ fuzzyMatch'
 fuzzyMatch' store mkHeatmap needle needleChars haystack
   | T.null needle = pure noMatch
   | otherwise     = do
-    (occurs :: V.MVector s (U.Vector PackedIdx), anyEmpty) <- characterOccurrences store needle needleChars haystack
+    (occurs :: V.MVector s (U.Vector PackedStrIdx), anyEmpty) <- characterOccurrences store needle needleChars haystack
     if anyEmpty -- Also catches occurs == V.empty
     then pure noMatch
     else do
 
       Heatmap heatmap <- unsafeInterleaveST mkHeatmap
       let
-        bigger :: StrIdx -> U.Vector PackedIdx -> U.Vector PackedIdx
+        bigger :: StrIdx -> U.Vector PackedStrIdx -> U.Vector PackedStrIdx
         bigger x xs
           | isMember
           = let !i' = i + 1
@@ -445,14 +444,14 @@ fuzzyMatch' store mkHeatmap needle needleChars haystack
 
         computeScore
           :: PrimMonad m
-          => (V.MVector (PrimState m) (U.Vector PackedIdx) -> StrIdx -> m (Maybe Submatch))
-          -> V.MVector (PrimState m) (U.Vector PackedIdx)
+          => (V.MVector (PrimState m) (U.Vector PackedStrIdx) -> StrIdx -> m (Maybe Submatch))
+          -> V.MVector (PrimState m) (U.Vector PackedStrIdx)
           -> StrIdx
           -> m (Maybe Submatch)
         computeScore recur !needleOccursInHaystack !cutoffIndex = do
           -- Debug.Trace.traceM $ "key = " ++ show (VM.length needleOccursInHaystack, cutoffIndex)
 
-          (remainingOccurrences :: U.Vector PackedIdx) <- bigger cutoffIndex <$> VM.unsafeRead needleOccursInHaystack 0
+          (remainingOccurrences :: U.Vector PackedStrIdx) <- bigger cutoffIndex <$> VM.unsafeRead needleOccursInHaystack 0
           case VM.length needleOccursInHaystack of
             -- Last character, already checked that vector is never empty
             1 ->
@@ -502,7 +501,7 @@ fuzzyMatch' store mkHeatmap needle needleChars haystack
       where
         !j = VM.length occs
 
-    findBestWith :: forall n. Monad n => U.Vector PackedIdx -> (PackedIdx -> n (Maybe Submatch)) -> n (Maybe Submatch)
+    findBestWith :: forall n. Monad n => U.Vector PackedStrIdx -> (PackedStrIdx -> n (Maybe Submatch)) -> n (Maybe Submatch)
     findBestWith !occs f = go Nothing 0
       where
         go :: Maybe Submatch -> Int -> n (Maybe Submatch)
@@ -514,7 +513,7 @@ fuzzyMatch' store mkHeatmap needle needleChars haystack
             x <- f (occs `U.unsafeIndex` i)
             let best' = case (best, x) of
                   (Nothing, y)       -> y
-                  (y, Nothing)       -> y
+                  (y,       Nothing) -> y
                   (Just b', Just x') ->
                     -- If scores are equal then prefer the match occuring later.
                     Just $! if smScore x' >= smScore b' then x' else b'
