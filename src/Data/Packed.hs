@@ -24,6 +24,7 @@ module Data.Packed
 import Data.Bits
 import Data.Char
 import Data.Function
+import Data.Int
 import Data.Primitive.Types
 import Data.Vector.Generic qualified as G
 import Data.Vector.Generic.Mutable qualified as GM
@@ -98,15 +99,15 @@ upper4Bytes = 0xFFFFFFFF00000000
 lower4Bytes = 0x00000000FFFFFFFF
 
 {-# INLINE keepIdx #-}
-keepIdx :: PackedStrCharIdx -> StrCharIdx
+keepIdx :: PackedStrCharIdx -> StrCharIdx Int32
 keepIdx = StrCharIdx . fromIntegral . (.&. lower4Bytes) . unPackedIdx
 
 {-# INLINE mkPackedIdx #-}
-mkPackedIdx :: StrCharIdx -> PackedStrCharIdx
+mkPackedIdx :: StrCharIdx Int32 -> PackedStrCharIdx
 mkPackedIdx = PackedStrCharIdx . w64 . unStrCharIdx
 
 {-# INLINE getStrCharIdx #-}
-getStrCharIdx :: PackedStrCharIdx -> StrCharIdx
+getStrCharIdx :: PackedStrCharIdx -> StrCharIdx Int32
 getStrCharIdx = keepIdx
 
 newtype instance U.MVector s PackedStrCharIdx = MV_PackedIdx (U.MVector s PackedCharAndStrCharIdx)

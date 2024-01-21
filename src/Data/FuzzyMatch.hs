@@ -388,12 +388,12 @@ characterOccurrences store@ReusableState{rsNeedleStore} !needle !needleChars !ha
 
 data Match = Match
   { mScore     :: !Int32
-  , mPositions :: !(NonEmpty StrCharIdx)
+  , mPositions :: !(NonEmpty (StrCharIdx Int32))
   } deriving (Eq, Generic, Ord, Show)
 
 data Submatch = Submatch
   { smScore           :: !Heat
-  , smPositions       :: !(NonEmpty StrCharIdx)
+  , smPositions       :: !(NonEmpty (StrCharIdx Int32))
   , smContiguousCount :: !Int32
   } deriving (Generic, Show)
 
@@ -432,7 +432,7 @@ fuzzyMatch' store mkHeatmap needle needleChars haystack
 
       Heatmap heatmap <- unsafeInterleaveST mkHeatmap
       let
-        bigger :: StrCharIdx -> U.Vector PackedStrCharIdx -> U.Vector PackedStrCharIdx
+        bigger :: StrCharIdx Int32 -> U.Vector PackedStrCharIdx -> U.Vector PackedStrCharIdx
         bigger x xs
           | isMember
           = let !i' = i + 1
@@ -444,9 +444,9 @@ fuzzyMatch' store mkHeatmap needle needleChars haystack
 
         computeScore
           :: PrimMonad m
-          => (V.MVector (PrimState m) (U.Vector PackedStrCharIdx) -> StrCharIdx -> m (Maybe Submatch))
+          => (V.MVector (PrimState m) (U.Vector PackedStrCharIdx) -> StrCharIdx Int32 -> m (Maybe Submatch))
           -> V.MVector (PrimState m) (U.Vector PackedStrCharIdx)
-          -> StrCharIdx
+          -> StrCharIdx Int32
           -> m (Maybe Submatch)
         computeScore recur !needleOccursInHaystack !cutoffIndex = do
           -- Debug.Trace.traceM $ "key = " ++ show (VM.length needleOccursInHaystack, cutoffIndex)
@@ -495,7 +495,7 @@ fuzzyMatch' store mkHeatmap needle needleChars haystack
       , mPositions = StrCharIdx (-1) :| []
       }
 
-    makeKey :: V.MVector s (U.Vector a) -> StrCharIdx -> Int
+    makeKey :: V.MVector s (U.Vector a) -> StrCharIdx Int32 -> Int
     makeKey !occs !k =
       j `unsafeShiftL` 32 .|. fromIntegral (unStrCharIdx k)
       where
