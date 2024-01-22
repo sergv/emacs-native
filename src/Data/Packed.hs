@@ -67,8 +67,17 @@ newtype PackedChar = PackedChar { unPackedChar :: Word64 }
   deriving (U.Unbox)
 
 instance Show PackedChar where
-  showsPrec _ =
-    (showString "0x" .) . showHex . (`unsafeShiftR` 32) . keepChar
+  showsPrec _ x
+    = showString "0x"
+    . showHex c
+    . showChar '/'
+    . showChar (chr (fromIntegral c))
+    where
+      c :: Word64
+      c = keepChar x `unsafeShiftR` 32
+
+instance Pretty PackedChar where
+  pretty = pretty . show
 
 newtype instance U.MVector s PackedChar = MV_PackedChar (U.MVector s PackedCharAndStrCharIdx)
 newtype instance U.Vector    PackedChar = V_PackedChar  (U.Vector    PackedCharAndStrCharIdx)
