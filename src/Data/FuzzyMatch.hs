@@ -71,13 +71,12 @@ import Data.Vector.Primitive.Mutable qualified as PM
 import Data.Vector.Unboxed qualified as U
 import Data.Vector.Unboxed.Base qualified as U
 import Data.Word
-import GHC.Generics (Generic)
 import GHC.Int (Int32(I32#))
 import GHC.Magic (inline)
 import GHC.ST
 import GHC.Types
 import GHC.Word (Word64(W64#))
-import Prettyprinter
+import Prettyprinter.Generics
 
 import Data.Packed
 import Data.StrIdx
@@ -132,10 +131,24 @@ mkReusableState !needleSize = do
   pure ReusableState{rsHaystackStore, rsHeatmapStore, rsNeedleStore}
 
 newtype Bytes8 = Bytes8 Word64
+  deriving (Generic, Pretty)
 data Bytes16 = Bytes16 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64
+  deriving (Generic)
 data Bytes24 = Bytes24 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64
+  deriving (Generic)
 data Bytes32 = Bytes32 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64 {-# UNPACK #-} !Word64
-newtype CharsVector = CharsVector { _unCharsVector :: P.Vector Char }
+  deriving (Generic)
+newtype CharsVector = CharsVector { unCharsVector :: P.Vector Char }
+  deriving (Generic)
+
+instance Pretty Bytes16 where
+  pretty = ppGeneric
+instance Pretty Bytes24 where
+  pretty = ppGeneric
+instance Pretty Bytes32 where
+  pretty = ppGeneric
+instance Pretty CharsVector where
+  pretty = pretty . P.toList . unCharsVector
 
 class CharMember a where
   charMember :: Int# -> a -> Bool
@@ -183,6 +196,10 @@ data NeedleChars
   | NeedleChars24 {-# UNPACK #-} !Bytes24
   | NeedleChars32 {-# UNPACK #-} !Bytes32
   | NeedleCharsLong {-# UNPACK #-} !CharsVector
+  deriving (Generic)
+
+instance Pretty NeedleChars where
+  pretty = ppGeneric
 
 prepareNeedle :: Text -> NeedleChars
 prepareNeedle str
