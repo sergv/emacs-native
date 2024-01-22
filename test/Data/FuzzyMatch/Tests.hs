@@ -100,6 +100,11 @@ fuzzyMatchTests = testGroup "fuzzy match" $
       { mScore     = 414
       , mPositions = fmap StrCharIdx $ 13 :| [14, 15, 16, 17, 18, 63, 64, 65]
       }
+  , let haystack = "все-пакеты/vector-th-unbox-0.2.2/Data/Вектор/Unboxed/Deriving.hs" :: Text in
+    mkTestCase "Вектор.hs" haystack (mkHeatMap haystack) Match
+      { mScore     = 288
+      , mPositions = fmap StrCharIdx $ 38 :| [39, 40, 41, 42, 43, 61, 62, 63]
+      }
   , let haystack = "all-packages/vector-th-unbox-0.2.2/Data/Vector/Unboxed/Deriving.hs" :: Text in
     mkTestCase "deriv vec" haystack (mkHeatMap haystack) Match
       { mScore     = 28000

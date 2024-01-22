@@ -179,16 +179,17 @@ reverseIterArray' arr j =
     !m0@(W8# m0_8#) = TA.unsafeIndex arr j
     m0# = word8ToWord# m0_8#
 
+{-# INLINE iterArray' #-}
 iterArray' :: TA.Array -> StrByteIdx Int -> (# Int#, Int #)
 iterArray' arr j = (# w, l #)
   where
-    !m0@(W8# m0_8#) = TA.unsafeIndex arr $ unStrByteIdx j
+    m0 :: Word8
+    !m0 = TA.unsafeIndex arr $ unStrByteIdx j
 
-    m0# = word8ToWord# m0_8#
-
-    !l  = utf8LengthByLeader m0#
+    l :: Int
+    !l  = utf8LengthByLeader m0
     !w  = case l of
-      1 -> word2Int# m0#
+      1 -> case m0 of W8# m0_8# -> word2Int# (word8ToWord# m0_8#)
       2 -> wchr2 m0
         (TA.unsafeIndex arr (unStrByteIdx (byteIdxAdvance j 1)))
       3 -> wchr3 m0
@@ -198,13 +199,14 @@ iterArray' arr j = (# w, l #)
         (TA.unsafeIndex arr (unStrByteIdx (byteIdxAdvance j 1)))
         (TA.unsafeIndex arr (unStrByteIdx (byteIdxAdvance j 2)))
         (TA.unsafeIndex arr (unStrByteIdx (byteIdxAdvance j 3)))
-{-# INLINE iterArray' #-}
 
-utf8LengthByLeader :: Word# -> Int
-utf8LengthByLeader w = I# (c# `xorI#` c# <=# 0#)
+{-# INLINE utf8LengthByLeader #-}
+utf8LengthByLeader :: Word8 -> Int
+utf8LengthByLeader (W8# w) = I# (c# `xorI#` (c# <=# 0#))
   where
-    c# = word2Int# (clz# (not# w))
+    c# = word2Int# (clz8# (word8ToWord# (notWord8# w)))
 
+{-# INLINE wchr2 #-}
 wchr2 :: Word8 -> Word8 -> Int#
 wchr2 (W8# x1#) (W8# x2#) =
   z1# +# z2#
@@ -213,8 +215,8 @@ wchr2 (W8# x1#) (W8# x2#) =
     !y2# = word2Int# (word8ToWord# x2#)
     !z1# = uncheckedIShiftL# (y1# -# 0xC0#) 6#
     !z2# = y2# -# 0x80#
-{-# INLINE wchr2 #-}
 
+{-# INLINE wchr3 #-}
 wchr3 :: Word8 -> Word8 -> Word8 -> Int#
 wchr3 (W8# x1#) (W8# x2#) (W8# x3#) =
   z1# +# z2# +# z3#
@@ -225,8 +227,8 @@ wchr3 (W8# x1#) (W8# x2#) (W8# x3#) =
     !z1# = uncheckedIShiftL# (y1# -# 0xE0#) 12#
     !z2# = uncheckedIShiftL# (y2# -# 0x80#) 6#
     !z3# = y3# -# 0x80#
-{-# INLINE wchr3 #-}
 
+{-# INLINE wchr4 #-}
 wchr4 :: Word8 -> Word8 -> Word8 -> Word8 -> Int#
 wchr4 (W8# x1#) (W8# x2#) (W8# x3#) (W8# x4#) =
   z1# +# z2# +# z3# +# z4#
@@ -239,7 +241,6 @@ wchr4 (W8# x1#) (W8# x2#) (W8# x3#) (W8# x4#) =
     !z2# = uncheckedIShiftL# (y2# -# 0x80#) 12#
     !z3# = uncheckedIShiftL# (y3# -# 0x80#) 6#
     !z4# = y4# -# 0x80#
-{-# INLINE wchr4 #-}
 
 {-# INLINE textFor_ #-}
 textFor_ :: forall m. Monad m => Text -> (Char -> m ()) -> m ()
