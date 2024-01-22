@@ -36,8 +36,8 @@ tests = testGroup "Data.FuzzyMatch.Tests"
   -- , heatMapGrouping
   ]
 
-foobarHeatmap :: Heatmap
-foobarHeatmap = Heatmap $ primArrayFromList [84, -2, -3, -4, -5, -5]
+foobarHeatmap :: PrimArray Heat
+foobarHeatmap = primArrayFromList [84, -2, -3, -4, -5, -5]
 
 noMatchScore :: Int32
 noMatchScore = (- 1000000)
@@ -50,32 +50,32 @@ noMatch = Match
 
 fuzzyMatchTests :: TestTree
 fuzzyMatchTests = testGroup "fuzzy match" $
-  [ mkTestCase "foo" "foobar" (\_ -> pure foobarHeatmap) Match
+  [ mkTestCase "foo" "foobar" (\_ -> Heatmap <$> unsafeThawPrimArray foobarHeatmap) Match
       { mScore     = 214
       , mPositions = StrCharIdx 0 :| [StrCharIdx 1, StrCharIdx 2]
       }
-  , mkTestCase "fo" "foobar" (\_ -> pure foobarHeatmap) Match
+  , mkTestCase "fo" "foobar" (\_ -> Heatmap <$> unsafeThawPrimArray foobarHeatmap) Match
       { mScore     = 142
       , mPositions = StrCharIdx 0 :| [StrCharIdx 1]
       }
-  , mkTestCase "oob" "foobar" (\_ -> pure foobarHeatmap) Match
+  , mkTestCase "oob" "foobar" (\_ -> Heatmap <$> unsafeThawPrimArray foobarHeatmap) Match
       { mScore     = 126
       , mPositions = StrCharIdx 1 :| [StrCharIdx 2, StrCharIdx 3]
       }
-  , mkTestCase "ooba" "foobar" (\_ -> pure foobarHeatmap) Match
+  , mkTestCase "ooba" "foobar" (\_ -> Heatmap <$> unsafeThawPrimArray foobarHeatmap) Match
       { mScore     = 211
       , mPositions = StrCharIdx 1 :| [StrCharIdx 2, StrCharIdx 3, StrCharIdx 4]
       }
-  , mkTestCase "or" "foobar" (\_ -> pure foobarHeatmap) Match
+  , mkTestCase "or" "foobar" (\_ -> Heatmap <$> unsafeThawPrimArray foobarHeatmap) Match
       { mScore     = (-7)
       , mPositions = StrCharIdx 1 :| [StrCharIdx 5]
       }
-  , mkTestCase "oor" "foobar" (\_ -> pure foobarHeatmap) Match
+  , mkTestCase "oor" "foobar" (\_ -> Heatmap <$> unsafeThawPrimArray foobarHeatmap) Match
       { mScore     = 50
       , mPositions = StrCharIdx 1 :| [StrCharIdx 2, StrCharIdx 5]
       }
-  , mkTestCase "x" "foobar" (\_ -> pure foobarHeatmap) noMatch
-  , mkTestCase "fooxar" "foobar" (\_ -> pure foobarHeatmap) noMatch
+  , mkTestCase "x" "foobar" (\_ -> Heatmap <$> unsafeThawPrimArray foobarHeatmap) noMatch
+  , mkTestCase "fooxar" "foobar" (\_ -> Heatmap <$> unsafeThawPrimArray foobarHeatmap) noMatch
 
   , mkTestCase "aaaaaaaaaa" (T.replicate 100 "a") (constHeatMap 100) Match
       { mScore     = 865
@@ -141,13 +141,13 @@ fuzzyMatchTests = testGroup "fuzzy match" $
   where
     addPrefixesSuffixes xs = xs ++ map ("W" <>) xs ++ map (<> "W") xs
 
-    constHeatMap :: Int -> forall s. ReusableState s -> ST s Heatmap
-    constHeatMap len _ = pure $ Heatmap $ replicatePrimArray len 1
+    constHeatMap :: Int -> forall s. ReusableState s -> ST s (Heatmap s)
+    constHeatMap len _ = Heatmap <$> unsafeThawPrimArray (replicatePrimArray len 1)
 
-    mkHeatMap :: Text -> forall s. ReusableState s -> ST s Heatmap
+    mkHeatMap :: Text -> forall s. ReusableState s -> ST s (Heatmap s)
     mkHeatMap haystack store = computeHeatmap store haystack (T.length haystack) mempty
 
-    mkTestCase :: Text -> Text -> (forall s. ReusableState s -> ST s Heatmap) -> Match -> TestTree
+    mkTestCase :: Text -> Text -> (forall s. ReusableState s -> ST s (Heatmap s)) -> Match -> TestTree
     mkTestCase needle haystack mkHeatmap result =
       testCase (T.unpack $ "match ‘" <> needle <> "’ against ‘" <> haystack <> "’") $ do
         let match = runST $ do
@@ -226,9 +226,10 @@ heatMap = testGroup "Heatmap"
     mkTestCase :: Text -> PrimArray Int32 -> [Int32] -> TestTree
     mkTestCase str groupSeps result =
       testCase (T.unpack $ "Heatmap of ‘" <> str <> "’" <> seps) $ do
-        let Heatmap heatmap = runST $ do
+        let heatmap = runST $ do
               store <- mkReusableState 3
-              computeHeatmap store str (T.length str) groupSeps
+              Heatmap hm <- computeHeatmap store str (T.length str) groupSeps
+              unsafeFreezePrimArray hm
             heatmap' = clonePrimArray heatmap 0 (length result)
         heatmap' @?= primArrayFromList (map Heat result)
       where

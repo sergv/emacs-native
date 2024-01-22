@@ -35,7 +35,6 @@ module Data.FuzzyMatch
 import Control.Monad
 import Control.Monad.Primitive
 import Control.Monad.ST.Strict
-import Data.Bifunctor
 import Data.Bits
 import Data.Char
 import Data.Coerce
@@ -419,7 +418,7 @@ data Submatch = Submatch
   { smScore           :: !Heat
   , smPositions       :: !(NonEmpty (StrCharIdx Int32))
   , smContiguousCount :: !Int32
-  , smMinMaxPos       :: !MinMaxIdx
+  , smMinMaxPos       :: !(MinMaxIdx StrCharIdx)
   } deriving (Generic, Show)
 
 submatchToMatch :: Submatch -> Match
@@ -431,7 +430,7 @@ submatchToMatch Submatch{smScore, smPositions} = Match
 fuzzyMatch
   :: forall s. WithCallStack
   => ReusableState s
-  -> Heatmap
+  -> Heatmap s
   -> Text            -- ^ Needle
   -> Text            -- ^ Haystack
   -> ST s Match
@@ -441,7 +440,7 @@ fuzzyMatch store heatmap needle haystack =
 fuzzyMatch'
   :: forall s. WithCallStack
   => ReusableState s
-  -> ST s Heatmap
+  -> ST s (Heatmap s)
   -> NonEmpty Text   -- ^ Needle segments to be matched as a conjunction
   -> Text            -- ^ Haystack
   -> ST s Match
@@ -451,7 +450,8 @@ fuzzyMatch' store mkHeatmap needleSegments haystack = do
     case sm of
       Nothing -> pure noMatch
       Just sm'@Submatch{smMinMaxPos} -> do
-        let (_start, end) = bimap StrCharIdx StrCharIdx $ getMinMax smMinMaxPos
+        let start, end :: StrCharIdx Int32
+            (start, end) = getMinMax smMinMaxPos
         pure $ submatchToMatch sm'
   pure $
     if any (== noMatch) matches
@@ -499,7 +499,7 @@ noMatch = Match
 fuzzyMatchImpl
   :: forall s. WithCallStack
   => ReusableState s
-  -> ST s Heatmap
+  -> ST s (Heatmap s)
   -> Text            -- ^ Needle
   -> Text            -- ^ Haystack
   -> ST s (Maybe Submatch)
@@ -524,11 +524,10 @@ fuzzyMatchImpl store mkHeatmap needle haystack
             (isMember, !i) = VExt.binSearchMemberIdx (mkPackedIdx x) xs
 
         computeScore
-          :: PrimMonad m
-          => (V.MVector (PrimState m) (U.Vector PackedStrCharIdx) -> StrCharIdx Int32 -> m (Maybe Submatch))
-          -> V.MVector (PrimState m) (U.Vector PackedStrCharIdx)
+          :: (V.MVector s (U.Vector PackedStrCharIdx) -> StrCharIdx Int32 -> ST s (Maybe Submatch))
+          -> V.MVector s (U.Vector PackedStrCharIdx)
           -> StrCharIdx Int32
-          -> m (Maybe Submatch)
+          -> ST s (Maybe Submatch)
         computeScore recur !needleOccursInHaystack !cutoffIndex = do
           -- Debug.Trace.traceM $ "key = " ++ show (VM.length needleOccursInHaystack, cutoffIndex)
 
@@ -537,10 +536,11 @@ fuzzyMatchImpl store mkHeatmap needle haystack
             -- Last character, already checked that vector is never empty
             1 ->
               inline findBestWith remainingOccurrences $ \ !pidx -> do
-                let StrCharIdx !idx = getStrCharIdx pidx
+                let !idx = getStrCharIdx pidx
+                heat <- readPrimArray heatmap $ fromIntegral $ unStrCharIdx idx
                 pure $! Just $! Submatch
-                  { smScore           = heatmap `indexPrimArray` fromIntegral idx
-                  , smPositions       = StrCharIdx idx :| []
+                  { smScore           = heat
+                  , smPositions       = idx :| []
                   , smContiguousCount = 0
                   , smMinMaxPos       = mkMinMaxIdx idx idx
                   }
@@ -549,8 +549,9 @@ fuzzyMatchImpl store mkHeatmap needle haystack
               inline findBestWith remainingOccurrences $ \ !pidx -> do
                 let !idx' = getStrCharIdx pidx
                 submatch' <- recur (VM.unsafeTail needleOccursInHaystack) idx'
-                pure $ (`fmap` submatch') $ \Submatch{smScore, smContiguousCount, smPositions, smMinMaxPos} ->
-                  let score'          = smScore + (heatmap `indexPrimArray` fromIntegral (unStrCharIdx idx'))
+                for submatch' $ \Submatch{smScore, smContiguousCount, smPositions, smMinMaxPos} -> do
+                  heat <- readPrimArray heatmap $ fromIntegral $ unStrCharIdx idx'
+                  let score'          = smScore + heat
                       contiguousBonus = Heat $ 60 + 15 * min 3 smContiguousCount
                       isContiguous    = NE.head smPositions == succ idx'
                       score
@@ -558,12 +559,12 @@ fuzzyMatchImpl store mkHeatmap needle haystack
                         = score' + contiguousBonus
                         | otherwise
                         = score'
-                  in Submatch
+                  pure $ Submatch
                     { smScore           = score
                     , smPositions       = NE.cons idx' smPositions
                     , smContiguousCount =
                       if isContiguous then smContiguousCount + 1 else 0
-                    , smMinMaxPos       = coerce mkMinMaxIdx idx' idx' <> smMinMaxPos
+                    , smMinMaxPos       = mkMinMaxIdx idx' idx' <> smMinMaxPos
                     }
 
       memoizeBy makeKey computeScore occurs (StrCharIdx (-1))
@@ -639,7 +640,7 @@ splitWithSeps !firstSep !seps !fullStr !fullStrLen
       | T.null str
       = []
       | T.null prefix
-      = if isSep $ fromIntegral $ ord $ T.unsafeHead suffix
+      = if inline isSep $ fromIntegral $ ord $ T.unsafeHead suffix
         then
           [ Group
             { gPrevChar = T.unsafeHead suffix
@@ -673,7 +674,7 @@ splitWithSeps !firstSep !seps !fullStr !fullStrLen
       where
         !start = StrCharIdx $ unStrCharIdx off - len
         isSep  = PExt.binSearchMember seps
-        (!len, !prefix, !suffix) = T.spanLenEnd (not . isSep . fromIntegral) str
+        (!len, !prefix, !suffix) = T.spanLenEnd (not . inline isSep . fromIntegral) str
 
 newtype Heat = Heat { unHeat :: Int32 }
   deriving (Eq, Ord, Num, Prim, Pretty, Bounded)
@@ -681,13 +682,12 @@ newtype Heat = Heat { unHeat :: Int32 }
 instance Show Heat where
   show = show . unHeat
 
--- | Heatmap mapping characters to scores
-newtype Heatmap = Heatmap { unHeatmap :: PrimArray Heat }
-  deriving (Show)
+-- | Heatmap mapping haystack characters to scores.
+newtype Heatmap s = Heatmap { unHeatmap :: MutablePrimArray s Heat }
 
 -- Heatmap elements spast @hastyackLen@ will have undefined values. Take care not
 -- to access them!
-computeHeatmap :: ReusableState s -> Text -> Int -> PrimArray Int32 -> ST s Heatmap
+computeHeatmap :: ReusableState s -> Text -> Int -> PrimArray Int32 -> ST s (Heatmap s)
 computeHeatmap ReusableState{rsHeatmapStore} !haystack !haystackLen groupSeps = do
   arr    <- readSTRef rsHeatmapStore
   scores <- do
@@ -730,7 +730,7 @@ computeHeatmap ReusableState{rsHeatmapStore} !haystack !haystackLen groupSeps = 
             s' <- analyzeGroup g seenBasePath groupsCount s haystackLen scores
             goGroups (seenBasePath || gsIsBasePath s') s' gs
 
-  Heatmap <$> unsafeFreezePrimArray scores
+  pure $ Heatmap scores
 
 data GroupState = GroupState
   { gsIsBasePath        :: !Bool

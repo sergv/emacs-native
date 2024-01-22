@@ -14,37 +14,38 @@ import Prelude hiding (min, max, init)
 import Prelude qualified
 
 import Control.LensBlaze
+import Data.Coerce
 import Data.Int
 import Data.Word
 
-newtype MinMaxIdx = MinMaxIdx { unMinMaxIdx :: Word64 }
+newtype MinMaxIdx f = MinMaxIdx { unMinMaxIdx :: Word64 }
   deriving (Eq, Ord, Show)
 
 {-# INLINE minMaxL #-}
-minMaxL :: Lens' MinMaxIdx Word64
+minMaxL :: Lens' (MinMaxIdx f) Word64
 minMaxL = lens unMinMaxIdx (\x _ -> MinMaxIdx x)
 
 {-# INLINE minL #-}
-minL :: Lens' MinMaxIdx Int32
-minL = minMaxL . int32L 0
+minL :: Coercible (f Int32) Int32 => Lens' (MinMaxIdx f) (f Int32)
+minL = minMaxL . int32L 0 . coerceL
 
 {-# INLINE maxL #-}
-maxL :: Lens' MinMaxIdx Int32
-maxL = minMaxL . int32L 32
+maxL :: Coercible (f Int32) Int32 => Lens' (MinMaxIdx f) (f Int32)
+maxL = minMaxL . int32L 32 . coerceL
 
-instance Semigroup MinMaxIdx where
+instance (Coercible (f Int32) Int32, Ord (f Int32)) => Semigroup (MinMaxIdx f) where
   x <> y = mkMinMaxIdx (Prelude.min minX minY) (Prelude.max maxX maxY)
     where
       (minX, maxX) = getMinMax x
       (minY, maxY) = getMinMax y
 
-mkMinMaxIdx :: Int32 -> Int32 -> MinMaxIdx
+mkMinMaxIdx :: forall f. Coercible (f Int32) Int32 => f Int32 -> f Int32 -> MinMaxIdx f
 mkMinMaxIdx min max =
   set minL min $ set maxL max init
   where
-    init :: MinMaxIdx
+    init :: MinMaxIdx f
     init = MinMaxIdx 0
 
 {-# INLINE getMinMax #-}
-getMinMax :: MinMaxIdx -> (Int32, Int32)
+getMinMax :: Coercible (f Int32) Int32 => MinMaxIdx f -> (f Int32, f Int32)
 getMinMax x = (view minL x, view maxL x)

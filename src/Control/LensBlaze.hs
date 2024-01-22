@@ -13,6 +13,7 @@ module Control.LensBlaze
   , view
   , over
   , set
+  , coerceL
   , boolL
   , int16L
   , int21L
@@ -24,6 +25,7 @@ module Control.LensBlaze
 import Control.Applicative
 
 import Data.Bits
+import Data.Coerce
 import Data.Functor.Identity
 import Data.Int
 import Data.Word
@@ -46,6 +48,15 @@ set l = over l . const
 {-# INLINE over #-}
 over :: Lens s t a b -> (a -> b) -> s -> t
 over l f = runIdentity . l (Identity . f)
+
+{-# INLINE coerceL #-}
+coerceL :: forall s t a b. (Coercible s a, Coercible t b) => Lens s t a b
+coerceL = \f x -> bt <$> f (sa x)
+  where
+    sa :: s -> a
+    sa = coerce
+    bt :: b -> t
+    bt = coerce
 
 {-# INLINE boolL #-}
 boolL :: Bits b => Int -> Lens' b Bool
