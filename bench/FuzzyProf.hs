@@ -33,8 +33,6 @@ doMatch :: PrimArray Int32 -> Text -> [Text] -> [(Int, Text)]
 doMatch seps needle haystacks =
   map (\key -> (fromIntegral (getScore key), haystacks' `V.unsafeIndex` fromIntegral (view idxL key))) $ P.toList ys
   where
-    needleChars = FuzzyMatch.prepareNeedle needle
-
     haystacks' :: V.Vector Text
     haystacks' = V.fromList haystacks
 
@@ -42,7 +40,7 @@ doMatch seps needle haystacks =
     ys = runST $ do
       let !totalHaystacks = V.length haystacks'
 
-      store <- FuzzyMatch.mkReusableState (T.length needle) needleChars
+      store <- FuzzyMatch.mkReusableState (T.length needle)
 
       scores <- PM.new totalHaystacks
 
@@ -53,7 +51,12 @@ doMatch seps needle haystacks =
             = do
               let !haystack    = haystacks' `V.unsafeIndex` n
                   !haystackLen = T.length haystack
-              !match <- FuzzyMatch.fuzzyMatch' store (FuzzyMatch.computeHeatmap store haystack haystackLen seps) needle needleChars haystack
+              !match <-
+                FuzzyMatch.fuzzyMatch'
+                  store
+                  (FuzzyMatch.computeHeatmap store haystack haystackLen seps)
+                  needle
+                  haystack
               PM.unsafeWrite scores n $!
                 mkSortKey (FuzzyMatch.mScore match) (fromIntegral haystackLen) (fromIntegral n)
               go (n + 1)

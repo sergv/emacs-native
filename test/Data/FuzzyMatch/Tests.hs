@@ -49,7 +49,7 @@ noMatch = Match
   }
 
 fuzzyMatchTests :: TestTree
-fuzzyMatchTests = testGroup "fuzzy match"
+fuzzyMatchTests = testGroup "fuzzy match" $
   [ mkTestCase "foo" "foobar" (\_ -> pure foobarHeatmap) Match
       { mScore     = 214
       , mPositions = StrCharIdx 0 :| [StrCharIdx 1, StrCharIdx 2]
@@ -77,39 +77,78 @@ fuzzyMatchTests = testGroup "fuzzy match"
   , mkTestCase "x" "foobar" (\_ -> pure foobarHeatmap) noMatch
   , mkTestCase "fooxar" "foobar" (\_ -> pure foobarHeatmap) noMatch
 
-  , mkTestCase "aaaaaaaaaa" (T.replicate 100 "a") (\_ -> pure (Heatmap (replicatePrimArray 100 1))) Match
+  , mkTestCase "aaaaaaaaaa" (T.replicate 100 "a") (constHeatMap 100) Match
       { mScore     = 865
       , mPositions = NE.fromList [StrCharIdx 90..StrCharIdx 99]
       }
-  , mkTestCase "aaaaaaaaaa" (T.replicate 200 "a") (\_ -> pure (Heatmap (replicatePrimArray 200 1))) Match
+  , mkTestCase "aaaaaaaaaa" (T.replicate 200 "a") (constHeatMap 200) Match
       { mScore     = 865
       , mPositions = NE.fromList [StrCharIdx 190..StrCharIdx 199]
       }
   , let haystack = "sys/dev/acpica/Osd/OsdTable.c" :: Text in
-      mkTestCase "cat.c" haystack (\store -> computeHeatmap store haystack (T.length haystack) mempty) Match
+      mkTestCase "cat.c" haystack (mkHeatMap haystack) Match
         { mScore     = 142
         , mPositions = NE.fromList (map StrCharIdx [12, 13, 22, 27, 28])
         }
   , let haystack = "/home/user/projects/Data/Vector.hs" :: Text in
-    mkTestCase "vector" haystack (\store -> computeHeatmap store haystack (T.length haystack) mempty) Match
+    mkTestCase "vector" haystack (mkHeatMap haystack) Match
       { mScore     = 397
       , mPositions = fmap StrCharIdx $ 25 :| [26, 27, 28, 29, 30]
       }
   , let haystack = "all-packages/vector-th-unbox-0.2.2/Data/Vector/Unboxed/Deriving.hs" :: Text in
-    mkTestCase "vector.hs" haystack (\store -> computeHeatmap store haystack (T.length haystack) mempty) Match
+    mkTestCase "vector.hs" haystack (mkHeatMap haystack) Match
       { mScore     = 414
       , mPositions = fmap StrCharIdx $ 13 :| [14, 15, 16, 17, 18, 63, 64, 65]
       }
+  , let haystack = "all-packages/vector-th-unbox-0.2.2/Data/Vector/Unboxed/Deriving.hs" :: Text in
+    mkTestCase "deriv vec" haystack (mkHeatMap haystack) Match
+      { mScore     = 28000
+      , mPositions = fmap StrCharIdx $ 13 :| [14, 15, 55, 56, 57, 58, 59]
+      }
+  , let haystack = "abc/baz/abc/foo/abc/bar/abc" :: Text in
+    mkTestCase "foo bar baz" haystack (mkHeatMap haystack) Match
+      { mScore     = 4772053
+      , mPositions = fmap StrCharIdx $ 4 :| [5, 6, 12, 13, 14, 20, 21, 22]
+      }
+  , let haystack = "abfc/baz/abrc/foo/aboc/bar/abcb" :: Text in
+    mkTestCase "foo bar baz frob" haystack (mkHeatMap haystack) noMatch
+  , let haystack = "+foo+bar+" :: Text in
+    mkTestCase "foo bar baz" haystack (mkHeatMap haystack) noMatch
+  ] ++
+  [ mkTestCase "fooo xyz" haystack (mkHeatMap haystack) noMatch
+  | haystack <-
+    [ "x+fooo+yz"
+    , "xy+fooo+z"
+    , "zyx+fooo"
+    ]
+  ] ++
+  [ mkTestCase "foo bar xyz" haystack (mkHeatMap haystack) noMatch
+  | haystack <- addPrefixesSuffixes
+      [ "x+foo+y+bar+z"
+      , "xy+foo+bar+z"
+      , "x+foo+bar+yz"
+      , "foo+xy+bar+z"
+      , "foo+x+bar+yz"
+      , "xy+foo+z+bar"
+      , "x+foo+yz+bar"
+      ]
   ]
   where
+    addPrefixesSuffixes xs = xs ++ map ("W" <>) xs ++ map (<> "W") xs
+
+    constHeatMap :: Int -> forall s. ReusableState s -> ST s Heatmap
+    constHeatMap len _ = pure $ Heatmap $ replicatePrimArray len 1
+
+    mkHeatMap :: Text -> forall s. ReusableState s -> ST s Heatmap
+    mkHeatMap haystack store = computeHeatmap store haystack (T.length haystack) mempty
+
     mkTestCase :: Text -> Text -> (forall s. ReusableState s -> ST s Heatmap) -> Match -> TestTree
     mkTestCase needle haystack mkHeatmap result =
       testCase (T.unpack $ "match ‘" <> needle <> "’ against ‘" <> haystack <> "’") $ do
         let match = runST $ do
-              let needleChars = prepareNeedle needle
-              store   <- mkReusableState (T.length needle) needleChars
+              store   <- mkReusableState (T.length needle)
               heatmap <- mkHeatmap store
-              fuzzyMatch store heatmap needle needleChars haystack
+              fuzzyMatch store heatmap needle haystack
         match @?= result
 
 fuzzyMatchMultipleTests :: TestTree
@@ -123,11 +162,10 @@ fuzzyMatchMultipleTests = testGroup "fuzzy match multiple"
     mkTestCase needle haystacks expectedScores =
       testCase (T.unpack $ "match ‘" <> needle <> "’ against ‘" <> T.pack (show haystacks) <> "’") $ do
         let matches = runST $ do
-              let needleChars = prepareNeedle needle
-              store <- mkReusableState (T.length needle) needleChars
+              store <- mkReusableState (T.length needle)
               for haystacks $ \haystack -> do
                 heatmap <- computeHeatmap store haystack (T.length haystack) mempty
-                !match  <- fuzzyMatch store heatmap needle needleChars haystack
+                !match  <- fuzzyMatch store heatmap needle haystack
                 pure $ mScore match
         matches @?= expectedScores
 
@@ -184,7 +222,7 @@ heatMap = testGroup "Heatmap"
     mkTestCase str groupSeps result =
       testCase (T.unpack $ "Heatmap of ‘" <> str <> "’" <> seps) $ do
         let Heatmap heatmap = runST $ do
-              store <- mkReusableState 3 (prepareNeedle "foo")
+              store <- mkReusableState 3
               computeHeatmap store str (T.length str) groupSeps
             heatmap' = clonePrimArray heatmap 0 (length result)
         heatmap' @?= primArrayFromList (map Heat result)

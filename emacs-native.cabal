@@ -87,6 +87,7 @@ library
     Data.FuzzyMatch
     Data.FuzzyMatch.SortKey
     Data.Ignores
+    Data.MinMaxIdx
     Data.NBSem
     Data.Packed
     Data.Regex
