@@ -4,25 +4,27 @@
 -- License:    Apache-2.0 (see LICENSE)
 -- Maintainer: serg.foo@gmail.com
 
+{-# LANGUAGE DerivingVia  #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Data.Packed
-  ( PackedCharAndStrCharIdx(..)
-  , combineCharIdx
-  , PackedChar(..)
-  , mkPackedChar
-  , keepChar
-  , PackedStrCharIdx(..)
-  , keepIdx
-  , mkPackedIdx
-  , getStrCharIdx
+  ( PackedStrCharIdxAndStrByteIdx
+  , mkPackedStrCharIdxAndStrByteIdx
+  , unpackIdxs
+  , CharAndIdxs(..)
 
+  , PackedStrCharIdxInLower
+  , mkPackedStrCharIdxInLower
+
+  , coerceVectorToPackedStrCharIdxInLower
+
+  -- Type family constructors
   , U.Vector(..)
   , U.MVector(..)
   ) where
 
 import Data.Bits
-import Data.Char
+import Data.Coerce
 import Data.Function
 import Data.Int
 import Data.Primitive.Types
@@ -31,75 +33,56 @@ import Data.Vector.Generic.Mutable qualified as GM
 import Data.Vector.Unboxed qualified as U
 import Data.Vector.Unboxed.Base qualified as U
 import Data.Word
-import Numeric (showHex)
-import Prettyprinter
+import Prettyprinter.Generics
 import Prettyprinter.Show
+import Numeric (showHex)
 
 import Data.StrIdx
 
-newtype PackedCharAndStrCharIdx = PackedCharAndStrCharIdx { _unPackedCharAndIdx :: Word64 }
+newtype PackedStrCharIdxAndStrByteIdx = PackedStrCharIdxAndStrByteIdx { _unPackedStrCharIdxAndStrByteIdx :: Word64 }
   deriving (Eq, Ord, Prim, U.Unbox)
 
-newtype instance U.MVector s PackedCharAndStrCharIdx = MV_PackedCharAndIdx (U.MVector s Word64)
-newtype instance U.Vector    PackedCharAndStrCharIdx = V_PackedCharAndIdx  (U.Vector    Word64)
-deriving instance GM.MVector U.MVector PackedCharAndStrCharIdx
-deriving instance G.Vector   U.Vector  PackedCharAndStrCharIdx
+instance Show PackedStrCharIdxAndStrByteIdx where
+  show = show . unpackIdxs
 
-instance Show PackedCharAndStrCharIdx where
-  show (PackedCharAndStrCharIdx x) =
-    show
-      ( chr $ fromIntegral $ keepChar (PackedChar x) `unsafeShiftR` 32
-      , showString "0x" . showHex (keepChar (PackedChar x) `unsafeShiftR` 32) $ []
-      , keepIdx (PackedStrCharIdx x)
-      )
-
-instance Pretty PackedCharAndStrCharIdx where
+instance Pretty PackedStrCharIdxAndStrByteIdx where
   pretty = ppShow
 
-{-# INLINE combineCharIdx #-}
-combineCharIdx :: Word64 -> Word64 -> PackedCharAndStrCharIdx
--- Safe to omit anding with lower4Bytes because index is unlikely to reach a point where that
--- operation would have any effect
--- combineCharIdx c idx = (c `unsafeShiftL` 32) .|. (lower4Bytes .&. w64 idx)
-combineCharIdx c idx = PackedCharAndStrCharIdx ((c `unsafeShiftL` 32) .|. idx)
+newtype instance U.MVector s PackedStrCharIdxAndStrByteIdx = MV_PackedStrCharIdxAndStrByteIdx (U.MVector s Word64)
+newtype instance U.Vector    PackedStrCharIdxAndStrByteIdx = V_PackedStrCharIdxAndStrByteIdx  (U.Vector    Word64)
+deriving instance GM.MVector U.MVector PackedStrCharIdxAndStrByteIdx
+deriving instance G.Vector   U.Vector  PackedStrCharIdxAndStrByteIdx
 
-newtype PackedChar = PackedChar { unPackedChar :: Word64 }
-  deriving (U.Unbox)
+mkPackedStrCharIdxAndStrByteIdx :: StrCharIdx Int32 -> StrByteIdx Int32 -> PackedStrCharIdxAndStrByteIdx
+mkPackedStrCharIdxAndStrByteIdx (StrCharIdx x) (StrByteIdx y) =
+  PackedStrCharIdxAndStrByteIdx $ w64 x .|. (w64 y `unsafeShiftL` 32)
 
-instance Show PackedChar where
-  showsPrec _ x
-    = showString "0x"
-    . showHex c
-    . showChar '/'
-    . showChar (chr (fromIntegral c))
-    where
-      c :: Word64
-      c = keepChar x `unsafeShiftR` 32
+{-# INLINE unpackIdxs #-}
+unpackIdxs :: PackedStrCharIdxAndStrByteIdx -> (StrCharIdx Int32, StrByteIdx Int32)
+unpackIdxs (PackedStrCharIdxAndStrByteIdx x) =
+  ( StrCharIdx (fromIntegral (x .&. lower4Bytes))
+  , StrByteIdx (fromIntegral ((x .&. upper4Bytes) `unsafeShiftR` 32))
+  )
 
-instance Pretty PackedChar where
-  pretty = pretty . show
+data CharAndIdxs = CharAndIdxs
+  { caiChar :: !Char
+  , caiIdxs :: !PackedStrCharIdxAndStrByteIdx
+  } deriving (Eq, Ord, Generic)
 
-newtype instance U.MVector s PackedChar = MV_PackedChar (U.MVector s PackedCharAndStrCharIdx)
-newtype instance U.Vector    PackedChar = V_PackedChar  (U.Vector    PackedCharAndStrCharIdx)
-deriving instance GM.MVector U.MVector PackedChar
-deriving instance G.Vector   U.Vector  PackedChar
+instance Pretty CharAndIdxs where
+  pretty = ppGeneric
 
-mkPackedChar :: Char -> PackedChar
-mkPackedChar = PackedChar . (`unsafeShiftL` 32) . w64 . ord
+instance U.IsoUnbox CharAndIdxs (Char, PackedStrCharIdxAndStrByteIdx) where
+  {-# INLINE toURepr   #-}
+  {-# INLINE fromURepr #-}
+  toURepr (CharAndIdxs a b) = (a, b)
+  fromURepr (a, b) = CharAndIdxs a b
 
-keepChar :: PackedChar -> Word64
-keepChar =
-  (.&. upper4Bytes) . unPackedChar
-
-instance Eq PackedChar where
-  (==) = (==) `on` keepChar
-
-instance Ord PackedChar where
-  compare = compare `on` keepChar
-
-
-newtype PackedStrCharIdx = PackedStrCharIdx { unPackedIdx :: Word64 }
-  deriving (U.Unbox)
+newtype instance U.MVector s CharAndIdxs = MV_CharAndIdxs (U.MVector s (Char, PackedStrCharIdxAndStrByteIdx))
+newtype instance U.Vector    CharAndIdxs = V_CharAndIdxs  (U.Vector    (Char, PackedStrCharIdxAndStrByteIdx))
+deriving via (CharAndIdxs `U.As` (Char, PackedStrCharIdxAndStrByteIdx)) instance GM.MVector U.MVector CharAndIdxs
+deriving via (CharAndIdxs `U.As` (Char, PackedStrCharIdxAndStrByteIdx)) instance G.Vector   U.Vector  CharAndIdxs
+instance U.Unbox CharAndIdxs
 
 {-# INLINE upper4Bytes #-}
 {-# INLINE lower4Bytes #-}
@@ -107,36 +90,31 @@ upper4Bytes, lower4Bytes :: Integral a => a
 upper4Bytes = 0xFFFFFFFF00000000
 lower4Bytes = 0x00000000FFFFFFFF
 
-{-# INLINE keepIdx #-}
-keepIdx :: PackedStrCharIdx -> StrCharIdx Int32
-keepIdx = StrCharIdx . fromIntegral . (.&. lower4Bytes) . unPackedIdx
-
-{-# INLINE mkPackedIdx #-}
-mkPackedIdx :: StrCharIdx Int32 -> PackedStrCharIdx
-mkPackedIdx = PackedStrCharIdx . w64 . unStrCharIdx
-
-{-# INLINE getStrCharIdx #-}
-getStrCharIdx :: PackedStrCharIdx -> StrCharIdx Int32
-getStrCharIdx = keepIdx
-
-newtype instance U.MVector s PackedStrCharIdx = MV_PackedIdx (U.MVector s PackedCharAndStrCharIdx)
-newtype instance U.Vector    PackedStrCharIdx = V_PackedIdx  (U.Vector    PackedCharAndStrCharIdx)
-deriving instance GM.MVector U.MVector PackedStrCharIdx
-deriving instance G.Vector   U.Vector  PackedStrCharIdx
-
-instance Show PackedStrCharIdx where
-  show = show . keepIdx
-
-instance Pretty PackedStrCharIdx where
-  pretty = ppShow
-
-instance Eq PackedStrCharIdx where
-  (==) = (==) `on` keepIdx
-
-instance Ord PackedStrCharIdx where
-  compare = compare `on` keepIdx
-
-
 {-# INLINE w64 #-}
 w64 :: Integral a => a -> Word64
 w64 = fromIntegral
+
+newtype PackedStrCharIdxInLower = PackedStrCharIdxInLower { unPackedStrCharIdxInLower :: Word64 }
+  deriving (Prim, U.Unbox)
+
+instance Eq PackedStrCharIdxInLower where
+  (==) = (==) `on` StrCharIdx @Int32 . fromIntegral . (lower4Bytes .&.) . unPackedStrCharIdxInLower
+
+instance Ord PackedStrCharIdxInLower where
+  compare = compare `on` StrCharIdx @Int32 . fromIntegral . (lower4Bytes .&.) . unPackedStrCharIdxInLower
+
+instance Show PackedStrCharIdxInLower where
+  show (PackedStrCharIdxInLower x) = y ++ "/0x" ++ showHex x []
+    where
+      y = show $ StrCharIdx @Int32 $ fromIntegral $ x .&. lower4Bytes
+
+newtype instance U.MVector s PackedStrCharIdxInLower = MV_PackedStrCharIdxInLower (U.MVector s Word64)
+newtype instance U.Vector    PackedStrCharIdxInLower = V_PackedStrCharIdxInLower  (U.Vector    Word64)
+deriving instance GM.MVector U.MVector PackedStrCharIdxInLower
+deriving instance G.Vector   U.Vector  PackedStrCharIdxInLower
+
+mkPackedStrCharIdxInLower :: StrCharIdx Int32 -> PackedStrCharIdxInLower
+mkPackedStrCharIdxInLower = PackedStrCharIdxInLower . (.&. lower4Bytes) . fromIntegral . unStrCharIdx
+
+coerceVectorToPackedStrCharIdxInLower :: U.Vector PackedStrCharIdxAndStrByteIdx -> U.Vector PackedStrCharIdxInLower
+coerceVectorToPackedStrCharIdxInLower = coerce

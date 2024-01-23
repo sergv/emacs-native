@@ -55,7 +55,7 @@ textFoldLinear f seed (TI.Text arr off len) =
       | j >= end  = x
       | otherwise =
         let TU.Iter c delta = TU.iterArray arr $ unStrByteIdx j
-        in textFoldLinearLoop (f c x) (byteIdxAdvance j delta)
+        in textFoldLinearLoop (inline f c x) (byteIdxAdvance j delta)
 
 {-# INLINE textFoldIdx #-}
 textFoldIdx :: forall a b. Num b => (StrCharIdx b -> Char -> a -> a) -> a -> Text -> a
@@ -68,7 +68,7 @@ textFoldIdx f !seed (TI.Text arr off len) =
       | j >= end  = x
       | otherwise =
         let TU.Iter c delta = TU.iterArray arr $ unStrByteIdx j
-        in textFoldIdxLoop (f i c x) (charIdxAdvance i 1) (byteIdxAdvance j delta)
+        in textFoldIdxLoop (inline f i c x) (charIdxAdvance i 1) (byteIdxAdvance j delta)
 
 {-# INLINE textFoldM #-}
 textFoldM :: forall m a. Monad m => (Char -> a -> m a) -> a -> Text -> m a
@@ -81,11 +81,16 @@ textFoldM f !seed (TI.Text arr off len) =
       | j >= end  = pure x
       | otherwise = do
         let TU.Iter c delta = TU.iterArray arr $ unStrByteIdx j
-        !x' <- f c x
+        !x' <- inline f c x
         textFoldLoop x' (byteIdxAdvance j delta)
 
 {-# INLINE textFoldIdxM #-}
-textFoldIdxM :: forall m a b. (Monad m, Num b) => (StrCharIdx b -> Char -> a -> m a) -> a -> Text -> m a
+textFoldIdxM
+  :: forall m a b. (Monad m, Num b)
+  => (StrCharIdx b -> StrByteIdx Int -> Char -> a -> m a)
+  -> a
+  -> Text
+  -> m a
 textFoldIdxM f !seed (TI.Text arr off len) =
   textFoldIdxMLoop seed (StrCharIdx 0) (StrByteIdx off)
   where
@@ -95,7 +100,7 @@ textFoldIdxM f !seed (TI.Text arr off len) =
       | j >= end  = pure x
       | otherwise = do
         let TU.Iter c delta = TU.iterArray arr $ unStrByteIdx j
-        x' <- f i c x
+        x' <- inline f i j c x
         textFoldIdxMLoop x' (charIdxAdvance i 1) (byteIdxAdvance j delta)
 
 {-# INLINE textCountMatches #-}

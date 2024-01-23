@@ -20,7 +20,7 @@ import Prettyprinter
 
 -- Character index.
 newtype StrCharIdx a = StrCharIdx { unStrCharIdx :: a }
-  deriving (Eq, Ord, Enum, Pretty)
+  deriving (Eq, Ord, Enum, Pretty, Functor, Foldable, Traversable)
 
 deriving instance U.Unbox a => U.Unbox (StrCharIdx a)
 
@@ -38,7 +38,7 @@ deriving instance G.Vector   U.Vector  a => G.Vector   U.Vector  (StrCharIdx a)
 
 -- Byte that points to start of utf8-encoded sequence.
 newtype StrByteIdx a = StrByteIdx { unStrByteIdx :: a }
-  deriving (Eq, Ord, Enum, Pretty)
+  deriving (Eq, Ord, Enum, Pretty, Functor, Foldable, Traversable)
 
 {-# INLINE byteIdxAdvance #-}
 byteIdxAdvance :: Num a => StrByteIdx a -> a -> StrByteIdx a
