@@ -25,6 +25,7 @@ import Control.Monad.Trans.Control
 import Data.Foldable
 import Data.Int
 import Data.List.NonEmpty (NonEmpty(..))
+import Data.Maybe
 import Data.Primitive.PrimArray
 import Data.Primitive.Types
 import Data.Text (Text)
@@ -106,11 +107,12 @@ scoreMatches (R seps (R needle (R haystacks Stop))) = do
           let haystackLen :: Int
               !haystackLen = T.length haystack
           !match <-
-            fuzzyMatch'
-              store
-              (computeHeatmap store haystack haystackLen seps')
-              needleSegments
-              haystack
+            fromMaybe noMatch <$>
+              fuzzyMatch'
+                store
+                (computeHeatmap store haystack haystackLen seps')
+                needleSegments
+                haystack
           pure $! mkSortKey (fi32 (mScore match)) (fromIntegral haystackLen) (fromIntegral n)
 
         processChunk :: forall ss. ReusableState ss -> Int -> Int -> ST ss ()
@@ -188,11 +190,19 @@ scoreSingleMatch (R seps (R needle (R haystack Stop))) = do
   haystack' <- extractText haystack
   let !Match{mScore, mPositions} = runST $ do
         store <- mkReusableState (T.length needle')
-        fuzzyMatch'
-          store
-          (computeHeatmap store haystack' (T.length haystack') seps')
-          (splitNeedle needle')
-          haystack'
+        fromMaybe noMatch <$>
+          fuzzyMatch'
+            store
+            (computeHeatmap store haystack' (T.length haystack') seps')
+            (splitNeedle needle')
+            haystack'
   score     <- makeInt $ fromIntegral mScore
   positions <- makeList =<< traverse (makeInt . fromIntegral . unStrCharIdx) mPositions
   cons score positions
+
+noMatch :: Match
+noMatch = Match
+  { mScore     = (-1000000)
+  , mPositions = StrCharIdx (-1) :| []
+  }
+

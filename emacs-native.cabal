@@ -191,6 +191,7 @@ test-suite emacs-native-test
     , tasty-hunit
     , tasty-quickcheck
     , text
+    , vector
   ghc-options:
     -rtsopts
     -main-is EmacsNativeTest

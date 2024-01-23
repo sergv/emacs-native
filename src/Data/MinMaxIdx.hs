@@ -17,9 +17,17 @@ import Control.LensBlaze
 import Data.Coerce
 import Data.Int
 import Data.Word
+import Prettyprinter
+import Prettyprinter.Show
 
 newtype MinMaxIdx f = MinMaxIdx { unMinMaxIdx :: Word64 }
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord)
+
+instance (Coercible (f Int32) Int32, Show (f Int32)) => Show (MinMaxIdx f) where
+  show = show . getMinMax
+
+instance (Coercible (f Int32) Int32, Show (f Int32)) => Pretty (MinMaxIdx f) where
+  pretty = ppShow
 
 {-# INLINE minMaxL #-}
 minMaxL :: Lens' (MinMaxIdx f) Word64

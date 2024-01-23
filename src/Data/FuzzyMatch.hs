@@ -37,15 +37,17 @@ import Control.Monad.ST.Strict
 import Data.Bits
 import Data.Char
 import Data.Foldable
-import Data.Foldable1
+import Data.Foldable1 as Foldable1
 import Data.Int
 import Data.IntMap (IntMap)
 import Data.IntMap qualified as IM
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.List.NonEmpty qualified as NE
+import Data.Maybe
 import Data.MinMaxIdx
 import Data.Monoid (Dual(..))
 import Data.Ord
+import Data.Primitive.ByteArray
 import Data.Primitive.PrimArray
 import Data.Primitive.PrimArray.Ext qualified as PExt
 import Data.Primitive.Types
@@ -63,6 +65,7 @@ import Data.Vector.Ext qualified as VExt
 import Data.Vector.Mutable qualified as VM
 import Data.Vector.PredefinedSorts
 import Data.Vector.Primitive qualified as P
+import Data.Vector.Primitive.Mutable qualified as PM
 import Data.Vector.Unboxed qualified as U
 import Data.Vector.Unboxed.Base qualified as U
 import Data.Vector.Unboxed.Mutable qualified as UM
@@ -398,22 +401,16 @@ characterOccurrences store@ReusableState{rsNeedleStore} !needle !needleChars !ha
 
 data Match = Match
   { mScore     :: !Int32
+  -- | Sorted by construction
   , mPositions :: !(NonEmpty (StrCharIdx Int32))
   } deriving (Eq, Generic, Ord, Show)
 
 data Submatch = Submatch
-  { smScore           :: !Heat
-  , smPositions       :: !(NonEmpty (StrCharIdx Int32))
+  { smMatch           :: {-# UNPACK #-} !Match
   , smContiguousCount :: !Int32
   , smMinMaxChar      :: !(MinMaxIdx StrCharIdx)
   , smMinMaxByte      :: !(MinMaxIdx StrByteIdx)
   } deriving (Generic, Show)
-
-submatchToMatch :: Submatch -> Match
-submatchToMatch Submatch{smScore, smPositions} = Match
-  { mScore     = unHeat smScore
-  , mPositions = smPositions
-  }
 
 fuzzyMatch
   :: forall s. WithCallStack
@@ -421,9 +418,28 @@ fuzzyMatch
   -> Heatmap s
   -> Text            -- ^ Needle
   -> Text            -- ^ Haystack
-  -> ST s Match
+  -> ST s (Maybe Match)
 fuzzyMatch store heatmap needle haystack =
   fuzzyMatch' store (pure heatmap) (splitNeedle needle) haystack
+
+instance Semigroup Match where
+  Match s1 ps1 <> Match s2 ps2 = Match
+    { mScore     = s1 + s2
+    , mPositions = merge ps1 ps2
+    }
+    where
+      merge :: Ord a => NonEmpty a -> NonEmpty a -> NonEmpty a
+      merge (x :| xs) (y :| ys) = case compare x y of
+        LT -> x :| merge' xs (y : ys)
+        EQ -> x :| y : merge' xs ys
+        GT -> y :| merge' (x : xs) ys
+      merge' :: Ord a => [a] -> [a] -> [a]
+      merge' []           ys           = ys
+      merge' xs           []           = xs
+      merge' xs'@(x : xs) ys'@(y : ys) = case compare x y of
+        LT -> x : merge' xs ys'
+        EQ -> x : y : merge' xs ys
+        GT -> y : merge' xs' ys
 
 fuzzyMatch'
   :: forall s. WithCallStack
@@ -431,26 +447,88 @@ fuzzyMatch'
   -> ST s (Heatmap s)
   -> NonEmpty Text   -- ^ Needle segments to be matched as a conjunction
   -> Text            -- ^ Haystack
-  -> ST s Match
+  -> ST s (Maybe Match)
 fuzzyMatch' store mkHeatmap needleSegments haystack = do
-  matches <- for needleSegments $ \segment -> do
-    sm <- fuzzyMatchImpl store mkHeatmap segment haystack
-    case sm of
-      Nothing -> pure noMatch
-      Just (sm'@Submatch{smMinMaxChar, smMinMaxByte}, heatmap) -> do
-        let bstart, bend :: StrByteIdx Int32
-            (bstart, bend) = getMinMax smMinMaxByte
-            cstart, cend :: StrCharIdx Int32
-            (cstart, cend) = getMinMax smMinMaxChar
-        pure $ submatchToMatch sm'
-  pure $
-    if any (== noMatch) matches
-    then noMatch
-    else Match
-      -- Cannot use product: we have only 21 bit to spare for scores.
-      { mScore     = sum $ map mScore $ toList matches
-      , mPositions = NE.sort $ foldMap1 mPositions matches
-      }
+  case needleSegments of
+    firstSegment :| otherSegments -> do
+      sm <- fuzzyMatchImpl store mkHeatmap firstSegment haystack
+      case sm of
+        Nothing -> pure Nothing
+        Just (sm', heatmap) -> do
+          go (smMatch sm') (mkParts 0 sm' haystack heatmap) otherSegments
+  where
+    mkParts :: Int32 -> Submatch -> Text -> Heatmap s -> NonEmpty (Text, Heatmap s, StrCharIdx Int32)
+    mkParts offset Submatch{smMinMaxChar, smMinMaxByte} str heatmap =
+      (hk1, hm1, StrCharIdx 0) :| [(hk2, hm2, idx)]
+      where
+        (hm1, hm2, idx) = splitHeatmap offset smMinMaxChar heatmap
+        (hk1, hk2)      = splitHaystack offset smMinMaxByte str
+
+    go :: Match -> NonEmpty (Text, Heatmap s, StrCharIdx Int32) -> [Text] -> ST s (Maybe Match)
+    go macc _     []                   = pure $ Just macc
+    go macc parts (segment : segments) = do
+      matches <- fmap catMaybes $ for (zip [0..] (toList parts)) $ \(i :: Int, part@(haystack', heatmap', _offset)) -> do
+        fmap (\(sm, _) -> (i, sm, part))  <$>
+          fuzzyMatchImpl store (pure heatmap') segment haystack'
+      case matches of
+        []     -> pure Nothing
+        m : ms -> do
+          let !(bestI, bestSM, (bestHaystack, bestHeatmap, StrCharIdx bestOffset)) =
+                Foldable1.maximumBy (comparing (\(_i, Submatch{smMatch = Match{mScore}}, _part) -> mScore)) (m :| ms)
+              bestMatch :: Match
+              bestMatch = (smMatch bestSM) { mPositions = (`charIdxAdvance` bestOffset) <$> mPositions (smMatch bestSM) }
+              macc'     = macc <> bestMatch
+              parts'    = flip Foldable1.foldMap1 (NE.zip (0 :| [1..]) parts) $ \(i, part) ->
+                if i == bestI
+                then (\(a, b, c) -> (a, b, charIdxAdvance c bestOffset)) <$> mkParts bestOffset bestSM bestHaystack bestHeatmap
+                else part :| []
+
+          go macc' parts' segments
+
+splitHaystack :: Int32 -> MinMaxIdx StrByteIdx -> Text -> (Text, Text)
+splitHaystack offset mm (TI.Text arr off len) =
+  ( TI.text arr off               bstart'
+  , TI.text arr (off + bend' + 1) (len - bend' - 1)
+  )
+  where
+    bstart, bend :: StrByteIdx Int32
+    !(!bstart, !bend) = getMinMax mm
+    bstart', bend' :: Int
+    !bstart' = fromIntegral (unStrByteIdx bstart - offset)
+    !bend'   = fromIntegral (unStrByteIdx bend   - offset)
+
+splitHeatmap :: Int32 -> MinMaxIdx StrCharIdx -> Heatmap s -> (Heatmap s, Heatmap s, StrCharIdx Int32)
+splitHeatmap offset mm (Heatmap arr) =
+  ( Heatmap $ PM.unsafeSlice 0 cstart' arr
+  , Heatmap $ PM.unsafeSlice cend' (PM.length arr) arr
+  , cend
+  )
+  where
+    cstart, cend :: StrCharIdx Int32
+    !(!cstart, !cend) = getMinMax mm
+    cstart', cend' :: Int
+    !cstart' = fromIntegral (unStrCharIdx cstart - offset)
+    !cend'   = fromIntegral (unStrCharIdx cend - offset)
+
+
+--   matches <- for needleSegments $ \segment -> do
+--     sm <- fuzzyMatchImpl store mkHeatmap segment haystack
+--     case sm of
+--       Nothing -> pure noMatch
+--       Just (sm'@Submatch{smMinMaxChar, smMinMaxByte}, heatmap) -> do
+--         let bstart, bend :: StrByteIdx Int32
+--             (bstart, bend) = getMinMax smMinMaxByte
+--             cstart, cend :: StrCharIdx Int32
+--             (cstart, cend) = getMinMax smMinMaxChar
+--         pure $ submatchToMatch sm'
+--   pure $
+--     if any (== noMatch) matches
+--     then noMatch
+--     else Match
+--       -- Cannot use product: we have only 21 bit to spare for scores.
+--       { mScore     = sum $ map mScore $ toList matches
+--       , mPositions = NE.sort $ foldMap1 mPositions matches
+--       }
 
 splitNeedle :: Text -> NonEmpty Text
 splitNeedle = NE.sortBy (comparing (Dual . T.lengthWord8)) . splitOnSpace
@@ -479,12 +557,6 @@ splitBy c = go
       | otherwise  =
         let (# prefix, suffix #) = split str
         in prefix : go' suffix
-
-noMatch :: Match
-noMatch = Match
-  { mScore     = (-1000000)
-  , mPositions = StrCharIdx (-1) :| []
-  }
 
 fuzzyMatchImpl
   :: forall s. WithCallStack
@@ -527,36 +599,40 @@ fuzzyMatchImpl store mkHeatmap needle haystack
             1 ->
               inline findBestWith remainingOccurrences $ \ !pidx -> do
                 let !(!cidx, !bidx) = unpackIdxs pidx
-                heat <- readPrimArray heatmap $ fromIntegral $ unStrCharIdx cidx
+                heat <- PM.unsafeRead heatmap $ fromIntegral $ unStrCharIdx cidx
                 pure $! Just $! Submatch
-                  { smScore           = heat
-                  , smPositions       = cidx :| []
+                  { smMatch           = Match
+                    { mScore     = unHeat heat
+                    , mPositions = cidx :| []
+                    }
                   , smContiguousCount = 0
-                  , smMinMaxChar       = mkMinMaxIdx cidx cidx
-                  , smMinMaxByte       = mkMinMaxIdx bidx bidx
+                  , smMinMaxChar      = mkMinMaxIdx cidx cidx
+                  , smMinMaxByte      = mkMinMaxIdx bidx bidx
                   }
 
             _ ->
               inline findBestWith remainingOccurrences $ \ !pidx -> do
                 let !(!cidx, !bidx) = unpackIdxs pidx
                 submatch' <- recur (VM.unsafeTail needleOccursInHaystack) cidx
-                for submatch' $ \Submatch{smScore, smContiguousCount, smPositions, smMinMaxChar, smMinMaxByte} -> do
-                  heat <- readPrimArray heatmap $ fromIntegral $ unStrCharIdx cidx
-                  let score'          = smScore + heat
-                      contiguousBonus = Heat $ 60 + 15 * min 3 smContiguousCount
-                      isContiguous    = NE.head smPositions == succ cidx
+                for submatch' $ \Submatch{smMatch = Match{mScore, mPositions}, smContiguousCount, smMinMaxChar, smMinMaxByte} -> do
+                  heat <- PM.unsafeRead heatmap $ fromIntegral $ unStrCharIdx cidx
+                  let score'          = mScore + unHeat heat
+                      contiguousBonus = 60 + 15 * min 3 smContiguousCount
+                      isContiguous    = NE.head mPositions == succ cidx
                       score
                         | isContiguous
                         = score' + contiguousBonus
                         | otherwise
                         = score'
                   pure $ Submatch
-                    { smScore           = score
-                    , smPositions       = NE.cons cidx smPositions
+                    { smMatch           = Match
+                      { mScore     = score
+                      , mPositions = NE.cons cidx mPositions
+                      }
                     , smContiguousCount =
                       if isContiguous then smContiguousCount + 1 else 0
-                    , smMinMaxChar       = mkMinMaxIdx cidx cidx <> smMinMaxChar
-                    , smMinMaxByte       = mkMinMaxIdx bidx bidx <> smMinMaxByte
+                    , smMinMaxChar      = mkMinMaxIdx cidx cidx <> smMinMaxChar
+                    , smMinMaxByte      = mkMinMaxIdx bidx bidx <> smMinMaxByte
                     }
 
       fmap (, heatmap') <$> memoizeBy makeKey computeScore occurs (StrCharIdx (-1))
@@ -588,7 +664,7 @@ fuzzyMatchImpl store mkHeatmap needle haystack
                   (y,       Nothing) -> y
                   (Just b', Just x') ->
                     -- If scores are equal then prefer the match occuring later.
-                    Just $! if smScore x' >= smScore b' then x' else b'
+                    Just $! if mScore (smMatch x') >= mScore (smMatch b') then x' else b'
             go best' (i + 1)
 
 memoizeBy
@@ -673,13 +749,13 @@ splitWithSeps !firstSep !seps !fullStr !fullStrLen
         (!len, !prefix, !suffix) = T.spanLenEnd (not . inline isSep . fromIntegral) str
 
 newtype Heat = Heat { unHeat :: Int32 }
-  deriving (Eq, Ord, Num, Prim, Pretty, Bounded)
+  deriving (Eq, Ord, Prim, Pretty, Bounded)
 
 instance Show Heat where
   show = show . unHeat
 
 -- | Heatmap mapping haystack characters to scores.
-newtype Heatmap s = Heatmap { unHeatmap :: MutablePrimArray s Heat }
+newtype Heatmap s = Heatmap { unHeatmap :: PM.MVector s Heat }
 
 -- Heatmap elements spast @hastyackLen@ will have undefined values. Take care not
 -- to access them!
@@ -706,7 +782,7 @@ computeHeatmap ReusableState{rsHeatmapStore} !haystack !haystackLen groupSeps = 
       initScore = (-35)
       !initAdjustment = if groupsCount > 1 then groupsCount * (-2) else 0
       lastCharBonus :: Heat
-      !lastCharBonus = 1
+      !lastCharBonus = Heat 1
 
   setPrimArray scores 0 haystackLen (Heat (fi32 (initScore + initAdjustment)))
   update (StrCharIdx (haystackLen - 1)) lastCharBonus scores
@@ -727,7 +803,8 @@ computeHeatmap ReusableState{rsHeatmapStore} !haystack !haystackLen groupSeps = 
             s' <- analyzeGroup g seenBasePath groupsCount s haystackLen scores
             goGroups (seenBasePath || gsIsBasePath s') s' gs
 
-  pure $ Heatmap scores
+  pure $ Heatmap $ PM.MVector 0 haystackLen $ case scores of
+    MutablePrimArray xs -> MutableByteArray xs
 
 data GroupState = GroupState
   { gsIsBasePath        :: !Bool
@@ -803,7 +880,7 @@ analyzeGroup Group{gPrevChar, gLen, gStr, gStart} !seenBasePath !groupsCount Gro
       !end   = charIdxAdvance start gLen
 
   let wordStart :: Heat
-      !wordStart = 85
+      !wordStart = Heat 85
 
   let wordStart#, leadingPenalty# :: Int#
       wordStart#      = 85#
@@ -890,7 +967,7 @@ analyzeGroup Group{gPrevChar, gLen, gStr, gStart} !seenBasePath !groupsCount Gro
 calcGroupScore :: Bool -> Int -> Int -> Int -> Heat
 calcGroupScore isBasePath groupsCount wordCount gcGroupIdx
   | isBasePath = Heat $ fi32 $ 35 + max (groupsCount - 2) 0 - wordCount
-  | otherwise  = if gcGroupIdx == 0 then (- 3) else Heat $ fi32 $ gcGroupIdx - 6
+  | otherwise  = if gcGroupIdx == 0 then Heat (- 3) else Heat $ fi32 $ gcGroupIdx - 6
 
 penaliseIfLeading :: Int# -> Bool#
 penaliseIfLeading x = Bool# (x <=# 46#) `band#` Bool# (x >=# 46#) -- 46 is '.' in ascii
@@ -898,7 +975,7 @@ penaliseIfLeading x = Bool# (x <=# 46#) `band#` Bool# (x >=# 46#) -- 46 is '.' i
 update :: StrCharIdx Int -> Heat -> MutablePrimArray s Heat -> ST s ()
 update !idx !val !arr = do
   x <- readPrimArray arr (unStrCharIdx idx)
-  writePrimArray arr (unStrCharIdx idx) (x + val)
+  writePrimArray arr (unStrCharIdx idx) (coerce ((+) @Int32) x val)
 
 applyGroupScore
   :: forall s. Heat -> StrCharIdx Int -> StrCharIdx Int -> Int -> MutablePrimArray s Heat -> ST s ()
