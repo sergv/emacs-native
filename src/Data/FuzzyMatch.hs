@@ -520,8 +520,6 @@ fuzzyMatchImpl store mkHeatmap needle haystack
           -> StrCharIdx Int32
           -> ST s (Maybe Submatch)
         computeScore recur !needleOccursInHaystack !cutoffIndex = do
-          -- Debug.Trace.traceM $ "key = " ++ show (VM.length needleOccursInHaystack, cutoffIndex)
-
           (remainingOccurrences :: U.Vector PackedStrCharIdxAndStrByteIdx) <-
             bigger cutoffIndex <$> VM.unsafeRead needleOccursInHaystack 0
           case VM.length needleOccursInHaystack of
