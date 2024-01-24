@@ -15,6 +15,7 @@ import Control.Exception
 import Control.LensBlaze
 import Control.Monad.ST
 import Data.Int
+import Data.List.NonEmpty (NonEmpty(..))
 import Data.Primitive.PrimArray
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -55,10 +56,10 @@ doMatch seps needle haystacks =
                 FuzzyMatch.fuzzyMatch'
                   store
                   (FuzzyMatch.computeHeatmap store haystack haystackLen seps)
-                  needle
+                  (needle :| [])
                   haystack
               PM.unsafeWrite scores n $!
-                mkSortKey (FuzzyMatch.mScore match) (fromIntegral haystackLen) (fromIntegral n)
+                mkSortKey (maybe minBound FuzzyMatch.mScore match) (fromIntegral haystackLen) (fromIntegral n)
               go (n + 1)
 
       go 0
