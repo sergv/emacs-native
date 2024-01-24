@@ -155,7 +155,7 @@ fuzzyMatchMultipleTests = testGroup "fuzzy match multiple"
   , mkTestCase "Trie.hs" ["TradeScriptAux/Fides.hs", "Packages/utils/src/Interlude.hs", "src/Tools/XtrmPricer/XtrmPricer.hs", "Packages/BackendMatrix/src/BackendMatrix/Core.hs",  "src/BackendTaxonomy/Tests/Facts/TargetAccrualEarlyRedemptionTestFact.hs", "Packages/utils/src/Utils/Trie.hs"] [Just 238, Nothing, Just 191, Nothing, Just 114, Just 523]
   ]
   where
-    mkTestCase :: Text -> [Text] -> [Maybe Int32] -> TestTree
+    mkTestCase :: Text -> [Text] -> [Maybe Int] -> TestTree
     mkTestCase needle haystacks expectedScores =
       testCase (T.unpack $ "match ‘" <> needle <> "’ against ‘" <> T.pack (show haystacks) <> "’") $ do
         let matches = runST $ do

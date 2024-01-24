@@ -80,7 +80,6 @@ library
     cpp-options: -DRUNTIME_CHECKS
   exposed-modules:
     Control.LensBlaze
-    Data.ByteString.Char8.Ext
     Data.Emacs.Path
     Data.Eproj
     Data.Filesystem
@@ -102,6 +101,9 @@ library
     Emacs.FastFileSearch
     Emacs.FuzzyMatch
     Emacs.Grep
+  other-modules:
+    Data.Bits.Ext
+    Data.ByteString.Char8.Ext
   hs-source-dirs:
     src
   build-depends:

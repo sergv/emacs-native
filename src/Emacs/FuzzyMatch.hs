@@ -34,6 +34,8 @@ import Data.Vector.Ext qualified as VExt
 import Data.Vector.PredefinedSorts
 import Data.Vector.Primitive qualified as P
 import Data.Vector.Primitive.Mutable qualified as PM
+import Data.Vector.Unboxed qualified as U
+import Data.Vector.Unboxed.Mutable qualified as UM
 import GHC.IO (unsafeIOToST)
 
 import Data.Emacs.Module.Doc qualified as Doc
@@ -88,7 +90,7 @@ scoreMatches (R seps (R needle (R haystacks Stop))) = do
   (haystacks' :: V.Vector (Text, v s)) <- extractVectorWith (\str -> (, str) <$> extractText str) haystacks
 
   -- Will rethrow EarlyTermination if user aborted.
-  (matches :: P.Vector SortKey) <- runWithEarlyTermination $ do
+  (matches :: U.Vector SortKey) <- runWithEarlyTermination $ do
     let chunk :: Int
         !chunk = 256
         totalHaystacks :: Int
@@ -99,7 +101,7 @@ scoreMatches (R seps (R needle (R haystacks Stop))) = do
     jobs    <- getNumCapabilities
     jobSync <- Counter.new (jobs * chunk)
 
-    (scores :: PM.MVector RealWorld SortKey) <- PM.new totalHaystacks
+    (scores :: UM.MVector RealWorld SortKey) <- UM.new totalHaystacks
 
     let processOne :: forall ss. ReusableState ss -> Text -> Int -> ST ss SortKey
         processOne !store !haystack !n = do
@@ -110,13 +112,13 @@ scoreMatches (R seps (R needle (R haystacks Stop))) = do
             (computeHeatmap store haystack haystackLen seps')
             needleSegments
             haystack
-          pure $! mkSortKey (maybe minBound (fi32 . mScore) match) (fromIntegral haystackLen) (fromIntegral n)
+          pure $! mkSortKey (maybe minBound mScore match) (fromIntegral haystackLen) (fromIntegral n)
 
         processChunk :: forall ss. ReusableState ss -> Int -> Int -> ST ss ()
         processChunk !store !start !end =
           loopM start end $ \ !n -> do
             let !haystack = fst $ haystacks' `V.unsafeIndex` n
-            unsafeIOToST . PM.unsafeWrite scores n =<< processOne store haystack n
+            unsafeIOToST . UM.unsafeWrite scores n =<< processOne store haystack n
 
         processChunks :: forall ss. Int -> ST ss ()
         processChunks !k = do
@@ -136,7 +138,7 @@ scoreMatches (R seps (R needle (R haystacks Stop))) = do
     traverse_ wait =<< traverse (async . stToIO . processChunks) [0..jobs - 1]
 
     stToIO $ sortSortKeyPar scores
-    P.unsafeFreeze scores
+    U.unsafeFreeze scores
 
   nilVal <- nil
 
@@ -145,10 +147,10 @@ scoreMatches (R seps (R needle (R haystacks Stop))) = do
       mkListLoop i res = do
         let !j = i - 1
             idx :: Int
-            !idx = fromIntegral $ view idxL $ matches `P.unsafeIndex` j
+            !idx = fromIntegral $ view idxL $ matches `U.unsafeIndex` j
         mkListLoop j =<< cons (snd $ haystacks' `V.unsafeIndex` idx) res
 
-  mkListLoop (P.length matches) nilVal
+  mkListLoop (U.length matches) nilVal
 
 {-# INLINE loopM #-}
 loopM :: Applicative m => Int -> Int -> (Int -> m ()) -> m ()
@@ -160,14 +162,11 @@ loopM !from !to action = go from
       | otherwise
       = action n *> go (n + 1)
 
-{-# INLINE fi32 #-}
-fi32 :: Integral a => a -> Int32
-fi32 = fromIntegral
-
 scoreSingleMatchDoc :: Doc.Doc
 scoreSingleMatchDoc =
-  "Fuzzy match a single string against another. Returns match score and \
-  \positions where the match occured."
+  "Fuzzy match a single string against another. Returns (cons SCORE POSITIONS) - \
+  \the match score and positions where the match occured. \
+  \Returns NIL if there's no match."
 
 scoreSingleMatch
   :: forall m v s.
@@ -195,6 +194,6 @@ scoreSingleMatch (R seps (R needle (R haystack Stop))) = do
   case res of
     Nothing                         -> nil
     Just !Match{mScore, mPositions} -> do
-      score     <- makeInt $ fromIntegral mScore
+      score     <- makeInt mScore
       positions <- makeList =<< traverse (makeInt . fromIntegral . unStrCharIdx) mPositions
       cons score positions

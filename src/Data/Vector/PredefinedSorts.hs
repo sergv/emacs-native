@@ -31,26 +31,24 @@ import Data.Vector.Algorithms.Heapsort qualified as Quick
 import Data.Vector.Algorithms.Quicksort.Parameterised qualified as Quick
 
 {-# SPECIALIZE Quick.sortInplaceFM :: Quick.Sequential -> Quick.Median3 Int32 -> PM.MVector s Int32 -> ST s () #-}
-{-# SPECIALIZE Quick.heapSort      :: PM.MVector s Int32 -> ST s ()        #-}
+{-# SPECIALIZE Quick.heapSort      :: PM.MVector s Int32 -> ST s () #-}
 {-# SPECIALIZE Quick.bitonicSort   :: Int -> PM.MVector s Int32 -> ST s () #-}
 
 {-# SPECIALIZE Quick.sortInplaceFM :: Quick.Sequential -> Quick.Median3 Word64 -> PM.MVector s Word64 -> ST s () #-}
-{-# SPECIALIZE Quick.heapSort      :: PM.MVector s Word64 -> ST s ()        #-}
+{-# SPECIALIZE Quick.heapSort      :: PM.MVector s Word64 -> ST s () #-}
 {-# SPECIALIZE Quick.bitonicSort   :: Int -> PM.MVector s Word64 -> ST s () #-}
 
 {-# SPECIALIZE Quick.sortInplaceFM :: Quick.Sequential -> Quick.Median3 CharAndIdxs -> UM.MVector s CharAndIdxs -> ST s () #-}
-{-# SPECIALIZE Quick.heapSort      :: UM.MVector s CharAndIdxs -> ST s ()        #-}
+{-# SPECIALIZE Quick.heapSort      :: UM.MVector s CharAndIdxs -> ST s () #-}
 {-# SPECIALIZE Quick.bitonicSort   :: Int -> UM.MVector s CharAndIdxs -> ST s () #-}
 
 {-# SPECIALIZE Quick.sortInplaceFM :: Quick.Sequential -> Quick.Median3 Char -> PM.MVector s Char -> ST s () #-}
-{-# SPECIALIZE Quick.heapSort      :: PM.MVector s Char  -> ST s ()                                          #-}
-{-# SPECIALIZE Quick.bitonicSort   :: Int                -> PM.MVector s Char -> ST s ()                     #-}
+{-# SPECIALIZE Quick.heapSort      :: PM.MVector s Char -> ST s () #-}
+{-# SPECIALIZE Quick.bitonicSort   :: Int -> PM.MVector s Char -> ST s () #-}
 
-
-{-# SPECIALIZE Quick.sortInplaceFM :: Quick.ParStrategies -> Quick.Median3or5 SortKey -> PM.MVector s SortKey -> ST s () #-}
-{-# SPECIALIZE Quick.heapSort      :: PM.MVector s SortKey  -> ST s ()                                          #-}
-{-# SPECIALIZE Quick.bitonicSort   :: Int                -> PM.MVector s SortKey -> ST s ()                     #-}
-
+{-# SPECIALIZE Quick.sortInplaceFM :: Quick.ParStrategies -> Quick.Median3or5 SortKey -> UM.MVector s SortKey -> ST s () #-}
+{-# SPECIALIZE Quick.heapSort      :: UM.MVector s SortKey -> ST s () #-}
+{-# SPECIALIZE Quick.bitonicSort   :: Int -> UM.MVector s SortKey -> ST s () #-}
 
 {-# NOINLINE sortInt32 #-}
 sortInt32 :: PM.MVector s Int32 -> ST s ()
@@ -75,6 +73,6 @@ sortVectorUnsafeChar !xs = runST $ do
   P.unsafeFreeze ys
 
 {-# NOINLINE sortSortKeyPar #-}
-sortSortKeyPar :: PM.MVector s SortKey -> ST s ()
+sortSortKeyPar :: UM.MVector s SortKey -> ST s ()
 sortSortKeyPar =
   Quick.sortInplaceFM (Quick.setParStrategiesCutoff 1000 Quick.defaultParStrategies) (Quick.Median3or5 @SortKey)

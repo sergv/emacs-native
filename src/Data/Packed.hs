@@ -24,6 +24,7 @@ module Data.Packed
   ) where
 
 import Data.Bits
+import Data.Bits.Ext
 import Data.Coerce
 import Data.Function
 import Data.Int
@@ -83,16 +84,6 @@ newtype instance U.Vector    CharAndIdxs = V_CharAndIdxs  (U.Vector    (Char, Pa
 deriving via (CharAndIdxs `U.As` (Char, PackedStrCharIdxAndStrByteIdx)) instance GM.MVector U.MVector CharAndIdxs
 deriving via (CharAndIdxs `U.As` (Char, PackedStrCharIdxAndStrByteIdx)) instance G.Vector   U.Vector  CharAndIdxs
 instance U.Unbox CharAndIdxs
-
-{-# INLINE upper4Bytes #-}
-{-# INLINE lower4Bytes #-}
-upper4Bytes, lower4Bytes :: Integral a => a
-upper4Bytes = 0xFFFFFFFF00000000
-lower4Bytes = 0x00000000FFFFFFFF
-
-{-# INLINE w64 #-}
-w64 :: Integral a => a -> Word64
-w64 = fromIntegral
 
 newtype PackedStrCharIdxInLower = PackedStrCharIdxInLower { unPackedStrCharIdxInLower :: Word64 }
   deriving (Prim, U.Unbox)

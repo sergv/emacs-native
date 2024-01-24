@@ -400,7 +400,7 @@ characterOccurrences store@ReusableState{rsNeedleStore} !needle !needleChars !ha
   pure (VM.unsafeSlice 0 (T.length needle) rsNeedleStore, anyEmpty)
 
 data Match = Match
-  { mScore     :: !Int32
+  { mScore     :: !Int
   -- | Sorted by construction
   , mPositions :: !(NonEmpty (StrCharIdx Int32))
   } deriving (Eq, Generic, Ord, Show)
@@ -602,7 +602,7 @@ fuzzyMatchImpl store mkHeatmap needle haystack
                 heat <- PM.unsafeRead heatmap $ fromIntegral $ unStrCharIdx cidx
                 pure $! Just $! Submatch
                   { smMatch           = Match
-                    { mScore     = unHeat heat
+                    { mScore     = fromIntegral $ unHeat heat
                     , mPositions = cidx :| []
                     }
                   , smContiguousCount = 0
@@ -616,8 +616,8 @@ fuzzyMatchImpl store mkHeatmap needle haystack
                 submatch' <- recur (VM.unsafeTail needleOccursInHaystack) cidx
                 for submatch' $ \Submatch{smMatch = Match{mScore, mPositions}, smContiguousCount, smMinMaxChar, smMinMaxByte} -> do
                   heat <- PM.unsafeRead heatmap $ fromIntegral $ unStrCharIdx cidx
-                  let score'          = mScore + unHeat heat
-                      contiguousBonus = 60 + 15 * min 3 smContiguousCount
+                  let score'          = mScore + fromIntegral (unHeat heat)
+                      contiguousBonus = 60 + 15 * min 3 (fromIntegral smContiguousCount)
                       isContiguous    = NE.head mPositions == succ cidx
                       score
                         | isContiguous
