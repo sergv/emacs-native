@@ -57,7 +57,7 @@ initialise = do
 
 scoreMatchesDoc :: Doc.Doc
 scoreMatchesDoc =
-  "Given a query string and a list of strings to match against, \
+  "Given vector of separator characters, a query string and a vector of strings to match against, \
   \sort the strings according to score of fuzzy matching them against the query."
 
 extractSeps
