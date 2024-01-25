@@ -101,9 +101,11 @@ scoreMatches (R seps (R needle (R haystacks Stop))) = do
     jobs    <- getNumCapabilities
     jobSync <- Counter.new (jobs * chunk)
 
+    scoresCount <- Counter.new 0
+
     (scores :: UM.MVector RealWorld SortKey) <- UM.new totalHaystacks
 
-    let processOne :: forall ss. ReusableState ss -> Text -> Int -> ST ss SortKey
+    let processOne :: forall ss. ReusableState ss -> Text -> Int -> ST ss ()
         processOne !store !haystack !n = do
           let haystackLen :: Int
               !haystackLen = T.length haystack
@@ -112,13 +114,16 @@ scoreMatches (R seps (R needle (R haystacks Stop))) = do
             (computeHeatmap store haystack haystackLen seps')
             needleSegments
             haystack
-          pure $! mkSortKey (maybe minBound mScore match) (fromIntegral haystackLen) (fromIntegral n)
+          for_ match $ \Match{mScore} -> do
+            let !sortKey = mkSortKey mScore (fromIntegral haystackLen) (fromIntegral n)
+            k <- unsafeIOToST $ Counter.add scoresCount 1
+            unsafeIOToST $ UM.unsafeWrite scores k sortKey
 
         processChunk :: forall ss. ReusableState ss -> Int -> Int -> ST ss ()
         processChunk !store !start !end =
           loopM start end $ \ !n -> do
             let !haystack = fst $ haystacks' `V.unsafeIndex` n
-            unsafeIOToST . UM.unsafeWrite scores n =<< processOne store haystack n
+            processOne store haystack n
 
         processChunks :: forall ss. Int -> ST ss ()
         processChunks !k = do
@@ -137,8 +142,12 @@ scoreMatches (R seps (R needle (R haystacks Stop))) = do
 
     traverse_ wait =<< traverse (async . stToIO . processChunks) [0..jobs - 1]
 
-    stToIO $ sortSortKeyPar scores
-    U.unsafeFreeze scores
+    totalScores <- Counter.get scoresCount
+
+    let scores' = UM.unsafeSlice 0 totalScores scores
+
+    stToIO $ sortSortKeyPar scores'
+    U.unsafeFreeze scores'
 
   nilVal <- nil
 
