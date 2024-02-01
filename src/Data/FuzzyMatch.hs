@@ -6,14 +6,15 @@
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
 
-{-# LANGUAGE CPP               #-}
-{-# LANGUAGE MagicHash         #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternSynonyms   #-}
-{-# LANGUAGE TypeFamilies      #-}
-{-# LANGUAGE UnboxedTuples     #-}
-{-# LANGUAGE UnliftedFFITypes  #-}
-{-# LANGUAGE UnliftedNewtypes  #-}
+{-# LANGUAGE CPP                #-}
+{-# LANGUAGE DerivingVia        #-}
+{-# LANGUAGE MagicHash          #-}
+{-# LANGUAGE OverloadedStrings  #-}
+{-# LANGUAGE PatternSynonyms    #-}
+{-# LANGUAGE TypeFamilies       #-}
+{-# LANGUAGE UnboxedTuples      #-}
+{-# LANGUAGE UnliftedFFITypes   #-}
+{-# LANGUAGE UnliftedNewtypes   #-}
 
 module Data.FuzzyMatch
   ( fuzzyMatch'
@@ -403,7 +404,9 @@ data Match = Match
   { mScore     :: !Int
   -- | Sorted by construction
   , mPositions :: !(NonEmpty (StrCharIdx Int32))
-  } deriving (Eq, Generic, Ord, Show)
+  }
+  deriving (Eq, Ord, Show, Generic)
+  deriving Pretty via PPGeneric Match
 
 data Submatch = Submatch
   { smMatch           :: {-# UNPACK #-} !Match
@@ -468,7 +471,7 @@ fuzzyMatch' store mkHeatmap needleSegments haystack = do
     go macc _     []                   = pure $ Just macc
     go macc parts (segment : segments) = do
       matches <- fmap catMaybes $ for (zip [0..] (toList parts)) $ \(i :: Int, part@(haystack', heatmap', _offset)) -> do
-        fmap (\(sm, _) -> (i, sm, part))  <$>
+        fmap (\(sm, _) -> (i, sm, part)) <$>
           fuzzyMatchImpl store (pure heatmap') segment haystack'
       case matches of
         []     -> pure Nothing
@@ -500,35 +503,17 @@ splitHaystack offset mm (TI.Text arr off len) =
 splitHeatmap :: Int32 -> MinMaxIdx StrCharIdx -> Heatmap s -> (Heatmap s, Heatmap s, StrCharIdx Int32)
 splitHeatmap offset mm (Heatmap arr) =
   ( Heatmap $ PM.unsafeSlice 0 cstart' arr
-  , Heatmap $ PM.unsafeSlice cend' (PM.length arr) arr
-  , cend
+  , Heatmap $ PM.unsafeSlice cend'' (PM.length arr) arr
+  , cend'
   )
   where
     cstart, cend :: StrCharIdx Int32
     !(!cstart, !cend) = getMinMax mm
-    cstart', cend' :: Int
+    cend' :: StrCharIdx Int32
+    !cend' = charIdxAdvance cend 1
+    cstart', cend'' :: Int
     !cstart' = fromIntegral (unStrCharIdx cstart - offset)
-    !cend'   = fromIntegral (unStrCharIdx cend - offset)
-
-
---   matches <- for needleSegments $ \segment -> do
---     sm <- fuzzyMatchImpl store mkHeatmap segment haystack
---     case sm of
---       Nothing -> pure noMatch
---       Just (sm'@Submatch{smMinMaxChar, smMinMaxByte}, heatmap) -> do
---         let bstart, bend :: StrByteIdx Int32
---             (bstart, bend) = getMinMax smMinMaxByte
---             cstart, cend :: StrCharIdx Int32
---             (cstart, cend) = getMinMax smMinMaxChar
---         pure $ submatchToMatch sm'
---   pure $
---     if any (== noMatch) matches
---     then noMatch
---     else Match
---       -- Cannot use product: we have only 21 bit to spare for scores.
---       { mScore     = sum $ map mScore $ toList matches
---       , mPositions = NE.sort $ foldMap1 mPositions matches
---       }
+    !cend''   = fromIntegral (unStrCharIdx cend' - offset)
 
 splitNeedle :: Text -> NonEmpty Text
 splitNeedle = NE.sortBy (comparing (Dual . T.lengthWord8)) . splitOnSpace

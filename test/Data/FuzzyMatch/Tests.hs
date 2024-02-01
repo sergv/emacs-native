@@ -97,15 +97,35 @@ fuzzyMatchTests = testGroup "fuzzy match" $
       { mScore     = 288
       , mPositions = fmap StrCharIdx $ 38 :| [39, 40, 41, 42, 43, 61, 62, 63]
       }
+
+  , let haystack = "src/Data/FuzzyMatch.hs" :: Text in
+    mkTestCase "data fuz" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 463
+      , mPositions = fmap StrCharIdx $ 4 :| [5, 6, 7, 9, 10, 11]
+      }
+  , let haystack = "src/Data/FuzzyMatch.hs" :: Text in
+    mkTestCase "data fuzz" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 540
+      , mPositions = fmap StrCharIdx $ 4 :| [5, 6, 7, 9, 10, 11, 12]
+      }
+
+  , let haystack = "_build/generated/Aleph/Base.hs" :: Text in
+    mkTestCase "aleph base" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 598
+      , mPositions = fmap StrCharIdx $ 17 :| [18, 19, 20, 21, 23, 24, 25, 26]
+      }
+  , let haystack = "_build/generated/Aleph/Base.hs" :: Text in
+    mkTestCase "aleph baseh" haystack (mkHeatMap haystack) Nothing
+
   , let haystack = "all-packages/vector-th-unbox-0.2.2/Data/Vector/Unboxed/Deriving.hs" :: Text in
     mkTestCase "deriv vec" haystack (mkHeatMap haystack) $ Just Match
       { mScore     = 335
-      , mPositions = fmap StrCharIdx $ 13 :| [14, 15, 54, 55, 56, 57, 58]
+      , mPositions = fmap StrCharIdx $ 13 :| [14, 15, 55, 56, 57, 58, 59]
       }
   , let haystack = "abc/baz/abc/foo/abc/bar/abc" :: Text in
     mkTestCase "foo bar baz" haystack (mkHeatMap haystack) $ Just Match
-      { mScore     = 522
-      , mPositions = fmap StrCharIdx $ 4 :| [5, 6, 12, 13, 14, 16, 20, 21]
+      { mScore     = 507
+      , mPositions = fmap StrCharIdx $ 4 :| [5, 6, 12, 13, 14, 20, 21, 22]
       }
   , let haystack = "abfc/baz/abrc/foo/aboc/bar/abcb" :: Text in
     mkTestCase "foo bar baz frob" haystack (mkHeatMap haystack) Nothing
