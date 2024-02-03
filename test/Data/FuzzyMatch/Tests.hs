@@ -111,11 +111,16 @@ fuzzyMatchTests = testGroup "fuzzy match" $
 
   , let haystack = "_build/generated/Aleph/Base.hs" :: Text in
     mkTestCase "aleph base" haystack (mkHeatMap haystack) $ Just Match
-      { mScore     = 598
-      , mPositions = fmap StrCharIdx $ 17 :| [18, 19, 20, 21, 23, 24, 25, 26]
+      { mScore     = 531
+      -- Want this but 'h' after '.' has larger weight so it takes over 'h' in 'Aleph'.
+      -- , mPositions = fmap StrCharIdx $ 17 :| [18, 19, 20, 21, 23, 24, 25, 26]
+      , mPositions = fmap StrCharIdx $ 17 :| [18, 19, 20, 23, 24, 25, 26, 28]
       }
   , let haystack = "_build/generated/Aleph/Base.hs" :: Text in
-    mkTestCase "aleph baseh" haystack (mkHeatMap haystack) Nothing
+    mkTestCase "aleph baseh" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 554
+      , mPositions = fmap StrCharIdx $ 17 :| [18, 19, 20, 23, 24, 25, 26, 28]
+      }
 
   , let haystack = "all-packages/vector-th-unbox-0.2.2/Data/Vector/Unboxed/Deriving.hs" :: Text in
     mkTestCase "deriv vec" haystack (mkHeatMap haystack) $ Just Match
@@ -128,38 +133,142 @@ fuzzyMatchTests = testGroup "fuzzy match" $
       , mPositions = fmap StrCharIdx $ 4 :| [5, 6, 12, 13, 14, 20, 21, 22]
       }
   , let haystack = "abfc/baz/abrc/foo/aboc/bar/abcb" :: Text in
-    mkTestCase "foo bar baz frob" haystack (mkHeatMap haystack) Nothing
+    mkTestCase "foo bar baz frob" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 529
+      , mPositions = fmap StrCharIdx $ 2 :| [5, 6, 7, 11, 14, 15, 16, 23, 24, 25]
+      }
   , let haystack = "+foo+bar+" :: Text in
     mkTestCase "foo bar baz" haystack (mkHeatMap haystack) Nothing
-  ] ++
-  [ mkTestCase "fooo xyz" haystack (mkHeatMap haystack) Nothing
-  | haystack <-
-    [ "x+fooo+yz"
-    , "xy+fooo+z"
-    , "zyx+fooo"
-    ]
-  ] ++
-  [ mkTestCase "foo bar xyz" haystack (mkHeatMap haystack) Nothing
-  | haystack <- addPrefixesSuffixes
-      [ "x+foo+y+bar+z"
-      , "xy+foo+bar+z"
-      , "x+foo+bar+yz"
-      , "foo+xy+bar+z"
-      , "foo+x+bar+yz"
-      , "xy+foo+z+bar"
-      , "x+foo+yz+bar"
-      ]
+
+  , let haystack = "x+fooo+yz" :: Text in
+    mkTestCase "fooo xyz" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 489
+      , mPositions = fmap StrCharIdx $ 0 :| [2, 3, 4, 5, 7, 8]
+      }
+  , let haystack = "xy+fooo+z" :: Text in
+    mkTestCase "fooo xyz" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 495
+      , mPositions = fmap StrCharIdx $ 0 :| [1, 3, 4, 5, 6, 8]
+      }
+  , let haystack = "zyx+fooo" :: Text in
+    mkTestCase "fooo xyz" haystack (mkHeatMap haystack) Nothing
+
+  , let haystack = "x+foo+y+bar+z" :: Text in
+    mkTestCase "foo bar xyz" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 591
+      , mPositions = fmap StrCharIdx $ 0 :| [2, 3, 4, 6, 8, 9, 10, 12]
+      }
+  , let haystack = "xy+foo+bar+z" :: Text in
+    mkTestCase "foo bar xyz" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 592
+      , mPositions = fmap StrCharIdx $ 0 :| [1, 3, 4, 5, 7, 8, 9, 11]
+      }
+  , let haystack = "x+foo+bar+yz" :: Text in
+    mkTestCase "foo bar xyz" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 583
+      , mPositions = fmap StrCharIdx $ 0 :| [2, 3, 4, 6, 7, 8, 10, 11]
+      }
+  , let haystack = "foo+xy+bar+z" :: Text in
+    mkTestCase "foo bar xyz" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 595
+      , mPositions = fmap StrCharIdx $ 0 :| [1, 2, 4, 5, 7, 8, 9, 11]
+      }
+  , let haystack = "foo+x+bar+yz" :: Text in
+    mkTestCase "foo bar xyz" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 589
+      , mPositions = fmap StrCharIdx $ 0 :| [1, 2, 4, 6, 7, 8, 10, 11]
+      }
+  , let haystack = "xy+foo+z+bar" :: Text in
+    mkTestCase "foo bar xyz" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 586
+      , mPositions = fmap StrCharIdx $ 0 :| [1, 3, 4, 5, 7, 9, 10, 11]
+      }
+  , let haystack = "x+foo+yz+bar" :: Text in
+    mkTestCase "foo bar xyz" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 580
+      , mPositions = fmap StrCharIdx $ 0 :| [2, 3, 4, 6, 7, 9, 10, 11]
+      }
+
+  , let haystack = "Wx+foo+y+bar+z" :: Text in
+    mkTestCase "foo bar xyz" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 505
+      , mPositions = fmap StrCharIdx $ 1 :| [3, 4, 5, 7, 9, 10, 11, 13]
+      }
+  , let haystack = "Wxy+foo+bar+z" :: Text in
+    mkTestCase "foo bar xyz" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 505
+      , mPositions = fmap StrCharIdx $ 1 :| [2, 4, 5, 6, 8, 9, 10, 12]
+      }
+  , let haystack = "Wx+foo+bar+yz" :: Text in
+    mkTestCase "foo bar xyz" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 497
+      , mPositions = fmap StrCharIdx $ 1 :| [3, 4, 5, 7, 8, 9, 11, 12]
+      }
+  , let haystack = "Wfoo+xy+bar+z" :: Text in
+    mkTestCase "foo bar xyz" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 507
+      , mPositions = fmap StrCharIdx $ 1 :| [2, 3, 5, 6, 8, 9, 10, 12]
+      }
+  , let haystack = "Wfoo+x+bar+yz" :: Text in
+    mkTestCase "foo bar xyz" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 501
+      , mPositions = fmap StrCharIdx $ 1 :| [2, 3, 5, 7, 8, 9, 11, 12]
+      }
+  , let haystack = "Wxy+foo+z+bar" :: Text in
+    mkTestCase "foo bar xyz" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 499
+      , mPositions = fmap StrCharIdx $ 1 :| [2, 4, 5, 6, 8, 10, 11, 12]
+      }
+  , let haystack = "Wx+foo+yz+bar" :: Text in
+    mkTestCase "foo bar xyz" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 494
+      , mPositions = fmap StrCharIdx $ 1 :| [3, 4, 5, 7, 8, 10, 11, 12]
+      }
+
+  , let haystack = "x+foo+y+bar+zW" :: Text in
+    mkTestCase "foo bar xyz" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 590
+      , mPositions = fmap StrCharIdx $ 0 :| [2, 3, 4, 6, 8, 9, 10, 12]
+      }
+  , let haystack = "xy+foo+bar+zW" :: Text in
+    mkTestCase "foo bar xyz" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 591
+      , mPositions = fmap StrCharIdx $ 0 :| [1, 3, 4, 5, 7, 8, 9, 11]
+      }
+  , let haystack = "x+foo+bar+yzW" :: Text in
+    mkTestCase "foo bar xyz" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 582
+      , mPositions = fmap StrCharIdx $ 0 :| [2, 3, 4, 6, 7, 8, 10, 11]
+      }
+  , let haystack = "foo+xy+bar+zW" :: Text in
+    mkTestCase "foo bar xyz" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 594
+      , mPositions = fmap StrCharIdx $ 0 :| [1, 2, 4, 5, 7, 8, 9, 11]
+      }
+  , let haystack = "foo+x+bar+yzW" :: Text in
+    mkTestCase "foo bar xyz" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 588
+      , mPositions = fmap StrCharIdx $ 0 :| [1, 2, 4, 6, 7, 8, 10, 11]
+      }
+  , let haystack = "xy+foo+z+barW" :: Text in
+    mkTestCase "foo bar xyz" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 585
+      , mPositions = fmap StrCharIdx $ 0 :| [1, 3, 4, 5, 7, 9, 10, 11]
+      }
+  , let haystack = "x+foo+yz+barW" :: Text in
+    mkTestCase "foo bar xyz" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 579
+      , mPositions = fmap StrCharIdx $ 0 :| [2, 3, 4, 6, 7, 9, 10, 11]
+      }
   ]
   where
-    addPrefixesSuffixes xs = xs ++ map ("W" <>) xs ++ map (<> "W") xs
-
     constHeatMap :: Int -> forall s. ReusableState s -> ST s (Heatmap s)
     constHeatMap len _ = Heatmap <$> P.unsafeThaw (P.replicate len (Heat 1))
 
     mkHeatMap :: Text -> forall s. ReusableState s -> ST s (Heatmap s)
     mkHeatMap haystack store = computeHeatmap store haystack (T.length haystack) mempty
 
-    mkTestCase :: Text -> Text -> (forall s. ReusableState s -> ST s (Heatmap s)) -> Maybe Match -> TestTree
+    mkTestCase :: HasCallStack => Text -> Text -> (forall s. ReusableState s -> ST s (Heatmap s)) -> Maybe Match -> TestTree
     mkTestCase needle haystack mkHeatmap result =
       testCase (T.unpack $ "match ‘" <> needle <> "’ against ‘" <> haystack <> "’") $ do
         let match = runST $ do

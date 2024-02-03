@@ -37,17 +37,12 @@ import Control.Monad
 import Control.Monad.ST.Strict
 import Data.Bits
 import Data.Char
-import Data.Foldable
-import Data.Foldable1 as Foldable1
 import Data.Int
 import Data.IntMap (IntMap)
 import Data.IntMap qualified as IM
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.List.NonEmpty qualified as NE
-import Data.Maybe
 import Data.MinMaxIdx
-import Data.Monoid (Dual(..))
-import Data.Ord
 import Data.Primitive.ByteArray
 import Data.Primitive.PrimArray
 import Data.Primitive.PrimArray.Ext qualified as PExt
@@ -68,7 +63,6 @@ import Data.Vector.PredefinedSorts
 import Data.Vector.Primitive qualified as P
 import Data.Vector.Primitive.Mutable qualified as PM
 import Data.Vector.Unboxed qualified as U
-import Data.Vector.Unboxed.Base qualified as U
 import Data.Vector.Unboxed.Mutable qualified as UM
 import Data.Word
 import GHC.Int (Int32(I32#))
@@ -117,9 +111,9 @@ isWord x = case chr# x of
   _     -> True#
 
 data ReusableState s = ReusableState
-  { rsHaystackStore :: !(STRef s (UM.MVector s CharAndIdxs))
+  { rsHaystackStore :: !(STRef s (UM.MVector s PackedCharAndStrCharIdx))
   , rsHeatmapStore  :: !(STRef s (MutablePrimArray s Heat))
-  , rsNeedleStore   :: !(VM.MVector s (U.Vector PackedStrCharIdxAndStrByteIdx))
+  , rsNeedleStore   :: !(VM.MVector s (U.Vector PackedStrCharIdxInLower))
   }
 
 -- Needle size here must cover all possible needle sizes that are going to be passed.
@@ -255,7 +249,7 @@ instance CharMember NeedleChars where
     NeedleCharsLong xs -> charMember charCode xs
 
 {-# NOINLINE mkHaystack #-}
-mkHaystack :: forall s. ReusableState s -> NeedleChars -> Text -> ST s (UM.MVector s CharAndIdxs)
+mkHaystack :: forall s. ReusableState s -> NeedleChars -> Text -> ST s (UM.MVector s PackedCharAndStrCharIdx)
 mkHaystack ReusableState{rsHaystackStore} !needleChars !haystack@(TI.Text _ _ haystackBytes) = do
   -- store <- PGM.new (needleCharsCountHint needleChars)
   arr <- readSTRef rsHaystackStore
@@ -278,17 +272,16 @@ mkHaystack ReusableState{rsHaystackStore} !needleChars !haystack@(TI.Text _ _ ha
   let goAscii
         :: (Char# -> Bool)
         -> StrCharIdx Int
-        -> StrByteIdx Int
         -> Char
         -> Int
         -> ST s Int
-      goAscii memberPred !cidx !bidx !charCode@(C# charCode#) j
+      goAscii memberPred !cidx !charCode@(C# charCode#) j
         | memberPred charCode# = do
-          let !packedIdxs = mkPackedStrCharIdxAndStrByteIdx (fromIntegral <$> cidx) (fromIntegral <$> bidx)
-          UM.unsafeWrite arr' j $ CharAndIdxs charCode packedIdxs
+          let cidx' = fromIntegral <$> cidx
+          UM.unsafeWrite arr' j $! mkPackedCharAndStrCharIdx charCode cidx'
           if toBool (isUpperASCII charCode')
           then do
-            UM.unsafeWrite arr' (j + 1) (CharAndIdxs (C# (chr# (toLowerASCII charCode'))) packedIdxs)
+            UM.unsafeWrite arr' (j + 1) $! mkPackedCharAndStrCharIdx (C# (chr# (toLowerASCII charCode'))) cidx'
             pure $! j + 2
           else
             pure $! j + 1
@@ -314,17 +307,16 @@ mkHaystack ReusableState{rsHaystackStore} !needleChars !haystack@(TI.Text _ _ ha
     NeedleCharsLong needleChars' -> do
       let go
             :: StrCharIdx Int
-            -> StrByteIdx Int
             -> Char
             -> Int
             -> ST s Int
-          go !cidx !bidx !charCode@(C# charCode#) j
+          go !cidx !charCode@(C# charCode#) j
             | charMember charCode# needleChars' = do
-              let !packedIdxs = mkPackedStrCharIdxAndStrByteIdx (fromIntegral <$> cidx) (fromIntegral <$> bidx)
-              UM.unsafeWrite arr' j (CharAndIdxs charCode packedIdxs)
+              let !cidx' = (fromIntegral <$> cidx)
+              UM.unsafeWrite arr' j $! mkPackedCharAndStrCharIdx charCode cidx'
               if isUpper charCode
               then do
-                UM.unsafeWrite arr' (j + 1) (CharAndIdxs (toLower charCode) packedIdxs)
+                UM.unsafeWrite arr' (j + 1) $! mkPackedCharAndStrCharIdx (toLower charCode) cidx'
                 pure $! j + 2
               else
                 pure $! j + 1
@@ -353,44 +345,45 @@ characterOccurrences
   -> Text -- ^ Needle
   -> NeedleChars
   -> Text -- ^ Haystack
-  -> ST s (V.MVector s (U.Vector PackedStrCharIdxAndStrByteIdx), Bool)
+  -> ST s (V.MVector s (U.Vector PackedStrCharIdxInLower), Bool)
 characterOccurrences store@ReusableState{rsNeedleStore} !needle !needleChars !haystack = do
   -- rsNeedleStore <- VM.unsafeNew (T.length needle)
   haystackMut <- mkHaystack store needleChars haystack
   sortPackedCharAndIdx haystackMut
-  (haystack' :: U.Vector CharAndIdxs) <- U.unsafeFreeze haystackMut
+  (haystack' :: U.Vector PackedCharAndStrCharIdx) <- U.unsafeFreeze haystackMut
   let
-    haystackChars :: U.Vector Char
-    haystackIdx   :: U.Vector PackedStrCharIdxAndStrByteIdx
-    (!haystackChars, !haystackIdx) = case haystack' of
-      V_CharAndIdxs (U.V_2 _ xs ys) -> (xs, ys)
+    haystackChars :: U.Vector PackedCharInUpper
+    haystackIdx   :: U.Vector PackedStrCharIdxInLower
+    haystackChars = coerceVectorToPackedCharInUpper haystack'
+    haystackIdx   = coerceVectorToPackedStrCharIdxInLower haystack'
 
     !haystackLen = U.length haystack'
 
-    findOccurs :: Char -> U.Vector PackedStrCharIdxAndStrByteIdx
+    findOccurs :: Char -> U.Vector PackedStrCharIdxInLower
     findOccurs !c
       | isMember
       = U.unsafeSlice start (skipSameChars start - start) haystackIdx
       | otherwise
       = U.empty
       where
-        (isMember, !start) = VExt.binSearchMemberL c haystackChars
+        !c' = mkPackedCharInUpper c
+        (isMember, !start) = VExt.binSearchMemberL c' haystackChars
 
         skipSameChars :: Int -> Int
         skipSameChars !j
           | j == haystackLen
           = j
-          | haystackChars `U.unsafeIndex` j == c
+          | haystackChars `U.unsafeIndex` j == c'
           = skipSameChars $ j + 1
           | otherwise
           = j
 
   !anyEmpty <- T.textFoldIdxM
-    (\ !i _ !c (!anyEmpty :: Bool) ->
+    (\ !i !c (!anyEmpty :: Bool) ->
         if anyEmpty
         then pure anyEmpty
         else do
-          let occs :: U.Vector PackedStrCharIdxAndStrByteIdx
+          let occs :: U.Vector PackedStrCharIdxInLower
               !occs = findOccurs c
           VM.unsafeWrite rsNeedleStore (unStrCharIdx i) occs
           pure $ U.null occs)
@@ -412,7 +405,6 @@ data Submatch = Submatch
   { smMatch           :: {-# UNPACK #-} !Match
   , smContiguousCount :: !Int32
   , smMinMaxChar      :: !(MinMaxIdx StrCharIdx)
-  , smMinMaxByte      :: !(MinMaxIdx StrByteIdx)
   } deriving (Generic, Show)
 
 fuzzyMatch
@@ -434,14 +426,18 @@ instance Semigroup Match where
       merge :: Ord a => NonEmpty a -> NonEmpty a -> NonEmpty a
       merge (x :| xs) (y :| ys) = case compare x y of
         LT -> x :| merge' xs (y : ys)
-        EQ -> x :| y : merge' xs ys
+        -- Drop equal elements since it's positions within string
+        -- and each character can match only once.
+        EQ -> x :| merge' xs ys
         GT -> y :| merge' (x : xs) ys
       merge' :: Ord a => [a] -> [a] -> [a]
       merge' []           ys           = ys
       merge' xs           []           = xs
       merge' xs'@(x : xs) ys'@(y : ys) = case compare x y of
         LT -> x : merge' xs ys'
-        EQ -> x : y : merge' xs ys
+        -- Drop equal elements since it's positions within string
+        -- and each character can match only once.
+        EQ -> x : merge' xs ys
         GT -> y : merge' xs' ys
 
 fuzzyMatch'
@@ -456,67 +452,18 @@ fuzzyMatch' store mkHeatmap needleSegments haystack = do
     firstSegment :| otherSegments -> do
       sm <- fuzzyMatchImpl store mkHeatmap firstSegment haystack
       case sm of
-        Nothing -> pure Nothing
+        Nothing             -> pure Nothing
         Just (sm', heatmap) -> do
-          go (smMatch sm') (mkParts 0 sm' haystack heatmap) otherSegments
-  where
-    mkParts :: Int32 -> Submatch -> Text -> Heatmap s -> NonEmpty (Text, Heatmap s, StrCharIdx Int32)
-    mkParts offset Submatch{smMinMaxChar, smMinMaxByte} str heatmap =
-      (hk1, hm1, StrCharIdx 0) :| [(hk2, hm2, idx)]
-      where
-        (hm1, hm2, idx) = splitHeatmap offset smMinMaxChar heatmap
-        (hk1, hk2)      = splitHaystack offset smMinMaxByte str
-
-    go :: Match -> NonEmpty (Text, Heatmap s, StrCharIdx Int32) -> [Text] -> ST s (Maybe Match)
-    go macc _     []                   = pure $ Just macc
-    go macc parts (segment : segments) = do
-      matches <- fmap catMaybes $ for (zip [0..] (toList parts)) $ \(i :: Int, part@(haystack', heatmap', _offset)) -> do
-        fmap (\(sm, _) -> (i, sm, part)) <$>
-          fuzzyMatchImpl store (pure heatmap') segment haystack'
-      case matches of
-        []     -> pure Nothing
-        m : ms -> do
-          let !(bestI, bestSM, (bestHaystack, bestHeatmap, StrCharIdx bestOffset)) =
-                Foldable1.maximumBy (comparing (\(_i, Submatch{smMatch = Match{mScore}}, _part) -> mScore)) (m :| ms)
-              bestMatch :: Match
-              bestMatch = (smMatch bestSM) { mPositions = (`charIdxAdvance` bestOffset) <$> mPositions (smMatch bestSM) }
-              macc'     = macc <> bestMatch
-              parts'    = flip Foldable1.foldMap1 (NE.zip (0 :| [1..]) parts) $ \(i, part) ->
-                if i == bestI
-                then (\(a, b, c) -> (a, b, charIdxAdvance c bestOffset)) <$> mkParts bestOffset bestSM bestHaystack bestHeatmap
-                else part :| []
-
-          go macc' parts' segments
-
-splitHaystack :: Int32 -> MinMaxIdx StrByteIdx -> Text -> (Text, Text)
-splitHaystack offset mm (TI.Text arr off len) =
-  ( TI.text arr off               bstart'
-  , TI.text arr (off + bend' + 1) (len - bend' - 1)
-  )
-  where
-    bstart, bend :: StrByteIdx Int32
-    !(!bstart, !bend) = getMinMax mm
-    bstart', bend' :: Int
-    !bstart' = fromIntegral (unStrByteIdx bstart - offset)
-    !bend'   = fromIntegral (unStrByteIdx bend   - offset)
-
-splitHeatmap :: Int32 -> MinMaxIdx StrCharIdx -> Heatmap s -> (Heatmap s, Heatmap s, StrCharIdx Int32)
-splitHeatmap offset mm (Heatmap arr) =
-  ( Heatmap $ PM.unsafeSlice 0 cstart' arr
-  , Heatmap $ PM.unsafeSlice cend'' (PM.length arr) arr
-  , cend'
-  )
-  where
-    cstart, cend :: StrCharIdx Int32
-    !(!cstart, !cend) = getMinMax mm
-    cend' :: StrCharIdx Int32
-    !cend' = charIdxAdvance cend 1
-    cstart', cend'' :: Int
-    !cstart' = fromIntegral (unStrCharIdx cstart - offset)
-    !cend''   = fromIntegral (unStrCharIdx cend' - offset)
+          let go :: Match -> [Text] -> ST s (Maybe Match)
+              go macc []                   = pure $ Just macc
+              go macc (segment : segments) =
+                fuzzyMatchImpl store (pure heatmap) segment haystack >>= \case
+                  Nothing     -> pure Nothing
+                  Just (m, _) -> go (smMatch m <> macc) segments
+          go (smMatch sm') otherSegments
 
 splitNeedle :: Text -> NonEmpty Text
-splitNeedle = NE.sortBy (comparing (Dual . T.lengthWord8)) . splitOnSpace
+splitNeedle = splitOnSpace
   where
     splitOnSpace :: Text -> NonEmpty Text
     splitOnSpace str = case splitBy (fromIntegral (ord ' ')) str of
@@ -553,14 +500,14 @@ fuzzyMatchImpl
 fuzzyMatchImpl store mkHeatmap needle haystack
   | T.null needle = pure Nothing
   | otherwise     = do
-    (occurs :: V.MVector s (U.Vector PackedStrCharIdxAndStrByteIdx), anyEmpty) <- characterOccurrences store needle needleChars haystack
+    (occurs :: V.MVector s (U.Vector PackedStrCharIdxInLower), anyEmpty) <- characterOccurrences store needle needleChars haystack
     if anyEmpty -- Also catches occurs == V.empty
     then pure Nothing
     else do
 
       heatmap'@(Heatmap heatmap) <- unsafeInterleaveST mkHeatmap
       let
-        bigger :: StrCharIdx Int32 -> U.Vector PackedStrCharIdxAndStrByteIdx -> U.Vector PackedStrCharIdxAndStrByteIdx
+        bigger :: StrCharIdx Int32 -> U.Vector PackedStrCharIdxInLower -> U.Vector PackedStrCharIdxInLower
         bigger x xs
           | isMember
           = let !i' = i + 1
@@ -569,21 +516,21 @@ fuzzyMatchImpl store mkHeatmap needle haystack
           = U.unsafeSlice i (U.length xs - i) xs
           where
             (isMember, !i) =
-              VExt.binSearchMemberIdx (mkPackedStrCharIdxInLower x) (coerceVectorToPackedStrCharIdxInLower xs)
+              VExt.binSearchMemberIdx (mkPackedStrCharIdxInLower x) xs
 
         computeScore
-          :: (V.MVector s (U.Vector PackedStrCharIdxAndStrByteIdx) -> StrCharIdx Int32 -> ST s (Maybe Submatch))
-          -> V.MVector s (U.Vector PackedStrCharIdxAndStrByteIdx)
+          :: (V.MVector s (U.Vector PackedStrCharIdxInLower) -> StrCharIdx Int32 -> ST s (Maybe Submatch))
+          -> V.MVector s (U.Vector PackedStrCharIdxInLower)
           -> StrCharIdx Int32
           -> ST s (Maybe Submatch)
         computeScore recur !needleOccursInHaystack !cutoffIndex = do
-          (remainingOccurrences :: U.Vector PackedStrCharIdxAndStrByteIdx) <-
+          (remainingOccurrences :: U.Vector PackedStrCharIdxInLower) <-
             bigger cutoffIndex <$> VM.unsafeRead needleOccursInHaystack 0
           case VM.length needleOccursInHaystack of
             -- Last character, already checked that vector is never empty
             1 ->
-              inline findBestWith remainingOccurrences $ \ !pidx -> do
-                let !(!cidx, !bidx) = unpackIdxs pidx
+              inline findBestWith remainingOccurrences $ \ !idx -> do
+                let !cidx = getStrCharIdx idx
                 heat <- PM.unsafeRead heatmap $ fromIntegral $ unStrCharIdx cidx
                 pure $! Just $! Submatch
                   { smMatch           = Match
@@ -592,14 +539,13 @@ fuzzyMatchImpl store mkHeatmap needle haystack
                     }
                   , smContiguousCount = 0
                   , smMinMaxChar      = mkMinMaxIdx cidx cidx
-                  , smMinMaxByte      = mkMinMaxIdx bidx bidx
                   }
 
             _ ->
-              inline findBestWith remainingOccurrences $ \ !pidx -> do
-                let !(!cidx, !bidx) = unpackIdxs pidx
+              inline findBestWith remainingOccurrences $ \ !idx -> do
+                let !cidx = getStrCharIdx idx
                 submatch' <- recur (VM.unsafeTail needleOccursInHaystack) cidx
-                for submatch' $ \Submatch{smMatch = Match{mScore, mPositions}, smContiguousCount, smMinMaxChar, smMinMaxByte} -> do
+                for submatch' $ \Submatch{smMatch = Match{mScore, mPositions}, smContiguousCount, smMinMaxChar} -> do
                   heat <- PM.unsafeRead heatmap $ fromIntegral $ unStrCharIdx cidx
                   let score'          = mScore + fromIntegral (unHeat heat)
                       contiguousBonus = 60 + 15 * min 3 (fromIntegral smContiguousCount)
@@ -617,7 +563,6 @@ fuzzyMatchImpl store mkHeatmap needle haystack
                     , smContiguousCount =
                       if isContiguous then smContiguousCount + 1 else 0
                     , smMinMaxChar      = mkMinMaxIdx cidx cidx <> smMinMaxChar
-                    , smMinMaxByte      = mkMinMaxIdx bidx bidx <> smMinMaxByte
                     }
 
       fmap (, heatmap') <$> memoizeBy makeKey computeScore occurs (StrCharIdx (-1))
@@ -632,8 +577,8 @@ fuzzyMatchImpl store mkHeatmap needle haystack
 
     findBestWith
       :: forall n. Monad n
-      => U.Vector PackedStrCharIdxAndStrByteIdx
-      -> (PackedStrCharIdxAndStrByteIdx -> n (Maybe Submatch))
+      => U.Vector PackedStrCharIdxInLower
+      -> (PackedStrCharIdxInLower -> n (Maybe Submatch))
       -> n (Maybe Submatch)
     findBestWith !occs f = go Nothing 0
       where

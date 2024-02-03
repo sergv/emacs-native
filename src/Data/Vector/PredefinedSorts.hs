@@ -38,9 +38,9 @@ import Data.Vector.Algorithms.Quicksort.Parameterised qualified as Quick
 {-# SPECIALIZE Quick.heapSort      :: PM.MVector s Word64 -> ST s () #-}
 {-# SPECIALIZE Quick.bitonicSort   :: Int -> PM.MVector s Word64 -> ST s () #-}
 
-{-# SPECIALIZE Quick.sortInplaceFM :: Quick.Sequential -> Quick.Median3 CharAndIdxs -> UM.MVector s CharAndIdxs -> ST s () #-}
-{-# SPECIALIZE Quick.heapSort      :: UM.MVector s CharAndIdxs -> ST s () #-}
-{-# SPECIALIZE Quick.bitonicSort   :: Int -> UM.MVector s CharAndIdxs -> ST s () #-}
+{-# SPECIALIZE Quick.sortInplaceFM :: Quick.Sequential -> Quick.Median3 PackedCharAndStrCharIdx -> UM.MVector s PackedCharAndStrCharIdx -> ST s () #-}
+{-# SPECIALIZE Quick.heapSort      :: UM.MVector s PackedCharAndStrCharIdx -> ST s () #-}
+{-# SPECIALIZE Quick.bitonicSort   :: Int -> UM.MVector s PackedCharAndStrCharIdx -> ST s () #-}
 
 {-# SPECIALIZE Quick.sortInplaceFM :: Quick.Sequential -> Quick.Median3 Char -> PM.MVector s Char -> ST s () #-}
 {-# SPECIALIZE Quick.heapSort      :: PM.MVector s Char -> ST s () #-}
@@ -59,8 +59,8 @@ sortWord64 :: PM.MVector s Word64 -> ST s ()
 sortWord64 = Quick.sortInplaceFM Quick.Sequential (Quick.Median3 @Word64)
 
 {-# NOINLINE sortPackedCharAndIdx #-}
-sortPackedCharAndIdx :: UM.MVector s CharAndIdxs -> ST s ()
-sortPackedCharAndIdx = Quick.sortInplaceFM Quick.Sequential (Quick.Median3 @CharAndIdxs)
+sortPackedCharAndIdx :: UM.MVector s PackedCharAndStrCharIdx -> ST s ()
+sortPackedCharAndIdx = Quick.sortInplaceFM Quick.Sequential (Quick.Median3 @PackedCharAndStrCharIdx)
 
 sortChar :: PM.MVector s Char -> ST s ()
 sortChar = Quick.sortInplaceFM Quick.Sequential (Quick.Median3 @Char)

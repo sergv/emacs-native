@@ -87,7 +87,7 @@ textFoldM f !seed (TI.Text arr off len) =
 {-# INLINE textFoldIdxM #-}
 textFoldIdxM
   :: forall m a b. (Monad m, Num b)
-  => (StrCharIdx b -> StrByteIdx Int -> Char -> a -> m a)
+  => (StrCharIdx b -> Char -> a -> m a)
   -> a
   -> Text
   -> m a
@@ -100,7 +100,7 @@ textFoldIdxM f !seed (TI.Text arr off len) =
       | j >= end  = pure x
       | otherwise = do
         let TU.Iter c delta = TU.iterArray arr $ unStrByteIdx j
-        x' <- inline f i j c x
+        x' <- inline f i c x
         textFoldIdxMLoop x' (charIdxAdvance i 1) (byteIdxAdvance j delta)
 
 {-# INLINE textCountMatches #-}
