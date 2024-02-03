@@ -9,7 +9,10 @@
 
 module Data.Packed
   ( PackedStrCharIdxAndStrByteIdx
+  , zeroPackedStrCharIdxAndStrByteIdx
   , mkPackedStrCharIdxAndStrByteIdx
+  , packedIdxAdvance
+  , unpackCharIdx
   , unpackIdxs
   , CharAndIdxs(..)
 
@@ -54,9 +57,20 @@ newtype instance U.Vector    PackedStrCharIdxAndStrByteIdx = V_PackedStrCharIdxA
 deriving instance GM.MVector U.MVector PackedStrCharIdxAndStrByteIdx
 deriving instance G.Vector   U.Vector  PackedStrCharIdxAndStrByteIdx
 
+zeroPackedStrCharIdxAndStrByteIdx :: PackedStrCharIdxAndStrByteIdx
+zeroPackedStrCharIdxAndStrByteIdx = PackedStrCharIdxAndStrByteIdx 0
+
 mkPackedStrCharIdxAndStrByteIdx :: StrCharIdx Int32 -> StrByteIdx Int32 -> PackedStrCharIdxAndStrByteIdx
 mkPackedStrCharIdxAndStrByteIdx (StrCharIdx x) (StrByteIdx y) =
   PackedStrCharIdxAndStrByteIdx $ w64 x .|. (w64 y `unsafeShiftL` 32)
+
+packedIdxAdvance :: PackedStrCharIdxAndStrByteIdx -> PackedStrCharIdxAndStrByteIdx -> PackedStrCharIdxAndStrByteIdx
+packedIdxAdvance = coerce ((+) @Word64)
+
+{-# INLINE unpackCharIdx #-}
+unpackCharIdx :: PackedStrCharIdxAndStrByteIdx -> StrCharIdx Int32
+unpackCharIdx (PackedStrCharIdxAndStrByteIdx x) =
+  StrCharIdx (fromIntegral (x .&. lower4Bytes))
 
 {-# INLINE unpackIdxs #-}
 unpackIdxs :: PackedStrCharIdxAndStrByteIdx -> (StrCharIdx Int32, StrByteIdx Int32)

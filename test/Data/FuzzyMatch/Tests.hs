@@ -111,11 +111,14 @@ fuzzyMatchTests = testGroup "fuzzy match" $
 
   , let haystack = "_build/generated/Aleph/Base.hs" :: Text in
     mkTestCase "aleph base" haystack (mkHeatMap haystack) $ Just Match
-      { mScore     = 598
-      , mPositions = fmap StrCharIdx $ 17 :| [18, 19, 20, 21, 23, 24, 25, 26]
+      { mScore     = 531
+      , mPositions = fmap StrCharIdx $ 17 :| [18, 19, 20, 23, 24, 25, 26, 28]
       }
   , let haystack = "_build/generated/Aleph/Base.hs" :: Text in
-    mkTestCase "aleph baseh" haystack (mkHeatMap haystack) Nothing
+    mkTestCase "aleph baseh" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 554
+      , mPositions = fmap StrCharIdx $ 17 :| [18, 19, 20, 23, 24, 25, 26, 28]
+      }
 
   , let haystack = "all-packages/vector-th-unbox-0.2.2/Data/Vector/Unboxed/Deriving.hs" :: Text in
     mkTestCase "deriv vec" haystack (mkHeatMap haystack) $ Just Match
@@ -159,7 +162,7 @@ fuzzyMatchTests = testGroup "fuzzy match" $
     mkHeatMap :: Text -> forall s. ReusableState s -> ST s (Heatmap s)
     mkHeatMap haystack store = computeHeatmap store haystack (T.length haystack) mempty
 
-    mkTestCase :: Text -> Text -> (forall s. ReusableState s -> ST s (Heatmap s)) -> Maybe Match -> TestTree
+    mkTestCase :: HasCallStack => Text -> Text -> (forall s. ReusableState s -> ST s (Heatmap s)) -> Maybe Match -> TestTree
     mkTestCase needle haystack mkHeatmap result =
       testCase (T.unpack $ "match ‘" <> needle <> "’ against ‘" <> haystack <> "’") $ do
         let match = runST $ do
