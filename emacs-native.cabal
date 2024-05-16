@@ -118,10 +118,11 @@ library
     , emacs-module >= 0.2.1
     , exceptions
     , file-io
-    , filepath >= 1.4.100
+    , filepath >= 1.5
     , ghc-prim
     , lifted-async
     , monad-control
+    , os-string
     , prettyprinter >= 1.7
     , prettyprinter-combinators
     , primitive
