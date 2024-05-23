@@ -34,11 +34,22 @@ tests = testGroup "Data.FuzzyMatch.Tests"
   [ fuzzyMatchTests
   , fuzzyMatchMultipleTests
   , heatMap
+  , splitNeedleTests
   -- , heatMapGrouping
   ]
 
 foobarHeatmap :: P.Vector Heat
 foobarHeatmap = P.fromList $ map Heat [84, -2, -3, -4, -5, -5]
+
+splitNeedleTests :: TestTree
+splitNeedleTests = testGroup "split needle"
+  [ testCase "foo" $
+    splitNeedle "foo" @?= "foo" :| []
+  , testCase "foo bar" $
+    splitNeedle "foo bar" @?= "foo" :| ["bar"]
+  , testCase " foo bar" $
+    splitNeedle " foo bar" @?= " foo" :| ["bar"]
+  ]
 
 fuzzyMatchTests :: TestTree
 fuzzyMatchTests = testGroup "fuzzy match" $
@@ -124,6 +135,11 @@ fuzzyMatchTests = testGroup "fuzzy match" $
     mkTestCase "deriv vec" haystack (mkHeatMap haystack) $ Just Match
       { mScore     = 335
       , mPositions = fmap StrCharIdx $ 13 :| [14, 15, 55, 56, 57, 58, 59]
+      }
+  , let haystack = " foo/bar" :: Text in
+    mkTestCase " foo bar" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 502
+      , mPositions = fmap StrCharIdx $ 0 :| [1, 2, 3, 5, 6, 7]
       }
   , let haystack = "abc/baz/abc/foo/abc/bar/abc" :: Text in
     mkTestCase "foo bar baz" haystack (mkHeatMap haystack) $ Just Match

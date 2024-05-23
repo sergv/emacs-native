@@ -559,10 +559,18 @@ splitHeatmap offset cstart cend (Heatmap arr) =
 splitNeedle :: Text -> NonEmpty Text
 splitNeedle = splitOnSpace
   where
+    space :: Word8
+    !space = fromIntegral (ord ' ')
     splitOnSpace :: Text -> NonEmpty Text
-    splitOnSpace str = case splitBy (fromIntegral (ord ' ')) str of
-      []     -> str :| []
-      x : xs -> x :| xs
+    splitOnSpace str = case T.uncons str of
+      Just (' ', _) ->
+        let (# first, rest #) = T.spanAscii2_ (== space) (/= space) str
+        in case splitBy space rest of
+          [] -> first :| [rest]
+          xs -> first :| xs
+      _             -> case splitBy space str of
+        []     -> str :| []
+        x : xs -> x :| xs
 
 splitBy :: Word8 -> Text -> [Text]
 splitBy c = go

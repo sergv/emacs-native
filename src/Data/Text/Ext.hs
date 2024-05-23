@@ -26,6 +26,7 @@ module Data.Text.Ext
   , textToPrimVector
   , spanLen
   , spanLenEnd
+  , spanAscii2_
   ) where
 
 import Control.Monad.ST.Strict
@@ -333,3 +334,20 @@ spanLenEnd p (TI.Text arr start len) = (charCount', hd, tl)
       | otherwise
       = (# charCount + 1, i #)
 
+{-# INLINE spanAscii2_ #-}
+spanAscii2_ :: (Word8 -> Bool) -> (Word8 -> Bool) -> Text -> (# Text, Text #)
+spanAscii2_ p1 p2 (TI.Text arr off len) = (# hd, tl #)
+  where
+    hd = TI.text arr off k
+    tl = TI.text arr (off + k) (len - k)
+    !k = loop1 0
+    loop1 !i
+      | i < len && p1 (TA.unsafeIndex arr (off + i))
+      = loop1 (i + 1)
+      | otherwise
+      = loop2 i
+    loop2 !i
+      | i < len && p2 (TA.unsafeIndex arr (off + i))
+      = loop2 (i + 1)
+      | otherwise
+      = i
