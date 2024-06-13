@@ -141,8 +141,9 @@ foreign-library emacs-native
   -- options: standalone
   type:
     native-shared
-  lib-version-info:
-    0:0:0
+  if !os(Windows)
+    lib-version-info:
+      0:0:0
   c-sources:
     cbits/emacs_wrapper.c
   includes:
