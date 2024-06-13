@@ -17,12 +17,11 @@
 {-# LANGUAGE UnliftedNewtypes   #-}
 
 module Data.FuzzyMatch
-  ( fuzzyMatch'
-  , fuzzyMatch
+  ( fuzzyMatch
   , Region(..)
   , Match(..)
   , NeedleChars
-  , prepareNeedle
+  , preprocessNeedle
   , splitNeedle
   , ReusableState
   , mkReusableState
@@ -204,8 +203,8 @@ data NeedleChars
 instance Pretty NeedleChars where
   pretty = ppGeneric
 
-prepareNeedle :: Text -> NeedleChars
-prepareNeedle str
+prepareNeedleSegment :: Text -> NeedleChars
+prepareNeedleSegment str
   | T.all (\c -> ord c < 128) str' && len < 33
   =
     if len < 17
@@ -441,16 +440,6 @@ toMatch Submatch{smScore, smPositions} = Match
       smPositions
   }
 
-fuzzyMatch
-  :: forall s. WithCallStack
-  => ReusableState s
-  -> Heatmap s
-  -> Text            -- ^ Needle
-  -> Text            -- ^ Haystack
-  -> ST s (Maybe Match)
-fuzzyMatch store heatmap needle haystack =
-  fuzzyMatch' store (pure heatmap) (splitNeedle needle) haystack
-
 instance Semigroup Match where
   Match s1 ps1 <> Match s2 ps2 = Match
     { mScore     = s1 + s2
@@ -474,14 +463,14 @@ instance Semigroup Match where
         EQ -> x : merge' xs ys
         GT -> y : merge' xs' ys
 
-fuzzyMatch'
+fuzzyMatch
   :: forall s. WithCallStack
   => ReusableState s
   -> ST s (Heatmap s)
-  -> NonEmpty Text   -- ^ Needle segments to be matched as a conjunction
-  -> Text            -- ^ Haystack
+  -> NonEmpty (Text, NeedleChars) -- ^ Needle segments to be matched as a conjunction
+  -> Text                         -- ^ Haystack
   -> ST s (Maybe Match)
-fuzzyMatch' store mkHeatmap needleSegments haystack = do
+fuzzyMatch store mkHeatmap needleSegments haystack = do
   case needleSegments of
     firstSegment :| otherSegments -> do
       sm <- fuzzyMatchImpl store mkHeatmap firstSegment haystack
@@ -507,7 +496,11 @@ fuzzyMatch' store mkHeatmap needleSegments haystack = do
         (!hk1, !hk2, !bidx') = splitHaystack bidx startB endB str
         !offset'             = mkPackedStrCharIdxAndStrByteIdx cidx' bidx'
 
-    go :: Match -> NonEmpty (Text, Heatmap s, PackedStrCharIdxAndStrByteIdx) -> [Text] -> ST s (Maybe Match)
+    go
+      :: Match
+      -> NonEmpty (Text, Heatmap s, PackedStrCharIdxAndStrByteIdx)
+      -> [(Text, NeedleChars)]
+      -> ST s (Maybe Match)
     go macc _     []                   = pure $ Just macc
     go macc parts (segment : segments) = do
       matches <- fmap catMaybes $ for (zip [0..] (toList parts)) $ \(i :: Int, part@(haystack', heatmap', _offset)) -> do
@@ -554,7 +547,10 @@ splitHeatmap offset cstart cend (Heatmap arr) =
     !cend' = charIdxAdvance cend 1
     cstart', cend'' :: Int
     !cstart' = fromIntegral (unStrCharIdx cstart - unStrCharIdx offset)
-    !cend''   = fromIntegral (unStrCharIdx cend' - unStrCharIdx offset)
+    !cend''  = fromIntegral (unStrCharIdx cend' - unStrCharIdx offset)
+
+preprocessNeedle :: Text -> NonEmpty (Text, NeedleChars)
+preprocessNeedle = fmap (\x -> (x, prepareNeedleSegment x)) . splitNeedle
 
 splitNeedle :: Text -> NonEmpty Text
 splitNeedle = splitOnSpace
@@ -596,10 +592,10 @@ fuzzyMatchImpl
   :: forall s. WithCallStack
   => ReusableState s
   -> ST s (Heatmap s)
-  -> Text            -- ^ Needle
-  -> Text            -- ^ Haystack
+  -> (Text, NeedleChars) -- ^ Needle
+  -> Text                -- ^ Haystack
   -> ST s (Maybe (Submatch, Heatmap s))
-fuzzyMatchImpl store mkHeatmap needle haystack
+fuzzyMatchImpl store mkHeatmap (needle, needleChars) haystack
   | T.null needle = pure Nothing
   | otherwise     = do
     (occurs :: V.MVector s (U.Vector PackedStrCharIdxAndStrByteIdx), anyEmpty) <- characterOccurrences store needle needleChars haystack
@@ -667,8 +663,6 @@ fuzzyMatchImpl store mkHeatmap needle haystack
 
       fmap (, heatmap') <$> memoizeBy makeKey computeScore occurs (StrCharIdx (-1))
   where
-    needleChars = prepareNeedle needle
-
     makeKey :: V.MVector s (U.Vector a) -> StrCharIdx Int32 -> Int
     makeKey !occs !k =
       j `unsafeShiftL` 32 .|. fromIntegral (unStrCharIdx k)

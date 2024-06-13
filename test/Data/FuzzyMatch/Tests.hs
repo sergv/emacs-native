@@ -28,6 +28,7 @@ import Test.Tasty
 import Test.Tasty.HUnit
 
 import Data.FuzzyMatch
+import Emacs.Module.Assert (WithCallStack)
 
 tests :: TestTree
 tests = testGroup "Data.FuzzyMatch.Tests"
@@ -184,7 +185,7 @@ fuzzyMatchTests = testGroup "fuzzy match" $
         let match = runST $ do
               store   <- mkReusableState (T.length needle)
               heatmap <- mkHeatmap store
-              fuzzyMatch store heatmap needle haystack
+              fuzzyMatchSimple store heatmap needle haystack
         match @?= result
 
 fuzzyMatchMultipleTests :: TestTree
@@ -201,7 +202,7 @@ fuzzyMatchMultipleTests = testGroup "fuzzy match multiple"
               store <- mkReusableState (T.length needle)
               for haystacks $ \haystack -> do
                 heatmap <- computeHeatmap store haystack (T.length haystack) mempty
-                !match  <- fuzzyMatch store heatmap needle haystack
+                !match  <- fuzzyMatchSimple store heatmap needle haystack
                 pure $ mScore <$> match
         matches @?= expectedScores
 
@@ -267,6 +268,16 @@ heatMap = testGroup "Heatmap"
           | sizeofPrimArray groupSeps == 0 = mempty
           | otherwise                      =
             " with seps " <> T.intercalate ", " (map (T.singleton . chr . fromIntegral) $ primArrayToList groupSeps)
+
+fuzzyMatchSimple
+  :: forall s. WithCallStack
+  => ReusableState s
+  -> Heatmap s
+  -> Text            -- ^ Needle
+  -> Text            -- ^ Haystack
+  -> ST s (Maybe Match)
+fuzzyMatchSimple store heatmap needle haystack =
+  fuzzyMatch store (pure heatmap) (preprocessNeedle needle) haystack
 
 -- heatMapGrouping :: TestTree
 -- heatMapGrouping = testGroup "Grouping for heatmap computation"

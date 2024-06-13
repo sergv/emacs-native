@@ -95,8 +95,8 @@ scoreMatches (R seps (R needle (R haystacks Stop))) = do
         !chunk = 256
         totalHaystacks :: Int
         !totalHaystacks = V.length haystacks'
-        needleSegments :: NonEmpty Text
-        needleSegments = splitNeedle needle'
+        needleSegments :: NonEmpty (Text, NeedleChars)
+        needleSegments = preprocessNeedle needle'
 
     jobs    <- getNumCapabilities
     jobSync <- Counter.new (jobs * chunk)
@@ -109,7 +109,7 @@ scoreMatches (R seps (R needle (R haystacks Stop))) = do
         processOne !store !haystack !n = do
           let haystackLen :: Int
               !haystackLen = T.length haystack
-          !match <- fuzzyMatch'
+          !match <- fuzzyMatch
             store
             (computeHeatmap store haystack haystackLen seps')
             needleSegments
@@ -195,10 +195,10 @@ scoreSingleMatch (R seps (R needle (R haystack Stop))) = do
   haystack' <- extractText haystack
   let !res = runST $ do
         store <- mkReusableState (T.length needle')
-        fuzzyMatch'
+        fuzzyMatch
           store
           (computeHeatmap store haystack' (T.length haystack') seps')
-          (splitNeedle needle')
+          (preprocessNeedle needle')
           haystack'
   case res of
     Nothing                         -> nil
