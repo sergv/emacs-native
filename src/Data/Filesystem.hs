@@ -103,8 +103,9 @@ findRec followSymlinks extraJobs dirPred filePred consumeOutput roots = do
                       Streaming.DirectorySym ->
                         case followSymlinks of
                           FollowSymlinks        -> doDir (AbsDir y') (RelDir y) go
-                          ReportSymlinks report ->
+                          ReportSymlinks report -> do
                             traverse_ consumeOutput =<< report (AbsDir y') (RelDir y)
+                            go
 
           doFile :: AbsFile -> RelFile -> IO ()
           doFile absPath relPath =
