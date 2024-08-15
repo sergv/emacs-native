@@ -483,12 +483,12 @@ fuzzyMatch store mkHeatmap needleSegments haystack = do
     mkParts offset Submatch{smPositions} str heatmap =
       (hk1, hm1, zeroPackedStrCharIdxAndStrByteIdx) :| [(hk2, hm2, offset')]
       where
-        -- Longet and earliest region that will never be crossed by subsequent matches.
+        -- Longest and earliest region that will never be crossed by subsequent matches.
         dividingRegion :: Region
         !dividingRegion      = unLongestEarliestRegion $ Foldable1.maximum (coerce smPositions :: NonEmpty LongestEarliestRegion)
         !(!endC, !endB)      = unpackIdxs $ rEnd dividingRegion
         len' :: Int32
-        !len'                = fromIntegral $ negate $ rLength dividingRegion
+        !len'                = fromIntegral $ negate $ rLength dividingRegion - 1
         !startC              = charIdxAdvance endC len'
         !startB              = byteIdxAdvance endB len'
         !(!cidx, !bidx)      = unpackIdxs offset

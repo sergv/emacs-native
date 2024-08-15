@@ -151,6 +151,23 @@ fuzzyMatchTests = testGroup "fuzzy match" $
     mkTestCase "foo bar baz frob" haystack (mkHeatMap haystack) Nothing
   , let haystack = "+foo+bar+" :: Text in
     mkTestCase "foo bar baz" haystack (mkHeatMap haystack) Nothing
+
+  , let haystack = "Utils/XYZPretty.hs" :: Text in
+    mkTestCase "xyzpretty" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 745
+      , mPositions = fmap StrCharIdx $ 6 :| [7, 8, 9, 10, 11, 12, 13, 14]
+      }
+  , let haystack = "Utils/XYZPretty.hs" :: Text in
+    mkTestCase "xyz pretty" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 565
+      , mPositions = fmap StrCharIdx $ 6 :| [7, 8, 9, 10, 11, 12, 13, 14]
+      }
+  , let haystack = "Utils/XYZPretty.hs" :: Text in
+    mkTestCase "pretty xyz" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 565
+      , mPositions = fmap StrCharIdx $ 6 :| [7, 8, 9, 10, 11, 12, 13, 14]
+      }
+
   ] ++
   [ mkTestCase "fooo xyz" haystack (mkHeatMap haystack) Nothing
   | haystack <-
