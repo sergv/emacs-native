@@ -168,6 +168,22 @@ fuzzyMatchTests = testGroup "fuzzy match" $
       , mPositions = fmap StrCharIdx $ 6 :| [7, 8, 9, 10, 11, 12, 13, 14]
       }
 
+  , let haystack = "/home/sergey/projects/xucid/tests/Xucid/More/Tests/Inline.hs" :: Text in
+    mkTestCase "xucidmoretestinline" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 983
+      , mPositions = fmap StrCharIdx $ 22 :| [23, 24, 25, 26,                 40, 41, 42, 43, 45, 46, 47, 48, 51, 52, 53, 54, 55, 56]
+      }
+  , let haystack   = "/home/sergey/projects/nucid/tests/Nucid/More/Tests/Inline.hs" :: Text in
+    mkTestCase "nucid more test inline" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 1019
+      , mPositions = fmap StrCharIdx $ 22 :| [23, 24, 25, 26, 28, 29, 30, 31, 40, 41, 42, 43,                 51, 52, 53, 54, 55, 56]
+      }
+  , let haystack   = "/home/sergey/projects/mucid/scripts/zlezze/ImxliedAomAixxControl/ImxliedXolRiszControl_RC12IXER_Indez.i" :: Text in
+    mkTestCase "mucid core test inline" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = -93
+      , mPositions = fmap StrCharIdx $ 22 :| [23, 57, 58, 60, 65, 70, 71, 75, 77, 81, 82, 85, 93, 96, 97, 99]
+      }
+
   ] ++
   [ mkTestCase "fooo xyz" haystack (mkHeatMap haystack) Nothing
   | haystack <-
