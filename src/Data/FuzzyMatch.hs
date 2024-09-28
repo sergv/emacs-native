@@ -558,9 +558,9 @@ splitNeedle = splitOnSpace
     space :: Word8
     !space = fromIntegral (ord ' ')
     splitOnSpace :: Text -> NonEmpty Text
-    splitOnSpace str = case T.uncons str of
+    splitOnSpace !str = case T.uncons str of
       Just (' ', _) ->
-        let (# first, rest #) = T.spanAscii2_ (== space) (/= space) str
+        let (# !first, !rest #) = T.spanAscii2_ (== space) (/= space) str
         in case splitBy space rest of
           [] -> first :| [rest]
           xs -> first :| xs
@@ -569,23 +569,23 @@ splitNeedle = splitOnSpace
         x : xs -> x :| xs
 
 splitBy :: Word8 -> Text -> [Text]
-splitBy c = go
+splitBy !c = go
   where
-    split str =
-      let (# prefix, suffix  #) = T.spanAscii_ (/= c) str
-          (# _,      suffix' #) = T.spanAscii_ (== c) suffix
+    split !str =
+      let (# !prefix, !suffix  #) = T.spanAscii_ (/= c) str
+          (# _,       !suffix' #) = T.spanAscii_ (== c) suffix
       in (# prefix, suffix' #)
-    go str
+    go !str
       | T.null str = []
       | otherwise  =
-        let (# prefix, suffix #) = split str
+        let (# !prefix, !suffix #) = split str
         in if T.null prefix
         then go suffix
         else prefix : go' suffix
-    go' str
+    go' !str
       | T.null str = []
       | otherwise  =
-        let (# prefix, suffix #) = split str
+        let (# !prefix, !suffix #) = split str
         in prefix : go' suffix
 
 fuzzyMatchImpl
@@ -606,7 +606,7 @@ fuzzyMatchImpl store mkHeatmap (needle, needleChars) haystack
       heatmap'@(Heatmap heatmap) <- unsafeInterleaveST mkHeatmap
       let
         bigger :: StrCharIdx Int32 -> U.Vector PackedStrCharIdxAndStrByteIdx -> U.Vector PackedStrCharIdxAndStrByteIdx
-        bigger x xs
+        bigger !x !xs
           | isMember
           = let !i' = i + 1
             in U.unsafeSlice i' (U.length xs - i') xs
@@ -784,7 +784,7 @@ newtype Heatmap s = Heatmap { unHeatmap :: PM.MVector s Heat }
 -- Heatmap elements spast @hastyackLen@ will have undefined values. Take care not
 -- to access them!
 computeHeatmap :: forall s. ReusableState s -> Text -> Int -> PrimArray Int32 -> ST s (Heatmap s)
-computeHeatmap ReusableState{rsHeatmapStore} !haystack !haystackLen groupSeps = do
+computeHeatmap ReusableState{rsHeatmapStore} !haystack !haystackLen !groupSeps = do
   arr    <- readSTRef rsHeatmapStore
   scores <- do
     !currSize <- getSizeofMutablePrimArray arr
@@ -989,7 +989,7 @@ analyzeGroup Group{gPrevChar, gLen, gStr, gStart} !seenBasePath !groupsCount Gro
   pure res
 
 calcGroupScore :: Bool -> Int -> Int -> Int -> Heat
-calcGroupScore isBasePath groupsCount wordCount gcGroupIdx
+calcGroupScore !isBasePath !groupsCount !wordCount !gcGroupIdx
   | isBasePath = Heat $ fi32 $ 35 + max (groupsCount - 2) 0 - wordCount
   | otherwise  = if gcGroupIdx == 0 then Heat (- 3) else Heat $ fi32 $ gcGroupIdx - 6
 
