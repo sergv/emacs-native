@@ -50,6 +50,10 @@ splitNeedleTests = testGroup "split needle"
     splitNeedle "foo bar" @?= "foo" :| ["bar"]
   , testCase " foo bar" $
     splitNeedle " foo bar" @?= " foo" :| ["bar"]
+  , testCase " foo  bar" $
+    splitNeedle " foo  bar" @?= " foo" :| ["bar"]
+  , testCase " dante" $
+    splitNeedle " dante" @?= " dante" :| []
   ]
 
 fuzzyMatchTests :: TestTree
@@ -183,7 +187,11 @@ fuzzyMatchTests = testGroup "fuzzy match" $
       { mScore     = -93
       , mPositions = fmap StrCharIdx $ 22 :| [23, 57, 58, 60, 65, 70, 71, 75, 77, 81, 82, 85, 93, 96, 97, 99]
       }
-
+  , let haystack = " *dante#linux-scripts:lib:linux-scripts#/home/sergey/projects/haskell/projects/linux-scripts/*" :: Text in
+    mkTestCase " dante" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = 333
+      , mPositions = fmap StrCharIdx $ 0 :| [2, 3, 4, 5, 6]
+      }
   ] ++
   [ mkTestCase "fooo xyz" haystack (mkHeatMap haystack) Nothing
   | haystack <-

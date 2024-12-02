@@ -569,9 +569,13 @@ splitNeedle = splitOnSpace
     splitOnSpace !str = case T.uncons str of
       Just (' ', _) ->
         let (# !first, !rest #) = T.spanAscii2_ (== space) (/= space) str
-        in case splitBy space rest of
-          [] -> first :| [rest]
-          xs -> first :| xs
+        in
+          if T.null rest
+          then first :| []
+          else
+            case splitBy space rest of
+              [] -> first :| [rest]
+              xs -> first :| xs
       _             -> case splitBy space str of
         []     -> str :| []
         x : xs -> x :| xs
