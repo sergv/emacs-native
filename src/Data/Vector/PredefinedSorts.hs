@@ -8,6 +8,8 @@
 
 {-# OPTIONS_GHC -Wno-orphans #-}
 
+{-# OPTIONS_GHC -fpolymorphic-specialisation #-}
+
 module Data.Vector.PredefinedSorts
   ( sortInt32
   , sortWord64
