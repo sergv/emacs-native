@@ -97,20 +97,20 @@ emacsGrepRec (R roots (R regexp (R globsToFind (R ignoredFileGlobs (R ignoredDir
 
   extsToFindRE <- fileGlobsToRegex globsToFind'
 
-  let shouldCollect :: AbsDir -> AbsFile -> RelFile -> IO [MatchEntry]
+  let shouldCollect :: AbsDir -> AbsFile -> RelFile -> IO (Maybe [MatchEntry])
       shouldCollect root absPath'@(AbsFile absPath) (RelFile relPath)
-        | isIgnoredFile ignores absPath' = pure []
+        | isIgnoredFile ignores absPath' = pure Nothing
         | hasExtension absPath
         , reMatches extsToFindRE $ pathToText $ takeExtension relPath = do
             contents <- OsPath.readFile' absPath
             case reAllByteStringMatches regexp'' contents of
-              AllMatches [] -> pure []
-              AllMatches ms -> makeMatches root absPath' ms contents
-        | otherwise = pure []
+              AllMatches [] -> pure Nothing
+              AllMatches ms -> Just <$> makeMatches root absPath' ms contents
+        | otherwise = pure Nothing
 
   results <- liftBase newTMQueueIO
-  let collect :: MatchEntry -> IO ()
-      collect = atomically . writeTMQueue results
+  let collect :: [MatchEntry] -> IO ()
+      collect = traverse_ (atomically . writeTMQueue results)
 
       doFind :: IO ()
       doFind =

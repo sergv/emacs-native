@@ -110,7 +110,6 @@ library
   hs-source-dirs:
     src
   build-depends:
-    , async >= 2
     , atomic-counter
     -- We need --polymorphic-specialization flag
     , base >= 4.18
@@ -119,7 +118,7 @@ library
     , containers
     , deepseq
     , directory
-    , directory-ospath-streaming
+    , directory-ospath-streaming >= 0.2
     , emacs-module >= 0.2.1
     , exceptions
     , file-io

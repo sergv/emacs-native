@@ -15,12 +15,8 @@ module Data.Filesystem
   , RelFile(..)
   ) where
 
-import Control.Concurrent.Async
-import Control.Monad.Catch
 import Data.Coerce
 import Data.Foldable
-import Data.NBSem
-import System.Directory.OsPath.FileType as Streaming
 import System.Directory.OsPath.Streaming as Streaming
 import System.OsPath
 
@@ -39,76 +35,35 @@ newtype RelFile = RelFile { unRelFile :: OsPath }
 
 {-# INLINE findRec #-}
 findRec
-  :: forall a f ff. (WithCallStack, Foldable f, Foldable ff)
+  :: forall a f. (WithCallStack, Foldable f, Functor f)
   => FollowSymlinks a
   -> Int                        -- ^ Extra search threads to run in parallel.
   -> (AbsDir -> RelDir -> Bool) -- ^ Whether to visit a directory.
-  -> (AbsDir -> AbsFile -> RelFile -> IO (f a))
+  -> (AbsDir -> AbsFile -> RelFile -> IO (Maybe a))
                                 -- ^ What to do with a file. Receives original directory it was located in.
   -> (a -> IO ())               -- ^ Consume output
-  -> ff AbsDir                  -- ^ Where to start search.
+  -> f AbsDir                  -- ^ Where to start search.
   -> IO ()
-findRec followSymlinks extraJobs dirPred filePred consumeOutput roots = do
-  sem <- newNBSem extraJobs
-  let runWithRoot :: AbsDir -> IO () -> IO ()
-      runWithRoot currRoot goNext = doDir currRoot (coerce takeFileName currRoot) goNext
-        where
-          currRootWithTrailingSep :: AbsDir
-          currRootWithTrailingSep = AbsDir $ addTrailingPathSeparator $ unAbsDir currRoot
-
-          doDir :: AbsDir -> RelDir -> IO () -> IO ()
-          doDir absPath relPath processNextDir
-            | dirPred absPath relPath = do
-              acquired <- tryAcquireNBSem sem
-              if acquired
-              then
-                withAsync (goDirRelease absPath) $ \yAsync ->
-                  processNextDir *> wait yAsync
-              else
-                goDir absPath *> processNextDir
-            | otherwise =
-              processNextDir
-
-          goDir :: AbsDir -> IO ()
-          goDir d =
-            bracket
-              (Streaming.openDirStream (unAbsDir d))
-              Streaming.closeDirStream
-              (goDirStream d)
-
-          goDirRelease :: AbsDir -> IO ()
-          goDirRelease d =
-            bracket
-              (Streaming.openDirStream (unAbsDir d))
-              (\stream -> Streaming.closeDirStream stream *> releaseNBSem sem)
-              (goDirStream d)
-
-          goDirStream :: AbsDir -> Streaming.DirStream -> IO ()
-          goDirStream (AbsDir root) stream = go
-            where
-              go :: IO ()
-              go = do
-                x <- Streaming.readDirStream stream
-                case x of
-                  Nothing -> pure ()
-                  Just y  -> do
-                    let y' :: OsPath
-                        y' = root </> y
-                    ft <- Streaming.getFileType y'
-                    case ft of
-                      Streaming.Other        -> go
-                      Streaming.File         -> doFile (AbsFile y') (RelFile y) *> go
-                      Streaming.FileSym      -> doFile (AbsFile y') (RelFile y) *> go
-                      Streaming.Directory    -> doDir (AbsDir y') (RelDir y) go
-                      Streaming.DirectorySym ->
-                        case followSymlinks of
-                          FollowSymlinks        -> doDir (AbsDir y') (RelDir y) go
-                          ReportSymlinks report -> do
-                            traverse_ consumeOutput =<< report (AbsDir y') (RelDir y)
-                            go
-
-          doFile :: AbsFile -> RelFile -> IO ()
-          doFile absPath relPath =
-            traverse_ consumeOutput =<< filePred currRootWithTrailingSep absPath relPath
-
-  foldr runWithRoot (pure ()) roots
+findRec followSymlinks _extraJobs dirPred filePred consumeOutput roots =
+  traverse_ consumeOutput =<< Streaming.listContentsRecFold
+    Nothing
+    (\absDir _ _ (Basename baseDir) sym cons descendSubdir rest ->
+      if dirPred (AbsDir absDir) (RelDir baseDir)
+      then
+        case sym of
+          Regular -> descendSubdir rest
+          Symlink -> case followSymlinks of
+            FollowSymlinks        -> descendSubdir rest
+            ReportSymlinks report -> do
+              res <- report (AbsDir absDir) (RelDir baseDir)
+              case res of
+                Nothing -> rest
+                Just x  -> cons x rest
+      else
+        rest)
+    (\absFile root _ (Basename baseFile) ft ->
+      case ft of
+        Other _     -> pure Nothing
+        Directory _ -> pure Nothing
+        File _      -> filePred root (AbsFile absFile) (RelFile baseFile))
+    (fmap (coerce addTrailingPathSeparator) roots)
