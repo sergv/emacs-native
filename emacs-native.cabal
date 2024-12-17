@@ -138,7 +138,7 @@ library
     , transformers-base
     , tuples-homogenous-h98
     , vector >= 0.13
-    , vector-quicksort
+    , vector-quicksort >= 0.2
 
 foreign-library emacs-native
   import: ghc-options
