@@ -77,7 +77,6 @@ common ghc-options
       -Wno-missing-role-annotations
       -Wno-missing-poly-kind-signatures
 
-
 library
   import: ghc-options
   if flag(runtime-checks)
