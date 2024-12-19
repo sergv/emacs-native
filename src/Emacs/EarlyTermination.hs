@@ -93,9 +93,7 @@ consumeTMQueueWithEarlyTermination !source !initState f =
             (Left <$> (readTVar delayVar >>= check)) `orElse` (Right <$> readTMQueue source)
           case res of
             Right Nothing  -> pure acc
-            Right (Just a) -> do
-              acc' <- f acc a
-              go' acc'
+            Right (Just a) -> go' =<< f acc a
             Left () ->
               processInput >>= \case
                 ProcessInput.Quit     -> throwM EarlyTermination
