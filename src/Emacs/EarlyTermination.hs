@@ -86,16 +86,18 @@ consumeTMQueueWithEarlyTermination !source !initState f =
   go initState =<< mkDelay
   where
     go :: b -> TVar Bool -> m s b
-    go !acc delayVar = do
-      res <- liftBase $ atomically $
-        (Left <$> (readTVar delayVar >>= check)) `orElse` (Right <$> readTMQueue source)
-      case res of
-        Right Nothing  -> pure acc
-        Right (Just a) -> do
-          acc' <- f acc a
-          go acc' delayVar
-        Left () ->
-          processInput >>= \case
-            ProcessInput.Quit     -> throwM EarlyTermination
-            ProcessInput.Continue -> go acc =<< mkDelay
+    go !initAcc delayVar = go' initAcc
+      where
+        go' !acc = do
+          res <- liftBase $ atomically $
+            (Left <$> (readTVar delayVar >>= check)) `orElse` (Right <$> readTMQueue source)
+          case res of
+            Right Nothing  -> pure acc
+            Right (Just a) -> do
+              acc' <- f acc a
+              go' acc'
+            Left () ->
+              processInput >>= \case
+                ProcessInput.Quit     -> throwM EarlyTermination
+                ProcessInput.Continue -> go acc =<< mkDelay
 
