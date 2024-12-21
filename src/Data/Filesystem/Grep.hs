@@ -22,8 +22,8 @@ import Control.Concurrent.STM.TMQueue
 import Control.Monad.Base
 import Control.Monad.Catch
 import Control.Monad.Trans.Control
-import Data.ByteString.Char8 qualified as C8
-import Data.ByteString.Char8.Ext qualified as C8.Ext
+import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short (ShortByteString)
 import Data.Coerce
 import Data.Foldable
@@ -33,6 +33,8 @@ import Data.Map.Strict qualified as M
 import Data.Ord
 import Data.Semigroup as Semi
 import Data.Text (Text)
+import Data.Word (Word8)
+import GHC.Base (unsafeChr)
 import Prettyprinter
 import Prettyprinter.Generics
 import System.File.OsPath as OsPath
@@ -44,6 +46,7 @@ import Emacs.Module.Errors
 import Data.Emacs.Path
 import Data.Filesystem.Find
 import Data.Ignores
+import Data.Int (Int64)
 import Data.Regex
 import Emacs.EarlyTermination
 
@@ -64,17 +67,17 @@ grep roots regexp globsToFind ignoreCase ignores f = do
           , lastStarGreedy = True
           }
 
-  regexp' <- compileReWithOpts compOpts regexp
+  regexp' <- compileReWithOptsUnicodeAsBytes compOpts regexp
   jobs    <- liftBase getNumCapabilities
 
   extsToFindRE <- fileGlobsToRegex globsToFind
 
-  let shouldCollect :: AbsDir -> AbsFile -> RelFile -> IO (Maybe [MatchEntry])
-      shouldCollect root absPath'@(AbsFile absPath) (RelFile relPath)
+  let searchFile :: AbsDir -> AbsFile -> RelFile -> IO (Maybe [MatchEntry])
+      searchFile root absPath'@(AbsFile absPath) (RelFile relPath)
         | isIgnoredFile ignores absPath' = pure Nothing
         | hasExtension absPath
         , reMatches extsToFindRE $ pathToText $ takeExtension relPath = do
-            contents <- OsPath.readFile' absPath
+            contents <- OsPath.readFile absPath
             case reAllByteStringMatches regexp' contents of
               AllMatches [] -> pure Nothing
               AllMatches ms -> Just <$> makeMatches root absPath' ms contents
@@ -88,7 +91,7 @@ grep roots regexp globsToFind ignoreCase ignores f = do
       doFind =
         findRec FollowSymlinks jobs
           (shouldVisit ignores)
-          shouldCollect
+          searchFile
           collect
           (coerce roots :: [AbsDir])
 
@@ -113,13 +116,13 @@ data MatchEntry = MatchEntry
   , matchColumnNum  :: !Word
   , -- | What comes before the matched text on the relevant line.
     -- Contains no newlines.
-    matchLinePrefix :: !C8.ByteString
+    matchLinePrefix :: !BS.ByteString
   , -- | The text that was matched. May contain newlines since we
     -- support multiline matches.
-    matchLineStr    :: !C8.ByteString
+    matchLineStr    :: !BS.ByteString
   , -- | What comes after the matched text on the relevant line.
     -- Contains no newlines.
-    matchLineSuffix :: !C8.ByteString
+    matchLineSuffix :: !BS.ByteString
   }
   deriving (Eq, Show, Generic)
   deriving Pretty via PPGeneric MatchEntry
@@ -132,8 +135,8 @@ data MatchState = MatchState
   , msResult  :: [MatchEntry]
   }
 
-isNewline :: Char -> Bool
-isNewline = \case
+isNewline :: Word8 -> Bool
+isNewline w = case unsafeChr $ fromIntegral w of
   '\n' -> True
   '\r' -> True
   _    -> False
@@ -143,7 +146,7 @@ makeMatches
   => AbsDir  -- ^ Directory where recursive search was initiated
   -> AbsFile -- ^ Matched file under the directory
   -> [(MatchOffset, MatchLength)]
-  -> C8.ByteString
+  -> BSL.ByteString
   -> m [MatchEntry]
 makeMatches (AbsDir searchRoot) fileAbsPath'@(AbsFile fileAbsPath) ms str =
   case stripProperPrefix searchRoot fileAbsPath of
@@ -151,7 +154,7 @@ makeMatches (AbsDir searchRoot) fileAbsPath'@(AbsFile fileAbsPath) ms str =
       "Internal error: findRec produced wrong root for path" <+> pretty (pathToText fileAbsPath) Semi.<>
       ". The root is" <+> pretty (pathToText searchRoot)
     Just relPath ->
-      pure $ msResult $ C8.foldl' (\acc c -> accumulateMatch $ bumpPos acc c) initState str
+      pure $ msResult $ BSL.foldl' (\acc c -> accumulateMatch $ bumpPos acc $ unsafeChr $ fromIntegral c) initState str
       where
         initState = MatchState
           { msPos     = 0
@@ -169,29 +172,29 @@ makeMatches (AbsDir searchRoot) fileAbsPath'@(AbsFile fileAbsPath) ms str =
         accumulateMatch :: MatchState -> MatchState
         accumulateMatch s@MatchState{msMatches = []} = s
         accumulateMatch s@MatchState{msPos, msLine, msCol, msMatches = remainingMatches@((offset, _) : _), msResult}
-          | msPos' == offset
+          | msPos' == fi offset
           = s { msMatches = remainingMatches', msResult = newEntries ++ msResult }
           | otherwise
           = s
           where
-            msPos' = fi msPos
+            !msPos' = fi msPos
             (currentMatches, remainingMatches') =
-              first (map snd) $ span ((== msPos') . fst) remainingMatches
+              first (map snd) $ span ((== msPos') . fi . fst) remainingMatches
             newEntries =
               [ MatchEntry
                  { matchAbsPath    = fileAbsPath'
                  , matchRelPath    = RelFile relPath
                  , matchLineNum    = msLine
                  , matchColumnNum  = msCol
-                 , matchLinePrefix = C8.copy prefix
-                 , matchLineStr    = C8.copy matched
-                 , matchLineSuffix = C8.copy suffix
+                 , matchLinePrefix = BSL.toStrict prefix
+                 , matchLineStr    = BSL.toStrict matched
+                 , matchLineSuffix = BSL.toStrict suffix
                  }
               | len <- currentMatches
-              , let (prefix,  rest)  = C8.Ext.splitAt (fi msCol) $ C8.Ext.drop (fi msPos - fi msCol) str
-              , let (matched, rest') = C8.Ext.splitAt len rest
-              , let suffix           = C8.takeWhile (not . isNewline) rest'
+              , let (prefix,  rest)  = BSL.splitAt (fi msCol) $ BSL.drop (fi msPos - fi msCol) str
+              , let (matched, rest') = BSL.splitAt (fi len) rest
+              , let suffix           = BSL.takeWhile (not . isNewline) rest'
               ]
-            fi :: Word -> Int
+            fi :: Integral a => a -> Int64
             fi = fromIntegral
 
