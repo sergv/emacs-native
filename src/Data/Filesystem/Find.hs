@@ -6,6 +6,8 @@
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
 
+{-# LANGUAGE DerivingVia #-}
+
 module Data.Filesystem.Find
   ( FollowSymlinks(..)
   , findRec
@@ -17,6 +19,7 @@ module Data.Filesystem.Find
 
 import Data.Coerce
 import Data.Foldable
+import Prettyprinter.Show
 import System.Directory.OsPath.Streaming as Streaming
 import System.OsPath
 
@@ -29,9 +32,20 @@ data FollowSymlinks a =
     ReportSymlinks (AbsDir -> RelDir -> IO (Maybe a))
 
 newtype AbsDir  = AbsDir  { unAbsDir  :: OsPath }
+  deriving (Eq, Show)
+  deriving Pretty via PPShow AbsDir
+
 newtype RelDir  = RelDir  { unRelDir  :: OsPath }
+  deriving (Eq, Show)
+  deriving Pretty via PPShow RelDir
+
 newtype AbsFile = AbsFile { unAbsFile :: OsPath }
+  deriving (Eq, Show)
+  deriving Pretty via PPShow AbsFile
+
 newtype RelFile = RelFile { unRelFile :: OsPath }
+  deriving (Eq, Show)
+  deriving Pretty via PPShow RelFile
 
 {-# INLINE findRec #-}
 findRec

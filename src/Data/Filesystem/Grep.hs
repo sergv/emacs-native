@@ -4,6 +4,7 @@
 -- License:    Apache-2.0 (see LICENSE)
 -- Maintainer: serg.foo@gmail.com
 
+{-# LANGUAGE DerivingVia           #-}
 {-# LANGUAGE MonoLocalBinds        #-}
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE QuantifiedConstraints #-}
@@ -32,7 +33,8 @@ import Data.Map.Strict qualified as M
 import Data.Ord
 import Data.Semigroup as Semi
 import Data.Text (Text)
-import Prettyprinter (pretty, (<+>))
+import Prettyprinter
+import Prettyprinter.Generics
 import System.File.OsPath as OsPath
 import System.OsPath
 
@@ -119,6 +121,8 @@ data MatchEntry = MatchEntry
     -- Contains no newlines.
     matchLineSuffix :: !C8.ByteString
   }
+  deriving (Eq, Show, Generic)
+  deriving Pretty via PPGeneric MatchEntry
 
 data MatchState = MatchState
   { msPos     :: !Word

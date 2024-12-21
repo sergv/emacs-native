@@ -11,6 +11,7 @@ module Data.Ignores
   , mkIgnores
   , shouldVisit
   , isIgnoredFile
+  , dummyIgnores
   ) where
 
 import Data.Filesystem.Find
@@ -54,3 +55,15 @@ shouldVisit Ignores{ignoresDirsRE, ignoresAbsDirsRE} (AbsDir absPath) (RelDir re
 isIgnoredFile :: Ignores -> AbsFile -> Bool
 isIgnoredFile Ignores{ignoresFilesRE} (AbsFile absPath) =
   reMatchesOsPath ignoresFilesRE absPath
+
+dummyIgnores :: Ignores
+dummyIgnores = Ignores
+  { ignoresFilesRE   = dummyRe
+  , ignoresDirsRE    = dummyRe
+  , ignoresAbsDirsRE = dummyRe
+  }
+  where
+    dummyRe :: Regex
+    dummyRe = case compileRe "^()$" of
+      Nothing -> error "Invalid dummy regex"
+      Just x  -> x
