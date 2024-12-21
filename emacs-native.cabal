@@ -85,7 +85,8 @@ library
     Control.LensBlaze
     Data.Emacs.Path
     Data.Eproj
-    Data.Filesystem
+    Data.Filesystem.Find
+    Data.Filesystem.Grep
     Data.FuzzyMatch
     Data.FuzzyMatch.SortKey
     Data.Ignores

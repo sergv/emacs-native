@@ -31,7 +31,7 @@ import Emacs.Module
 import Emacs.Module.Assert
 
 import Data.Emacs.Path
-import Data.Filesystem
+import Data.Filesystem.Find
 import Data.Ignores
 import Data.Regex
 import Emacs.EarlyTermination

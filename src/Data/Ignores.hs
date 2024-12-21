@@ -13,7 +13,7 @@ module Data.Ignores
   , isIgnoredFile
   ) where
 
-import Data.Filesystem
+import Data.Filesystem.Find
 import Data.Regex
 import Emacs.Module
 import Emacs.Module.Assert

@@ -1,12 +1,12 @@
 ----------------------------------------------------------------------------
 -- |
--- Module      :  Data.Filesystem
+-- Module      :  Data.Filesystem.Find
 -- Copyright   :  (c) Sergey Vinokurov 2018
 -- License     :  BSD3-style (see LICENSE)
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
 
-module Data.Filesystem
+module Data.Filesystem.Find
   ( FollowSymlinks(..)
   , findRec
   , AbsDir(..)
