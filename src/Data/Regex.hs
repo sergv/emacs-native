@@ -17,22 +17,23 @@ module Data.Regex
   , compileReWithOpts
   , reMatches
   , reMatchesOsPath
-  , reMatchesString
-  , reMatchesByteString
   , reMatchesShortByteString
   , reAllByteStringMatches
 
     -- * Reexports
   , module Text.Regex.TDFA
+
+  , compileReWithOptsUnicodeAsBytes
   ) where
 
 import Control.Monad.Catch (MonadThrow(..))
-import Data.ByteString.Char8 qualified as C8
+import Data.ByteString.Lazy.Char8 qualified as CL8
 import Data.ByteString.Short (ShortByteString)
 import Data.ByteString.Short qualified as BSS
 import Data.Foldable
 import Data.Text (Text)
 import Data.Text.Builder.Linear.Buffer
+import Data.Text.Encoding qualified as T
 import Data.Text.Ext (textFoldLinear)
 import Prettyprinter
 import System.OsPath
@@ -118,21 +119,28 @@ compileReWithOpts compOpts re =
       { captureGroups = False
       }
 
+compileReWithOptsUnicodeAsBytes
+  :: (WithCallStack, MonadThrow m)
+  => CompOption -> Text -> m Regex
+compileReWithOptsUnicodeAsBytes compOpts re =
+  case TDFA.compile compOpts execOpts $ T.decodeLatin1 $ T.encodeUtf8 re of
+    Left err -> throwM $ mkUserError "compileRe" $
+      "Failed to compile regular expression:" <+> pretty err <> ":" <> line <> pretty re
+    Right x  -> pure x
+  where
+    execOpts = defaultExecOpt
+      { captureGroups = False
+      }
+
 reMatches :: Regex -> Text -> Bool
 reMatches = match
 
 reMatchesOsPath :: Regex -> OsPath -> Bool
 reMatchesOsPath re = match re . pathToText
 
-reMatchesString :: Regex -> String -> Bool
-reMatchesString = match
-
-reMatchesByteString :: Regex -> C8.ByteString -> Bool
-reMatchesByteString = match
-
 reMatchesShortByteString :: Regex -> ShortByteString -> Bool
 reMatchesShortByteString re = match re . BSS.fromShort
 
 reAllByteStringMatches
-  :: Regex -> C8.ByteString -> AllMatches [] (MatchOffset, MatchLength)
+  :: Regex -> CL8.ByteString -> AllMatches [] (MatchOffset, MatchLength)
 reAllByteStringMatches = match
