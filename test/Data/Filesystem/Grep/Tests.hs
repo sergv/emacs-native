@@ -20,6 +20,7 @@ import Control.Monad.Trans.Control (MonadBaseControl)
 import Data.Foldable (toList)
 import Data.Text (Text)
 import Data.Text qualified as T
+import Data.Text.Encoding qualified as T
 import Data.Vector.Generic qualified as VG
 import Data.Vector.Generic.Mutable qualified as VGM
 import Data.Vector.Primitive qualified as VP
@@ -49,6 +50,19 @@ tests = testGroup "Data.Filesystem.Grep.Tests"
             , matchLineSuffix = " (tests) where"
             }
       xs  <- grep' [osp|.|] "^module Data.Filesystem.Grep.Tests" ["*.hs"] False dummyIgnores
+      checkEqual xs [expected]
+  , testCase "grep unicode 1" $ do
+      let path = [osp|test-data/test.txt|]
+          expected = MatchEntry
+            { matchAbsPath    = AbsFile $ [osp|.|] </> path
+            , matchRelPath    = RelFile path
+            , matchLineNum    = 2
+            , matchColumnNum  = 16
+            , matchLinePrefix = T.encodeUtf8 "〚decombobulate"
+            , matchLineStr    = T.encodeUtf8 "〛"
+            , matchLineSuffix = ""
+            }
+      xs  <- grep' [osp|.|] "〛" ["*.txt"] False dummyIgnores
       checkEqual xs [expected]
   ]
 
