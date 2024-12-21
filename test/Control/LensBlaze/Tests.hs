@@ -7,10 +7,6 @@
 ----------------------------------------------------------------------------
 
 {-# LANGUAGE DataKinds            #-}
-{-# LANGUAGE ImportQualifiedPost  #-}
-{-# LANGUAGE KindSignatures       #-}
-{-# LANGUAGE ScopedTypeVariables  #-}
-{-# LANGUAGE TypeOperators        #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 module Control.LensBlaze.Tests (tests) where
