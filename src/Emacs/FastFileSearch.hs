@@ -32,6 +32,7 @@ import Emacs.Module.Assert
 
 import Data.Emacs.Path
 import Data.Filesystem.Find
+import Data.Foldable (traverse_)
 import Data.Ignores
 import Data.Regex
 import Emacs.EarlyTermination
@@ -83,10 +84,9 @@ emacsFindRec (R roots (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs (R i
       collect = atomically . writeTMQueue results
 
       doFind =
-        findRec FollowSymlinks jobs
+        traverse_ collect =<< findRec FollowSymlinks jobs
           (shouldVisit ignores)
           shouldCollect
-          collect
           roots''
 
   withAsync (liftBase (doFind `finally` atomically (closeTMQueue results))) $ \searchAsync -> do

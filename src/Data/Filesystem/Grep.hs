@@ -89,10 +89,9 @@ grep roots regexp globsToFind ignoreCase ignores f = do
 
       doFind :: IO ()
       doFind =
-        findRec FollowSymlinks jobs
+        traverse_ collect =<< findRec FollowSymlinks jobs
           (shouldVisit ignores)
           searchFile
-          collect
           (coerce roots :: [AbsDir])
 
   withAsync (liftBase (doFind `finally` atomically (closeTMQueue results))) $ \searchAsync -> do

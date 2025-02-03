@@ -18,7 +18,6 @@ module Data.Filesystem.Find
   ) where
 
 import Data.Coerce
-import Data.Foldable
 import Prettyprinter.Show
 import System.Directory.OsPath.Streaming as Streaming
 import System.OsPath
@@ -55,11 +54,10 @@ findRec
   -> (AbsDir -> RelDir -> Bool) -- ^ Whether to visit a directory.
   -> (AbsDir -> AbsFile -> RelFile -> IO (Maybe a))
                                 -- ^ What to do with a file. Receives original directory it was located in.
-  -> (a -> IO ())               -- ^ Consume output
-  -> f AbsDir                  -- ^ Where to start search.
-  -> IO ()
-findRec followSymlinks _extraJobs dirPred filePred consumeOutput roots =
-  traverse_ consumeOutput =<< Streaming.listContentsRecFold
+  -> f AbsDir                   -- ^ Where to start search.
+  -> IO [a]
+findRec followSymlinks _extraJobs dirPred filePred roots =
+  Streaming.listContentsRecFold
     Nothing
     (\absDir _ _ (Basename baseDir) sym cons descendSubdir rest ->
       if dirPred (AbsDir absDir) (RelDir baseDir)
