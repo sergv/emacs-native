@@ -90,7 +90,6 @@ library
     Data.FuzzyMatch
     Data.FuzzyMatch.SortKey
     Data.Ignores
-    Data.NBSem
     Data.Packed
     Data.Regex
     Data.StrIdx
