@@ -8,7 +8,7 @@
 
 module Data.Ignores
   ( Ignores
-  , mkIgnores
+  , mkEmacsIgnores
   , shouldVisit
   , isIgnoredFile
   , dummyIgnores
@@ -16,6 +16,7 @@ module Data.Ignores
 
 import Data.Filesystem.Find
 import Data.Regex
+import Data.Text (Text)
 import Emacs.Module
 import Emacs.Module.Assert
 
@@ -25,7 +26,7 @@ data Ignores = Ignores
   , ignoresAbsDirsRE :: !Regex
   }
 
-mkIgnores
+mkEmacsIgnores
   :: ( WithCallStack
      , MonadEmacs m v
      , MonadThrow (m s)
@@ -35,16 +36,27 @@ mkIgnores
   -> v s
   -> v s
   -> m s Ignores
-mkIgnores ignoredFileGlobs ignoredDirGlobs ignoredDirPrefixes ignoredAbsDirs = do
+mkEmacsIgnores ignoredFileGlobs ignoredDirGlobs ignoredDirPrefixes ignoredAbsDirs = do
   ignoredFileGlobs'   <- extractListWith extractText ignoredFileGlobs
   ignoredDirGlobs'    <- extractListWith extractText ignoredDirGlobs
   ignoredDirPrefixes' <- extractListWith extractText ignoredDirPrefixes
   ignoredAbsDirs'     <- extractListWith extractText ignoredAbsDirs
+  mkIgnores ignoredFileGlobs' (ignoredDirGlobs' ++ map (<> "*") ignoredDirPrefixes') ignoredAbsDirs'
 
-  ignoresFilesRE      <- fileGlobsToRegex ignoredFileGlobs'
-  ignoresDirsRE       <- fileGlobsToRegex (ignoredDirGlobs' ++ map (<> "*") ignoredDirPrefixes')
-  ignoresAbsDirsRE    <- fileGlobsToRegex ignoredAbsDirs'
-
+mkIgnores
+  :: ( WithCallStack
+     , Functor f
+     , Foldable f
+     , MonadThrow m
+     )
+  => f Text
+  -> f Text
+  -> f Text
+  -> m Ignores
+mkIgnores ignoredFileGlobs ignoredDirGlobs ignoredAbsDirs = do
+  ignoresFilesRE   <- fileGlobsToRegex ignoredFileGlobs
+  ignoresDirsRE    <- fileGlobsToRegex ignoredDirGlobs
+  ignoresAbsDirsRE <- fileGlobsToRegex ignoredAbsDirs
   pure Ignores{ignoresFilesRE, ignoresDirsRE, ignoresAbsDirsRE}
 
 shouldVisit :: Ignores -> AbsDir -> RelDir -> Bool

@@ -62,7 +62,7 @@ emacsFindRec
 emacsFindRec (R roots (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs (R ignoredDirPrefixes (R ignoredAbsDirs Stop)))))) = do
   roots'       <- extractListWith extractOsPath roots
   globsToFind' <- extractListWith extractText globsToFind
-  ignores      <- mkIgnores ignoredFileGlobs ignoredDirGlobs ignoredDirPrefixes ignoredAbsDirs
+  ignores      <- mkEmacsIgnores ignoredFileGlobs ignoredDirGlobs ignoredDirPrefixes ignoredAbsDirs
 
   nil' <- nil
   jobs <- liftBase getNumCapabilities

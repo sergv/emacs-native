@@ -68,7 +68,7 @@ emacsGrepRec (R roots (R regexp (R globsToFind (R ignoredFileGlobs (R ignoredDir
   regexp'      <- extractText regexp
   globsToFind' <- extractListWith extractText globsToFind
   ignoreCase'  <- extractBool ignoreCase
-  ignores      <- mkIgnores ignoredFileGlobs ignoredDirGlobs ignoredDirPrefixes ignoredAbsDirs
+  ignores      <- mkEmacsIgnores ignoredFileGlobs ignoredDirGlobs ignoredDirPrefixes ignoredAbsDirs
 
   for_ roots' $ \root -> do
     exists <- liftBase $ doesDirectoryExist root
