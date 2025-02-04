@@ -28,7 +28,8 @@ data FollowSymlinks a
   = -- | Recurse into symlinked directories
     FollowSymlinks
   | -- | Do not recurse into symlinked directories, but possibly report them.
-    ReportSymlinks (AbsDir -> RelDir -> IO (Maybe a))
+    -- Function receives absolute directory name and its basename part.
+    ReportSymlinks (OsPath -> Basename OsPath -> IO (Maybe a))
 
 newtype AbsDir  = AbsDir  { unAbsDir  :: OsPath }
   deriving (Eq, Show)
@@ -50,32 +51,32 @@ newtype RelFile = RelFile { unRelFile :: OsPath }
 findRec
   :: forall a f. (WithCallStack, Foldable f, Functor f)
   => FollowSymlinks a
-  -> Int                        -- ^ Extra search threads to run in parallel.
-  -> (AbsDir -> RelDir -> Bool) -- ^ Whether to visit a directory.
-  -> (AbsDir -> AbsFile -> RelFile -> IO (Maybe a))
-                                -- ^ What to do with a file. Receives original directory it was located in.
-  -> f AbsDir                   -- ^ Where to start search.
+  -> Int                                 -- ^ Extra search threads to run in parallel.
+  -> (OsPath -> Basename OsPath -> Bool) -- ^ Whether to visit a directory.
+  -> (AbsDir -> AbsFile -> Basename OsPath -> IO (Maybe a))
+                                         -- ^ What to do with a file. Receives original directory it was located in.
+  -> f AbsDir                            -- ^ Where to start search.
   -> IO [a]
 findRec followSymlinks _extraJobs dirPred filePred roots =
   Streaming.listContentsRecFold
     Nothing
-    (\absDir _ _ (Basename baseDir) sym cons descendSubdir rest ->
-      if dirPred (AbsDir absDir) (RelDir baseDir)
+    (\absDir _ _ baseDir sym cons descendSubdir rest ->
+      if dirPred absDir baseDir
       then
         case sym of
           Regular -> descendSubdir rest
           Symlink -> case followSymlinks of
             FollowSymlinks        -> descendSubdir rest
             ReportSymlinks report -> do
-              res <- report (AbsDir absDir) (RelDir baseDir)
+              res <- report absDir baseDir
               case res of
                 Nothing -> rest
                 Just x  -> cons x rest
       else
         rest)
-    (\absFile root _ (Basename baseFile) ft ->
+    (\absFile root _ baseFile ft ->
       case ft of
         Other _     -> pure Nothing
         Directory _ -> pure Nothing
-        File _      -> filePred root (AbsFile absFile) (RelFile baseFile))
+        File _      -> filePred root (AbsFile absFile) baseFile)
     (fmap (coerce addTrailingPathSeparator) roots)

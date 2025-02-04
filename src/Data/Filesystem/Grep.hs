@@ -37,6 +37,7 @@ import Data.Word (Word8)
 import GHC.Base (unsafeChr)
 import Prettyprinter
 import Prettyprinter.Generics
+import System.Directory.OsPath.Types
 import System.File.OsPath as OsPath
 import System.OsPath
 
@@ -57,9 +58,10 @@ grep
   -> [Text]
   -> Bool
   -> Ignores
+  -> Ignores
   -> (ShortByteString -> MatchEntry -> m s a)
   -> m s (Map (ShortByteString, Word) a)
-grep roots regexp globsToFind ignoreCase ignores f = do
+grep roots regexp globsToFind ignoreCase fileIgnores dirIgnores f = do
   let compOpts =
         defaultCompOpt
           { multiline      = True
@@ -72,11 +74,11 @@ grep roots regexp globsToFind ignoreCase ignores f = do
 
   extsToFindRE <- fileGlobsToRegex globsToFind
 
-  let searchFile :: AbsDir -> AbsFile -> RelFile -> IO (Maybe [MatchEntry])
-      searchFile root absPath'@(AbsFile absPath) (RelFile relPath)
-        | isIgnoredFile ignores absPath' = pure Nothing
+  let searchFile :: AbsDir -> AbsFile -> Basename OsPath -> IO (Maybe [MatchEntry])
+      searchFile root absPath'@(AbsFile absPath) (Basename basePath)
+        | isIgnoredFile fileIgnores absPath' = pure Nothing
         | hasExtension absPath
-        , reMatches extsToFindRE $ pathToText $ takeExtension relPath = do
+        , reMatches extsToFindRE $ pathToText $ takeExtension basePath = do
             contents <- OsPath.readFile absPath
             case reAllByteStringMatches regexp' contents of
               AllMatches [] -> pure Nothing
@@ -90,7 +92,7 @@ grep roots regexp globsToFind ignoreCase ignores f = do
       doFind :: IO ()
       doFind =
         traverse_ collect =<< findRec FollowSymlinks jobs
-          (shouldVisit ignores)
+          (\x y -> not $ isIgnored dirIgnores x y)
           searchFile
           (coerce roots :: [AbsDir])
 

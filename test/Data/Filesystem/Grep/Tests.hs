@@ -49,7 +49,7 @@ tests = testGroup "Data.Filesystem.Grep.Tests"
             , matchLineStr    = "module Data.Filesystem.Grep.Tests"
             , matchLineSuffix = " (tests) where"
             }
-      xs  <- grep' [osp|.|] "^module Data.Filesystem.Grep.Tests" ["*.hs"] False dummyIgnores
+      xs  <- grep' [osp|.|] "^module Data.Filesystem.Grep.Tests" ["*.hs"] False
       checkEqual xs [expected]
   , testCase "grep unicode 1" $ do
       let path = [osp|test-data/test.txt|]
@@ -62,7 +62,7 @@ tests = testGroup "Data.Filesystem.Grep.Tests"
             , matchLineStr    = T.encodeUtf8 "〛"
             , matchLineSuffix = ""
             }
-      xs  <- grep' [osp|.|] "〛" ["*.txt"] False dummyIgnores
+      xs  <- grep' [osp|.|] "〛" ["*.txt"] False
       checkEqual xs [expected]
   ]
 
@@ -78,9 +78,9 @@ checkEqual actual expected = unless (actual == expected) $ assertFailure msg
       , "expected" --> expected
       ]
 
-grep' :: OsPath -> Text -> [Text] -> Bool -> Ignores -> IO [MatchEntry]
-grep' root reToFind globs ignoreCase ignores = runDummyEmacsM $
-  toList <$> grep [root] reToFind globs ignoreCase ignores  (\_ entry -> pure entry)
+grep' :: OsPath -> Text -> [Text] -> Bool -> IO [MatchEntry]
+grep' root reToFind globs ignoreCase = runDummyEmacsM $
+  toList <$> grep [root] reToFind globs ignoreCase dummyIgnores dummyIgnores (\_ entry -> pure entry)
 
 newtype DummyEmacsM s a = DummyEmacsM { runDummyEmacsM :: IO a }
   deriving (Functor, Applicative, Monad, MonadIO, MonadBase IO, MonadBaseControl IO, MonadThrow, MonadInterleave, VGM.PrimMonad)

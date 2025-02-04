@@ -24,6 +24,8 @@ import Control.Monad.Trans.Control
 import Data.ByteString.Short qualified as BSS
 import Data.Coerce
 import GHC.Conc (getNumCapabilities)
+import System.Directory.OsPath.Types
+import System.OsPath.Types (OsPath)
 
 import Data.Emacs.Module.Args
 import Data.Emacs.Module.Doc qualified as Doc
@@ -60,9 +62,10 @@ emacsFindRec
      )
   => EmacsFunction ('S ('S ('S ('S ('S ('S 'Z)))))) 'Z 'False m v s
 emacsFindRec (R roots (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs (R ignoredDirPrefixes (R ignoredAbsDirs Stop)))))) = do
-  roots'       <- extractListWith extractOsPath roots
-  globsToFind' <- extractListWith extractText globsToFind
-  ignores      <- mkEmacsIgnores ignoredFileGlobs ignoredDirGlobs ignoredDirPrefixes ignoredAbsDirs
+  roots'                    <- extractListWith extractOsPath roots
+  globsToFind'              <- extractListWith extractText globsToFind
+  (fileIgnores, dirIgnores) <-
+    mkEmacsIgnores ignoredFileGlobs ignoredDirGlobs ignoredDirPrefixes ignoredAbsDirs
 
   nil' <- nil
   jobs <- liftBase getNumCapabilities
@@ -74,18 +77,18 @@ emacsFindRec (R roots (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs (R i
 
   results <- liftBase newTMQueueIO
 
-  let shouldCollect :: AbsDir -> AbsFile -> RelFile -> IO (Maybe AbsFile)
-      shouldCollect _root absPath (RelFile relPath)
-        | isIgnoredFile ignores absPath         = pure Nothing
-        | reMatchesOsPath globsToFindRE relPath = pure $ Just absPath
-        | otherwise                             = pure Nothing
+  let shouldCollect :: AbsDir -> AbsFile -> Basename OsPath -> IO (Maybe AbsFile)
+      shouldCollect _root absPath (Basename basePath)
+        | isIgnoredFile fileIgnores absPath      = pure Nothing
+        | reMatchesOsPath globsToFindRE basePath = pure $ Just absPath
+        | otherwise                              = pure Nothing
 
       collect :: AbsFile -> IO ()
       collect = atomically . writeTMQueue results
 
       doFind =
         traverse_ collect =<< findRec FollowSymlinks jobs
-          (shouldVisit ignores)
+          (\x y -> not $ isIgnored dirIgnores x y)
           shouldCollect
           roots''
 

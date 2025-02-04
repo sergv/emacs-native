@@ -64,11 +64,12 @@ emacsGrepRec
      )
   => EmacsFunction ('S ('S ('S ('S ('S ('S ('S ('S 'Z)))))))) 'Z 'False m v s
 emacsGrepRec (R roots (R regexp (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs (R ignoredDirPrefixes (R ignoredAbsDirs (R ignoreCase Stop)))))))) = do
-  roots'       <- extractListWith extractOsPath roots
-  regexp'      <- extractText regexp
-  globsToFind' <- extractListWith extractText globsToFind
-  ignoreCase'  <- extractBool ignoreCase
-  ignores      <- mkEmacsIgnores ignoredFileGlobs ignoredDirGlobs ignoredDirPrefixes ignoredAbsDirs
+  roots'                    <- extractListWith extractOsPath roots
+  regexp'                   <- extractText regexp
+  globsToFind'              <- extractListWith extractText globsToFind
+  ignoreCase'               <- extractBool ignoreCase
+  (fileIgnores, dirIgnores) <-
+    mkEmacsIgnores ignoredFileGlobs ignoredDirGlobs ignoredDirPrefixes ignoredAbsDirs
 
   for_ roots' $ \root -> do
     exists <- liftBase $ doesDirectoryExist root
@@ -76,7 +77,7 @@ emacsGrepRec (R roots (R regexp (R globsToFind (R ignoredFileGlobs (R ignoredDir
       throwM $ mkUserError "emacsGrepRec" $
         "Search root does not exist:" <+> pretty (pathToText root)
 
-  res <- grep roots' regexp' globsToFind' ignoreCase' ignores $
+  res <- grep roots' regexp' globsToFind' ignoreCase' fileIgnores dirIgnores $
     \relPath MatchEntry{matchAbsPath, matchLineNum, matchColumnNum, matchLinePrefix, matchLineStr, matchLineSuffix} -> do
       !pathEmacs        <- makeShortByteString $ pathForEmacs $ unAbsFile matchAbsPath
       !shortPathEmacs   <- makeShortByteString relPath
