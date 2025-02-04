@@ -24,8 +24,8 @@ import System.OsPath
 
 import Emacs.Module.Assert
 
-data FollowSymlinks a =
-    -- | Recurse into symlinked directories
+data FollowSymlinks a
+  = -- | Recurse into symlinked directories
     FollowSymlinks
   | -- | Do not recurse into symlinked directories, but possibly report them.
     ReportSymlinks (AbsDir -> RelDir -> IO (Maybe a))
