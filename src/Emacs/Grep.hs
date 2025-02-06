@@ -26,6 +26,7 @@ import Data.Functor.Identity (Identity(runIdentity))
 import Data.Tuple.Homogenous
 import Prettyprinter (pretty, (<+>))
 import System.Directory.OsPath
+import System.OsPath.Ext
 
 import Data.Emacs.Module.Args
 import Emacs.Module

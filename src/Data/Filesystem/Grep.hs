@@ -40,6 +40,7 @@ import Prettyprinter.Generics
 import System.Directory.OsPath.Types
 import System.File.OsPath as OsPath
 import System.OsPath
+import System.OsPath.Ext
 
 import Emacs.Module
 import Emacs.Module.Errors

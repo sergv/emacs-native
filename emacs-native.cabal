@@ -103,6 +103,8 @@ library
     Emacs.FastFileSearch
     Emacs.FuzzyMatch
     Emacs.Grep
+
+    System.OsPath.Ext
   other-modules:
     Data.Bits.Ext
     Data.ByteString.Char8.Ext

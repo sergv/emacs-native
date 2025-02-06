@@ -38,10 +38,10 @@ import Data.Text.Encoding qualified as T
 import Data.Text.Ext (textFoldLinear)
 import Prettyprinter
 import System.OsPath
+import System.OsPath.Ext
 import Text.Regex.TDFA
 import Text.Regex.TDFA.Text qualified as TDFA
 
-import Data.Emacs.Path
 import Emacs.Module.Assert (WithCallStack)
 import Emacs.Module.Errors
 
