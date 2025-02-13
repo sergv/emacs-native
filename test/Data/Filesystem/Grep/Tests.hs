@@ -39,7 +39,7 @@ import Emacs.Module.Monad.Class
 tests :: TestTree
 tests = testGroup "Data.Filesystem.Grep.Tests"
   [ testCase "grep 1" $ do
-      let path = [osp|test/Data/Filesystem/Grep/Tests.hs|]
+      let path = [osp|test|] </> [osp|Data|] </> [osp|Filesystem|] </> [osp|Grep|] </> [osp|Tests.hs|]
           expected = MatchEntry
             { matchAbsPath    = AbsFile $ [osp|.|] </> path
             , matchRelPath    = RelFile path
@@ -52,7 +52,7 @@ tests = testGroup "Data.Filesystem.Grep.Tests"
       xs  <- grep' [osp|.|] "^module Data.Filesystem.Grep.Tests" ["*.hs"] False
       checkEqual xs [expected]
   , testCase "grep unicode 1" $ do
-      let path = [osp|test-data/test.txt|]
+      let path = [osp|test-data|] </> [osp|test.txt|]
           expected = MatchEntry
             { matchAbsPath    = AbsFile $ [osp|.|] </> path
             , matchRelPath    = RelFile path
