@@ -662,8 +662,9 @@ fuzzyMatchImpl store mkHeatmap (needle, needleChars) haystack
   where
     makeKey :: V.MVector s (U.Vector a) -> StrCharIdx Int32 -> Int
     makeKey !occs !k =
-      j `unsafeShiftL` 32 .|. fromIntegral (unStrCharIdx k)
+      j `unsafeShiftL` (intBits `unsafeShiftR` 1) .|. fromIntegral (unStrCharIdx k)
       where
+        !intBits = finiteBitSize (1 :: Int)
         !j = VM.length occs
 
     findBestWith
