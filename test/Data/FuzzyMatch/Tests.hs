@@ -187,6 +187,11 @@ fuzzyMatchTests = testGroup "fuzzy match" $
       { mScore     = -93
       , mPositions = fmap StrCharIdx $ 22 :| [23, 57, 58, 60, 65, 70, 71, 75, 77, 81, 82, 85, 93, 96, 97, 99]
       }
+  , let haystack   = "/home/sergey/projects/mucid/scripts/zlezze/ImxliedAomAixxControl/ImxliedXolRiszControl_RC12IXER_Indez.i" :: Text in
+    mkTestCase "inlin" haystack (mkHeatMap haystack) $ Just Match
+      { mScore     = -2
+      ,  mPositions = fmap StrCharIdx $ 43 :| [59, 68, 96, 97]
+      }
   , let haystack = " *dante#linux-scripts:lib:linux-scripts#/home/sergey/projects/haskell/projects/linux-scripts/*" :: Text in
     mkTestCase " dante" haystack (mkHeatMap haystack) $ Just Match
       { mScore     = 333
@@ -294,6 +299,10 @@ heatMap = testGroup "Heatmap"
       ".emacs.d"
       (primArrayFromList [fi32 $ ord '.'])
       [41, -6, -47, -48, -49, -50, -51, 35]
+  , mkTestCase
+      "xucid core test inlin"
+      (primArrayFromList [])
+      [81, -5, -6, -7, -8, -9, 78, -8, -9, -10, -11, 75, -11, -12, -13, -14, 72, -14, -15, -16, -16]
   ]
   where
     mkTestCase :: Text -> PrimArray Int32 -> [Int32] -> TestTree
