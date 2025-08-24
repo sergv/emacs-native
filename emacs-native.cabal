@@ -146,7 +146,7 @@ foreign-library emacs-native
   -- options: standalone
   type:
     native-shared
-  if !os(Windows)
+  if !os(Windows) && !os(darwin)
     lib-version-info:
       0:0:0
   c-sources:
