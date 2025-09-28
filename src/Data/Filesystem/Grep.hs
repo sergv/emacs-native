@@ -25,6 +25,7 @@ import Control.Monad.Trans.Control
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short (ShortByteString)
+import Data.Char
 import Data.Coerce
 import Data.Foldable
 import Data.List qualified as L
@@ -137,11 +138,11 @@ data MatchState = MatchState
   , msResult  :: [MatchEntry]
   }
 
-isNewline :: Word8 -> Bool
-isNewline w = case unsafeChr $ fromIntegral w of
+isLineDelimiter :: Word8 -> Bool
+isLineDelimiter w = case unsafeChr $ fromIntegral w of
   '\n' -> True
   '\r' -> True
-  _    -> False
+  c    -> not $ isPrint c
 
 makeMatches
   :: MonadThrow m
@@ -195,7 +196,7 @@ makeMatches (AbsDir searchRoot) fileAbsPath'@(AbsFile fileAbsPath) ms str =
               | len <- currentMatches
               , let (prefix,  rest)  = BSL.splitAt (fi msCol) $ BSL.drop (fi msPos - fi msCol) str
               , let (matched, rest') = BSL.splitAt (fi len) rest
-              , let suffix           = BSL.takeWhile (not . isNewline) rest'
+              , let suffix           = BSL.takeWhile (not . isLineDelimiter) rest'
               ]
             fi :: Integral a => a -> Int64
             fi = fromIntegral
