@@ -212,6 +212,7 @@ test-suite emacs-native-test
     -rtsopts
     -threaded
     -main-is EmacsNativeTest
+    "-with-rtsopts=-M2G -A32m -qg -qb"
 
 benchmark fuzzyprof
   import: ghc-options

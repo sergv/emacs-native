@@ -22,10 +22,9 @@ HsBool init(void) {
   char *argv[] = {
     "libemacs-native",
     "+RTS",
-    "-N",
+    "-N2",
     "-s",
-    "-A16m",
-    "-n1m",
+    "-A32m",
     "-qg",
     "-qb",
     "-qa",
