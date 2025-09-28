@@ -39,7 +39,7 @@ import Emacs.Module.Monad.Class
 tests :: TestTree
 tests = testGroup "Data.Filesystem.Grep.Tests"
   [ testCase "grep 1" $ do
-      let path = [osp|test|] </> [osp|Data|] </> [osp|Filesystem|] </> [osp|Grep|] </> [osp|Tests.hs|]
+      let path     = [osp|test|] </> [osp|Data|] </> [osp|Filesystem|] </> [osp|Grep|] </> [osp|Tests.hs|]
           expected = MatchEntry
             { matchAbsPath    = AbsFile $ [osp|.|] </> path
             , matchRelPath    = RelFile path
@@ -52,7 +52,7 @@ tests = testGroup "Data.Filesystem.Grep.Tests"
       xs  <- grep' [osp|.|] "^module Data.Filesystem.Grep.Tests" ["*.hs"] False
       checkEqual xs [expected]
   , testCase "grep unicode 1" $ do
-      let path = [osp|test-data|] </> [osp|test.txt|]
+      let path     = [osp|test-data|] </> [osp|test.txt|]
           expected = MatchEntry
             { matchAbsPath    = AbsFile $ [osp|.|] </> path
             , matchRelPath    = RelFile path
@@ -64,6 +64,29 @@ tests = testGroup "Data.Filesystem.Grep.Tests"
             }
       xs  <- grep' [osp|.|] "〛" ["*.txt"] False
       checkEqual xs [expected]
+  , testCase "grep multiline 1" $ do
+      let path1     = [osp|test-data|]
+          path2     = [osp|multiline.txt|]
+          expected1 = MatchEntry
+            { matchAbsPath    = AbsFile $ path1 </> path2
+            , matchRelPath    = RelFile $ path2
+            , matchLineNum    = 3
+            , matchColumnNum  = 6
+            , matchLinePrefix = T.encodeUtf8 "hello "
+            , matchLineStr    = T.encodeUtf8 "foo\nbar"
+            , matchLineSuffix = " world"
+            }
+          expected2 = MatchEntry
+            { matchAbsPath    = AbsFile $ path1 </> path2
+            , matchRelPath    = RelFile $ path2
+            , matchLineNum    = 13
+            , matchColumnNum  = 6
+            , matchLinePrefix = T.encodeUtf8 "Hello "
+            , matchLineStr    = T.encodeUtf8 "Foo\nBar"
+            , matchLineSuffix = " World"
+            }
+      xs  <- grep' path1 "foo\nbar" ["*.txt"] True
+      checkEqual xs [expected1, expected2]
   ]
 
 checkEqual
