@@ -80,7 +80,7 @@ grep roots regexp globsToFind ignoreCase fileIgnores dirIgnores f = do
       searchFile root absPath'@(AbsFile absPath) (Basename basePath)
         | isIgnoredFile fileIgnores absPath' = pure Nothing
         | hasExtension absPath
-        , reMatches extsToFindRE $ pathToText $ takeExtension basePath = do
+        , reMatches extsToFindRE $ pathToText basePath = do
             contents <- OsPath.readFile absPath
             case reAllByteStringMatches regexp' contents of
               AllMatches [] -> pure Nothing
