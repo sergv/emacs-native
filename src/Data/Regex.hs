@@ -20,10 +20,15 @@ module Data.Regex
   , reMatchesShortByteString
   , reAllByteStringMatches
 
-    -- * Reexports
-  , module Text.Regex.TDFA
-
   , compileReWithOptsUnicodeAsBytes
+
+  -- * Reexports
+  , Text.Regex.TDFA.Regex
+  , Text.Regex.TDFA.RegexOptions(..)
+  , Text.Regex.TDFA.CompOption(..)
+  , Text.Regex.TDFA.AllMatches(..)
+  , Text.Regex.TDFA.MatchOffset
+  , Text.Regex.TDFA.MatchLength
   ) where
 
 import Control.Monad.Catch (MonadThrow(..))

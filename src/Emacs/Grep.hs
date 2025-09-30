@@ -79,7 +79,7 @@ emacsGrepRec (R roots (R regexp (R globsToFind (R ignoredFileGlobs (R ignoredDir
         "Search root does not exist:" <+> pretty (pathToText root)
 
   res <- grep roots' regexp' globsToFind' ignoreCase' fileIgnores dirIgnores $
-    \relPath MatchEntry{matchAbsPath, matchLineNum, matchColumnNum, matchLinePrefix, matchLineStr, matchLineSuffix} -> do
+    \relPath MatchEntry{matchAbsPath, matchLineNum, matchColumnNum, matchLinePrefix, matchLineStr, matchLineSuffix, matchOffset} -> do
       !pathEmacs        <- makeShortByteString $ pathForEmacs $ unAbsFile matchAbsPath
       !shortPathEmacs   <- makeShortByteString relPath
       !matchLineNum'    <- makeInt (fromIntegral matchLineNum)
@@ -87,10 +87,11 @@ emacsGrepRec (R roots (R regexp (R globsToFind (R ignoredFileGlobs (R ignoredDir
       !matchLinePrefix' <- makeString' matchLinePrefix
       !matchLineStr'    <- makeString' matchLineStr
       !matchLineSuffix' <- makeString' matchLineSuffix
+      matchOffset'      <- makeInt (fromIntegral matchOffset)
       !emacsMatchStruct <-
         funcallPrimitiveSym
           "make-egrep-match"
-          (Tuple7 (pathEmacs, shortPathEmacs, matchLineNum', matchColumnNum', matchLinePrefix', matchLineStr', matchLineSuffix'))
+          (Tuple8 (pathEmacs, shortPathEmacs, matchLineNum', matchColumnNum', matchLinePrefix', matchLineStr', matchLineSuffix', matchOffset'))
       pure emacsMatchStruct
 
   makeList res

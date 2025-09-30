@@ -95,6 +95,7 @@ library
     Data.StrIdx
     Data.Primitive.PrimArray.Ext
     Data.Text.Ext
+    Data.UnicodeUtils
     Data.Vector.Ext
     Data.Vector.PredefinedSorts
 
@@ -190,6 +191,7 @@ test-suite emacs-native-test
     Control.LensBlaze.Tests
     Data.Filesystem.Grep.Tests
     Data.FuzzyMatch.Tests
+    Data.UnicodeUtils.Tests
   build-depends:
     , QuickCheck
     , base

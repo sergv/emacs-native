@@ -6,9 +6,10 @@
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
 
-{-# LANGUAGE LinearTypes   #-}
-{-# LANGUAGE MagicHash     #-}
-{-# LANGUAGE UnboxedTuples #-}
+{-# LANGUAGE ExtendedLiterals #-}
+{-# LANGUAGE LinearTypes      #-}
+{-# LANGUAGE MagicHash        #-}
+{-# LANGUAGE UnboxedTuples    #-}
 
 module Data.Text.Ext
   ( textFoldLinear
@@ -44,6 +45,8 @@ import Data.Word
 import GHC.Exts
 import GHC.Int
 import GHC.Word
+
+import Data.UnicodeUtils
 
 {-# INLINE textFoldLinear #-}
 textFoldLinear :: forall (a :: UnliftedType). (Char -> a %1 -> a) -> a %1 -> Text -> a
@@ -168,8 +171,8 @@ textFoldIntIdxM f seed start (TI.Text arr off len) =
 
 reverseIterArray' :: TA.Array -> Int -> (# Int#, Int #)
 reverseIterArray' arr j =
-  if isTrue# (m0# `ltWord#` 0x80##)
-  then (# word2Int# m0#, (-1) #)
+  if isTrue# (m0# `ltWord8#` 0x80#Word8)
+  then (# word2Int# (word8ToWord# m0#), (-1) #)
   else
     let !m1 = TA.unsafeIndex arr (j - 1) in
     if m1 >= 0xC0
@@ -182,8 +185,7 @@ reverseIterArray' arr j =
         let !m3 = TA.unsafeIndex arr (j - 3) in
         (# wchr4 m3 m2 m1 m0, (-4) #)
   where
-    !m0@(W8# m0_8#) = TA.unsafeIndex arr j
-    m0# = word8ToWord# m0_8#
+    !m0@(W8# m0#) = TA.unsafeIndex arr j
 
 {-# INLINE iterArray' #-}
 iterArray' :: TA.Array -> StrByteIdx Int -> (# Int#, Int #)
@@ -205,48 +207,6 @@ iterArray' arr j = (# w, l #)
         (TA.unsafeIndex arr (unStrByteIdx (byteIdxAdvance j 1)))
         (TA.unsafeIndex arr (unStrByteIdx (byteIdxAdvance j 2)))
         (TA.unsafeIndex arr (unStrByteIdx (byteIdxAdvance j 3)))
-
-{-# INLINE utf8LengthByLeader #-}
-utf8LengthByLeader :: Word8 -> Int
-utf8LengthByLeader (W8# w) = I# (c# `xorI#` (c# <=# 0#))
-  where
-    c# = word2Int# (clz8# (word8ToWord# (notWord8# w)))
-
-{-# INLINE wchr2 #-}
-wchr2 :: Word8 -> Word8 -> Int#
-wchr2 (W8# x1#) (W8# x2#) =
-  z1# +# z2#
-  where
-    !y1# = word2Int# (word8ToWord# x1#)
-    !y2# = word2Int# (word8ToWord# x2#)
-    !z1# = uncheckedIShiftL# (y1# -# 0xC0#) 6#
-    !z2# = y2# -# 0x80#
-
-{-# INLINE wchr3 #-}
-wchr3 :: Word8 -> Word8 -> Word8 -> Int#
-wchr3 (W8# x1#) (W8# x2#) (W8# x3#) =
-  z1# +# z2# +# z3#
-  where
-    !y1# = word2Int# (word8ToWord# x1#)
-    !y2# = word2Int# (word8ToWord# x2#)
-    !y3# = word2Int# (word8ToWord# x3#)
-    !z1# = uncheckedIShiftL# (y1# -# 0xE0#) 12#
-    !z2# = uncheckedIShiftL# (y2# -# 0x80#) 6#
-    !z3# = y3# -# 0x80#
-
-{-# INLINE wchr4 #-}
-wchr4 :: Word8 -> Word8 -> Word8 -> Word8 -> Int#
-wchr4 (W8# x1#) (W8# x2#) (W8# x3#) (W8# x4#) =
-  z1# +# z2# +# z3# +# z4#
-  where
-    !y1# = word2Int# (word8ToWord# x1#)
-    !y2# = word2Int# (word8ToWord# x2#)
-    !y3# = word2Int# (word8ToWord# x3#)
-    !y4# = word2Int# (word8ToWord# x4#)
-    !z1# = uncheckedIShiftL# (y1# -# 0xF0#) 18#
-    !z2# = uncheckedIShiftL# (y2# -# 0x80#) 12#
-    !z3# = uncheckedIShiftL# (y3# -# 0x80#) 6#
-    !z4# = y4# -# 0x80#
 
 {-# INLINE textFor_ #-}
 textFor_ :: forall m. Monad m => Text -> (Char -> m ()) -> m ()

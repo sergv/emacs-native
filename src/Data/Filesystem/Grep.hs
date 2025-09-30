@@ -25,7 +25,6 @@ import Control.Monad.Trans.Control
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short (ShortByteString)
-import Data.Char
 import Data.Coerce
 import Data.Foldable
 import Data.List qualified as L
@@ -42,6 +41,7 @@ import System.Directory.OsPath.Types
 import System.File.OsPath as OsPath
 import System.OsPath
 import System.OsPath.Ext
+import Data.Int (Int64)
 
 import Emacs.Module
 import Emacs.Module.Errors
@@ -49,8 +49,8 @@ import Emacs.Module.Errors
 import Data.Emacs.Path
 import Data.Filesystem.Find
 import Data.Ignores
-import Data.Int (Int64)
 import Data.Regex
+import Data.UnicodeUtils
 import Emacs.EarlyTermination
 
 grep
@@ -100,10 +100,10 @@ grep roots regexp globsToFind ignoreCase fileIgnores dirIgnores f = do
 
   withAsync (liftBase (doFind `finally` atomically (closeTMQueue results))) $ \searchAsync -> do
     matches <- consumeTMQueueWithEarlyTermination @m results mempty $
-      \ !acc entry@MatchEntry{matchRelPath, matchLineNum} -> do
+      \ !acc entry@MatchEntry{matchRelPath, matchOffset} -> do
         let !relPathBS = pathForEmacs $ unRelFile matchRelPath
             key :: (ShortByteString, Word)
-            !key       = (relPathBS, matchLineNum)
+            !key       = (relPathBS, matchOffset)
             g :: Maybe a -> m s (Maybe a)
             g = \case
               x@Just{} -> pure x
@@ -118,14 +118,17 @@ data MatchEntry = MatchEntry
   , matchLineNum    :: !Word
   , matchColumnNum  :: !Word
   , -- | What comes before the matched text on the relevant line.
-    -- Contains no newlines.
+    -- Contains no newlines or non-printable characters.
     matchLinePrefix :: !BS.ByteString
   , -- | The text that was matched. May contain newlines since we
     -- support multiline matches.
     matchLineStr    :: !BS.ByteString
   , -- | What comes after the matched text on the relevant line.
-    -- Contains no newlines.
+    -- Contains no newlines or non-printable characters.
     matchLineSuffix :: !BS.ByteString
+  , -- | Start of where 'matchlineStr' actually starts mathing in the input.
+    -- Measured in byte index, not character index.
+    matchOffset     :: !Word
   }
   deriving (Eq, Show, Generic)
   deriving Pretty via PPGeneric MatchEntry
@@ -139,10 +142,7 @@ data MatchState = MatchState
   }
 
 isLineDelimiter :: Word8 -> Bool
-isLineDelimiter w = case unsafeChr $ fromIntegral w of
-  '\n' -> True
-  '\r' -> True
-  c    -> not $ isPrint c
+isLineDelimiter w = w < 0x20
 
 makeMatches
   :: MonadThrow m
@@ -156,8 +156,9 @@ makeMatches (AbsDir searchRoot) fileAbsPath'@(AbsFile fileAbsPath) ms str =
     Nothing -> throwM $ mkUserError "emacsGrepRec" $
       "Internal error: findRec produced wrong root for path" <+> pretty (pathToText fileAbsPath) Semi.<>
       ". The root is" <+> pretty (pathToText searchRoot)
-    Just relPath ->
-      pure $ msResult $ BSL.foldl' (\acc c -> accumulateMatch $ bumpPos acc $ unsafeChr $ fromIntegral c) initState str
+    Just relPath -> do
+      let final = BSL.foldl' (\acc c -> accumulateMatch $ bumpPos acc $ unsafeChr $ fromIntegral c) initState str
+      pure $ msResult final
       where
         initState = MatchState
           { msPos     = 0
@@ -180,9 +181,11 @@ makeMatches (AbsDir searchRoot) fileAbsPath'@(AbsFile fileAbsPath) ms str =
           | otherwise
           = s
           where
+            msPos' :: Int64
             !msPos' = fi msPos
             (currentMatches, remainingMatches') =
-              first (map snd) $ span ((== msPos') . fi . fst) remainingMatches
+              first (map snd) $
+                L.span ((== msPos') . fi . fst) remainingMatches
             newEntries =
               [ MatchEntry
                  { matchAbsPath    = fileAbsPath'
@@ -192,12 +195,62 @@ makeMatches (AbsDir searchRoot) fileAbsPath'@(AbsFile fileAbsPath) ms str =
                  , matchLinePrefix = BSL.toStrict prefix
                  , matchLineStr    = BSL.toStrict matched
                  , matchLineSuffix = BSL.toStrict suffix
+                 , matchOffset     = msPos + 1 -- Emacs counts offsets from 1
                  }
               | len <- currentMatches
-              , let (prefix,  rest)  = BSL.splitAt (fi msCol) $ BSL.drop (fi msPos - fi msCol) str
-              , let (matched, rest') = BSL.splitAt (fi len) rest
-              , let suffix           = BSL.takeWhile (not . isLineDelimiter) rest'
+              , let (before, after)  = BSL.splitAt msPos' str
+                    prefix           = takeUtfLineEnd before
+                    (matched, rest') = BSL.splitAt (fi len) after
+                    suffix           = takeUtfLineFront rest'
               ]
             fi :: Integral a => a -> Int64
             fi = fromIntegral
 
+data TakeEndState = TakeEndState
+  { tesIdx   :: !Int
+  , tesState :: !UnicodeBackwardValidationState
+  }
+  deriving (Generic)
+  deriving Pretty via PPGeneric TakeEndState
+
+takeUtfLineEnd :: BSL.ByteString -> BSL.ByteString
+takeUtfLineEnd str = BSL.takeEnd (fromIntegral startIdx) str
+  where
+    TakeEndState startIdx _ = BSL.foldr' feedOneBack (TakeEndState 0 Start) str
+
+    feedOneBack :: Word8 -> TakeEndState -> TakeEndState
+    feedOneBack !w !orig@TakeEndState{tesIdx, tesState} =
+      case feedPrevByte w tesState of
+        InvalidUtf8           -> orig { tesState = InvalidUtf8 }
+        Found 1
+          | isLineDelimiter w -> orig { tesState = InvalidUtf8 }
+        s@(Found len)         ->
+          TakeEndState
+            { tesIdx   = tesIdx + len
+            , tesState = s
+            }
+        s                     -> orig { tesState = s }
+
+data TakeFrontState = TakeFrontState
+  { tfsIdx   :: !Int
+  , tfsState :: !UnicodeForwardValidationState
+  }
+  deriving (Generic)
+  deriving Pretty via PPGeneric TakeFrontState
+
+takeUtfLineFront :: BSL.ByteString -> BSL.ByteString
+takeUtfLineFront str = BSL.take (fromIntegral endIdx) str
+  where
+    TakeFrontState endIdx _ = BSL.foldl' (flip feedOneFront) (TakeFrontState 0 ForwardStart) str
+
+    feedOneFront :: Word8 -> TakeFrontState -> TakeFrontState
+    feedOneFront !w !orig@TakeFrontState{tfsIdx, tfsState} =
+      case feedNextByte w tfsState of
+        ForwardInvalidUtf8    -> orig { tfsState = ForwardInvalidUtf8 }
+        ForwardFound 1
+          | isLineDelimiter w -> orig { tfsState = ForwardInvalidUtf8 }
+        s@(ForwardFound len)  -> TakeFrontState
+          { tfsIdx   = tfsIdx + len
+          , tfsState = s
+          }
+        s                     -> orig { tfsState = s }
