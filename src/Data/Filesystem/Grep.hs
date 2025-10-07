@@ -214,8 +214,9 @@ data TakeEndState = TakeEndState
   deriving Pretty via PPGeneric TakeEndState
 
 takeUtfLineEnd :: BSL.ByteString -> BSL.ByteString
-takeUtfLineEnd str = BSL.takeEnd (fromIntegral startIdx) str
+takeUtfLineEnd str = BSL.takeEnd (min 1000 (fromIntegral startIdx)) str
   where
+    -- todo: remove fold here, we don't want to traverse whole string here, which may be really long.
     TakeEndState startIdx _ = BSL.foldr' feedOneBack (TakeEndState 0 Start) str
 
     feedOneBack :: Word8 -> TakeEndState -> TakeEndState
@@ -239,8 +240,9 @@ data TakeFrontState = TakeFrontState
   deriving Pretty via PPGeneric TakeFrontState
 
 takeUtfLineFront :: BSL.ByteString -> BSL.ByteString
-takeUtfLineFront str = BSL.take (fromIntegral endIdx) str
+takeUtfLineFront str = BSL.take (min 1000 (fromIntegral endIdx)) str
   where
+    -- todo: remove fold here, we don't want to traverse whole string here, which may be really long.
     TakeFrontState endIdx _ = BSL.foldl' (flip feedOneFront) (TakeFrontState 0 ForwardStart) str
 
     feedOneFront :: Word8 -> TakeFrontState -> TakeFrontState
