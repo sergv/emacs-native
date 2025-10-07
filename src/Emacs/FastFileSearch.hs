@@ -60,12 +60,13 @@ emacsFindRec
      , Forall (Pure (m s))
      , forall ss. MonadThrow (m ss)
      )
-  => EmacsFunction ('S ('S ('S ('S ('S ('S 'Z)))))) 'Z 'False m v s
-emacsFindRec (R roots (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs (R ignoredDirPrefixes (R ignoredAbsDirs Stop)))))) = do
+  => EmacsFunction ('S ('S ('S ('S ('S ('S ('S 'Z))))))) 'Z 'False m v s
+emacsFindRec (R roots (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs (R ignoredDirPrefixes (R ignoredAbsDirs (R isRelativePaths Stop))))))) = do
   roots'                    <- extractListWith extractOsPath roots
   globsToFind'              <- extractListWith extractText globsToFind
   (fileIgnores, dirIgnores) <-
     mkEmacsIgnores ignoredFileGlobs ignoredDirGlobs ignoredDirPrefixes ignoredAbsDirs
+  isRelativePaths'          <- extractBool isRelativePaths
 
   nil' <- nil
   jobs <- liftBase getNumCapabilities
@@ -77,13 +78,13 @@ emacsFindRec (R roots (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs (R i
 
   results <- liftBase newTMQueueIO
 
-  let shouldCollect :: AbsDir -> AbsFile -> Basename OsPath -> IO (Maybe AbsFile)
-      shouldCollect _root absPath (Basename basePath)
+  let shouldCollect :: AbsDir -> AbsFile -> Relative OsPath -> Basename OsPath -> IO (Maybe OsPath)
+      shouldCollect _root absPath (Relative relPath) (Basename basePath)
         | isIgnoredFile fileIgnores absPath      = pure Nothing
-        | reMatchesOsPath globsToFindRE basePath = pure $ Just absPath
+        | reMatchesOsPath globsToFindRE basePath = pure $ Just $ if isRelativePaths' then relPath else unAbsFile absPath
         | otherwise                              = pure Nothing
 
-      collect :: AbsFile -> IO ()
+      collect :: OsPath -> IO ()
       collect = atomically . writeTMQueue results
 
       doFind =
@@ -97,7 +98,7 @@ emacsFindRec (R roots (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs (R i
       results
       nil'
       $ \ !acc x -> do
-        filepath <- makeString $ BSS.fromShort $ pathForEmacs $ unAbsFile x
+        filepath <- makeString $ BSS.fromShort $ pathForEmacs x
         cons filepath acc
     liftBase $ wait searchAsync
     pure final

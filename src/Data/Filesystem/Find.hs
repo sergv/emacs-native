@@ -20,6 +20,7 @@ module Data.Filesystem.Find
 import Data.Coerce
 import Prettyprinter.Show
 import System.Directory.OsPath.Streaming as Streaming
+import System.Directory.OsPath.Types
 import System.OsPath
 
 import Emacs.Module.Assert
@@ -53,7 +54,7 @@ findRec
   => FollowSymlinks a
   -> Int                                 -- ^ Extra search threads to run in parallel.
   -> (OsPath -> Basename OsPath -> Bool) -- ^ Whether to visit a directory.
-  -> (AbsDir -> AbsFile -> Basename OsPath -> IO (Maybe a))
+  -> (AbsDir -> AbsFile -> Relative OsPath -> Basename OsPath -> IO (Maybe a))
                                          -- ^ What to do with a file. Receives original directory it was located in.
   -> f AbsDir                            -- ^ Where to start search.
   -> IO [a]
@@ -74,9 +75,9 @@ findRec followSymlinks _extraJobs dirPred filePred roots =
                 Just x  -> cons x rest
       else
         rest)
-    (\absFile root _ baseFile ft ->
+    (\absFile root rel baseFile ft ->
       case ft of
         Other _     -> pure Nothing
         Directory _ -> pure Nothing
-        File _      -> filePred root (AbsFile absFile) baseFile)
+        File _      -> filePred root (AbsFile absFile) rel baseFile)
     (fmap (coerce addTrailingPathSeparator) roots)

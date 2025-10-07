@@ -76,15 +76,15 @@ grep roots regexp globsToFind ignoreCase fileIgnores dirIgnores f = do
 
   extsToFindRE <- fileGlobsToRegex globsToFind
 
-  let searchFile :: AbsDir -> AbsFile -> Basename OsPath -> IO (Maybe [MatchEntry])
-      searchFile root absPath'@(AbsFile absPath) (Basename basePath)
-        | isIgnoredFile fileIgnores absPath' = pure Nothing
-        | hasExtension absPath
+  let searchFile :: AbsDir -> AbsFile -> Relative OsPath -> Basename OsPath -> IO (Maybe [MatchEntry])
+      searchFile root absPath _ (Basename basePath)
+        | isIgnoredFile fileIgnores absPath = pure Nothing
+        | hasExtension (unAbsFile absPath)
         , reMatches extsToFindRE $ pathToText basePath = do
-            contents <- OsPath.readFile absPath
+            contents <- OsPath.readFile (unAbsFile absPath)
             case reAllByteStringMatches regexp' contents of
               AllMatches [] -> pure Nothing
-              AllMatches ms -> Just <$> makeMatches root absPath' ms contents
+              AllMatches ms -> Just <$> makeMatches root absPath ms contents
         | otherwise = pure Nothing
 
   results <- liftBase newTMQueueIO
