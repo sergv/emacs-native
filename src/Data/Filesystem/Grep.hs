@@ -36,7 +36,7 @@ import GHC.Base (unsafeChr)
 import Prettyprinter
 import Prettyprinter.Generics
 import System.Directory.OsPath.Types
-import System.File.OsPath as OsPath
+import System.IO.MMap (mmapFileByteString)
 import System.OsPath
 import System.OsPath.Ext
 
@@ -72,7 +72,8 @@ grep roots regexp globsToFind ignoreCase fileIgnores dirIgnores f = do
         | isIgnoredFile fileIgnores absPath = pure Nothing
         | hasExtension (unAbsFile absPath)
         , reSetMatchesOsPath extsToFindRE basePath = do
-            contents <- OsPath.readFile' (unAbsFile absPath)
+            absPath' <- decodeUtf $ unAbsFile absPath
+            contents <- mmapFileByteString absPath' Nothing
             case reAllByteStringMatches regexp' contents of
               ReversedList [] -> pure Nothing
               ReversedList ms -> Just <$> makeMatches root absPath ms contents

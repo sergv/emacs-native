@@ -123,10 +123,10 @@ library
     , directory-ospath-streaming >= 0.2.1
     , emacs-module >= 0.3
     , exceptions
-    , file-io
     , filepath >= 1.5
     , ghc-prim
     , lifted-async
+    , mmap
     , monad-control
     , os-string
     , prettyprinter >= 1.7
