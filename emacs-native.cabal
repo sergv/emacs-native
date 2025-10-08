@@ -37,6 +37,14 @@ flag profiling
   manual:
     True
 
+flag standalone-foreign-lib
+  description:
+    Build foreign library in a standalone mode so that it doesn't depend on lots of dynamic libraries for each Haskell package.
+  default:
+    False
+  manual:
+    True
+
 common ghc-options
   default-language:
     GHC2021
@@ -144,7 +152,8 @@ library
 
 foreign-library emacs-native
   import: ghc-options
-  -- options: standalone
+  if flag(standalone-foreign-lib) || flag(profiling)
+    options: standalone
   type:
     native-shared
   if !os(Windows) && !os(darwin)
