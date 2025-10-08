@@ -66,7 +66,7 @@ emacsGrepRec
   => EmacsFunction ('S ('S ('S ('S ('S ('S ('S ('S 'Z)))))))) 'Z 'False m v s
 emacsGrepRec (R roots (R regexp (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs (R ignoredDirPrefixes (R ignoredAbsDirs (R ignoreCase Stop)))))))) = do
   roots'                    <- extractListWith extractOsPath roots
-  regexp'                   <- extractText regexp
+  regexp'                   <- extractByteString regexp
   globsToFind'              <- extractListWith extractText globsToFind
   ignoreCase'               <- extractBool ignoreCase
   (fileIgnores, dirIgnores) <-

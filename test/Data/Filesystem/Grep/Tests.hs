@@ -80,7 +80,30 @@ tests = testGroup "Data.Filesystem.Grep.Tests"
             }
       xs <- grep' [osp|.|] "привет мир" ["more-unicode.txt"] False
       checkEqual xs [expected]
-  -- todo: test unicode word boundaries
+  , testCase "grep unicode 3" $ do
+      let path      = [osp|test-data|] </> [osp|more-unicode.txt|]
+          expected1 = MatchEntry
+            { matchAbsPath    = AbsFile $ [osp|.|] </> path
+            , matchRelPath    = RelFile path
+            , matchLineNum    = 2
+            , matchColumnNum  = 6
+            , matchLinePrefix = T.encodeUtf8 "〖〖"
+            , matchLineStr    = T.encodeUtf8 "привет"
+            , matchLineSuffix = T.encodeUtf8 " мир〗〗"
+            , matchOffset     = 9
+            }
+          expected2 = MatchEntry
+            { matchAbsPath    = AbsFile $ [osp|.|] </> path
+            , matchRelPath    = RelFile path
+            , matchLineNum    = 2
+            , matchColumnNum  = 32
+            , matchLinePrefix = T.encodeUtf8 ""
+            , matchLineStr    = T.encodeUtf8 "привет"
+            , matchLineSuffix = T.encodeUtf8 ", мир"
+            , matchOffset     = 35
+            }
+      xs <- grep' [osp|.|] "привет\\>" ["more-unicode.txt"] False
+      checkEqual xs [expected1, expected2]
   , testCase "grep multiline 1" $ do
       let path1     = [osp|test-data|]
           path2     = [osp|multiline.txt|]
@@ -147,7 +170,7 @@ checkEqual actual expected = unless (actual == expected) $ assertFailure msg
 
 grep' :: OsPath -> Text -> [Text] -> Bool -> IO [MatchEntry]
 grep' root reToFind globs ignoreCase = runDummyEmacsM $
-  toList <$> grep [root] reToFind globs ignoreCase dummyIgnores dummyIgnores (\_ entry -> pure entry)
+  toList <$> grep [root] (T.encodeUtf8 reToFind) globs ignoreCase dummyIgnores dummyIgnores (\_ entry -> pure entry)
 
 newtype DummyEmacsM s a = DummyEmacsM { runDummyEmacsM :: IO a }
   deriving (Functor, Applicative, Monad, MonadIO, MonadBase IO, MonadBaseControl IO, MonadThrow, MonadInterleave, VGM.PrimMonad)
@@ -182,6 +205,7 @@ instance MonadEmacs DummyEmacsM DummyValue where
   makeDouble                = error "Not implemented"
   extractText               = error "Not implemented"
   extractShortByteString    = error "Not implemented"
+  extractByteString         = error "Not implemented"
   makeString                = error "Not implemented"
   makeBinaryString          = error "Not implemented"
   extractUserPtr            = error "Not implemented"

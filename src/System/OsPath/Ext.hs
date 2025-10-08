@@ -14,11 +14,13 @@ module System.OsPath.Ext
   , stripProperPrefix
   , pathToText
   , pathFromText
+  , pathToByteString
 
   , pathToUtf8
   , pathFromUtf8
   ) where
 
+import Data.ByteString.Char8 qualified as C8
 import Data.ByteString.Short (ShortByteString)
 import Data.ByteString.Short qualified as BSS
 import Data.Coerce
@@ -44,6 +46,9 @@ pathFromUtf8 =
 #else
   OsString . PosixString
 #endif
+
+pathToByteString :: OsPath -> C8.ByteString
+pathToByteString = BSS.fromShort . pathToUtf8
 
 pathToText :: OsPath -> Text
 pathToText = textFromShortByteString . pathToUtf8

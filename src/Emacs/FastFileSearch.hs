@@ -80,9 +80,9 @@ emacsFindRec (R roots (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs (R i
 
   let shouldCollect :: AbsDir -> AbsFile -> Relative OsPath -> Basename OsPath -> IO (Maybe OsPath)
       shouldCollect _root absPath (Relative relPath) (Basename basePath)
-        | isIgnoredFile fileIgnores absPath      = pure Nothing
-        | reMatchesOsPath globsToFindRE basePath = pure $ Just $ if isRelativePaths' then relPath else unAbsFile absPath
-        | otherwise                              = pure Nothing
+        | isIgnoredFile fileIgnores absPath         = pure Nothing
+        | reSetMatchesOsPath globsToFindRE basePath = pure $ Just $ if isRelativePaths' then relPath else unAbsFile absPath
+        | otherwise                                 = pure Nothing
 
       collect :: OsPath -> IO ()
       collect = atomically . writeTMQueue results

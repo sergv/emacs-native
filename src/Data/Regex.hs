@@ -14,29 +14,38 @@ module Data.Regex
   ( fileGlobsToRegex
 
   , compileRe
+  , compileReSet
   , compileReWithOpts
+  , compileReSetWithOpts
   , reMatches
   , reMatchesOsPath
+  , reSetMatchesOsPath
   , reMatchesShortByteString
   , reAllByteStringMatches
 
-  , compileReWithOptsUnicodeAsBytes
-
   -- * Reexports
-  , Text.Regex.TDFA.Regex
-  , Text.Regex.TDFA.RegexOptions(..)
-  , Text.Regex.TDFA.CompOption(..)
-  , Text.Regex.TDFA.AllMatches(..)
-  , Text.Regex.TDFA.MatchOffset
-  , Text.Regex.TDFA.MatchLength
+  , Regex
+  , RegexSet
+  , Match(..)
+  , ReversedList(..)
+
+  , Flags
+  , flagCaseInsensitive
+  , flagMultiline
+  , flagDotNewline
+  , flagSwapGreed
+  , flagIgnoreWhitespace
+  , flagUnicode
+  , flagDefault
   ) where
 
 import Control.Monad.Catch (MonadThrow(..))
-import Data.ByteString.Lazy.Char8 qualified as CL8
+import Data.ByteString.Char8 qualified as C8
 import Data.ByteString.Short (ShortByteString)
 import Data.ByteString.Short qualified as BSS
 import Data.Coerce
 import Data.Foldable
+import Data.Regex.Rure
 import Data.Text (Text)
 import Data.Text.Builder.Linear.Buffer
 import Data.Text.Encoding qualified as T
@@ -44,32 +53,26 @@ import Data.Text.Ext (textFoldLinear)
 import Prettyprinter
 import System.OsPath
 import System.OsPath.Ext
-import Text.Regex.TDFA
-import Text.Regex.TDFA.Text qualified as TDFA
 
 import Emacs.Module.Assert (WithCallStack)
 import Emacs.Module.Errors
 
 fileGlobsToRegex
   :: (WithCallStack, MonadThrow m, Foldable f, Functor f, Coercible a Text)
-  => f a -> m Regex
-fileGlobsToRegex patterns = compileReWithOpts compOpts $ runBuffer initRe
+  => f a -> m RegexSet
+fileGlobsToRegex patterns =
+  case compileRegexSet patterns' flags Nothing of
+    Left err -> throwM $ mkUserError "fileGlobsToRegex" $
+      "Failed to compile globs:" <+> pretty (T.decodeUtf8 err) <> ". Regexps:" <> line <> pretty (map T.decodeUtf8 patterns')
+    Right x  -> pure x
   where
-    initRe :: Buffer %1 -> Buffer
-    initRe buf =
-      mkRe (coerce (toList patterns)) (buf |>. '^' |>. '(') |>. ')' |>. '$'
+    patterns' :: [C8.ByteString]
+    patterns' = map compileGlob (coerce (toList patterns))
 
-    mkRe :: [Text] -> Buffer %1 -> Buffer
-    mkRe []       buf = buf
-    mkRe (x : xs) buf =
-      -- mkRe' xs ((textFoldLinear f (buf |>. '(') x) |>. ')')
-      mkRe' xs (textFoldLinear f buf x)
-
-    mkRe' :: [Text] -> Buffer %1 -> Buffer
-    mkRe' []       buf = buf
-    mkRe' (x : xs) buf =
-      -- mkRe' xs ((textFoldLinear f (buf |>. '|' |>. '(') x) |>. ')')
-      mkRe' xs (textFoldLinear f (buf |>. '|') x)
+    compileGlob :: Text -> C8.ByteString
+    compileGlob pat =
+      T.encodeUtf8 $
+        runBuffer (\buf -> (textFoldLinear f (buf |>. '^' |>. '(') pat) |>. ')' |>. '$')
 
     f :: Char -> Buffer %1 -> Buffer
     f c buf = case c of
@@ -92,11 +95,8 @@ fileGlobsToRegex patterns = compileReWithOpts compOpts $ runBuffer initRe
 #endif
       other -> buf |>. other
 
-    compOpts = defaultCompOpt
-      { multiline      = False
-      , caseSensitive  = isLinux
-      , lastStarGreedy = True
-      }
+    flags = if isLinux then flagCaseInsensitive else mempty
+
     isLinux =
 #ifdef mingw32_HOST_OS
       False
@@ -104,49 +104,42 @@ fileGlobsToRegex patterns = compileReWithOpts compOpts $ runBuffer initRe
       True
 #endif
 
-compileRe :: (WithCallStack, MonadThrow m) => Text -> m Regex
-compileRe = compileReWithOpts compOpts
-  where
-    compOpts = defaultCompOpt
-      { multiline     = False
-      , caseSensitive = True
-      }
+compileRe :: (WithCallStack, MonadThrow m) => C8.ByteString -> m Regex
+compileRe = compileReWithOpts mempty
+
+compileReSet :: (WithCallStack, MonadThrow m) => [C8.ByteString] -> m RegexSet
+compileReSet = compileReSetWithOpts mempty
 
 compileReWithOpts
   :: (WithCallStack, MonadThrow m)
-  => CompOption -> Text -> m Regex
-compileReWithOpts compOpts re =
-  case TDFA.compile compOpts execOpts re of
+  => Flags -> C8.ByteString -> m Regex
+compileReWithOpts flags re =
+  case compileRegex re flags Nothing of
     Left err -> throwM $ mkUserError "compileRe" $
-      "Failed to compile regular expression:" <+> pretty err <> ":" <> line <> pretty re
+      "Failed to compile regular expression:" <+> pretty (T.decodeUtf8 err) <> ":" <> line <> pretty (T.decodeUtf8 re)
     Right x  -> pure x
-  where
-    execOpts = defaultExecOpt
-      { captureGroups = False
-      }
 
-compileReWithOptsUnicodeAsBytes
+compileReSetWithOpts
   :: (WithCallStack, MonadThrow m)
-  => CompOption -> Text -> m Regex
-compileReWithOptsUnicodeAsBytes compOpts re =
-  case TDFA.compile compOpts execOpts $ T.decodeLatin1 $ T.encodeUtf8 re of
+  => Flags -> [C8.ByteString] -> m RegexSet
+compileReSetWithOpts flags res =
+  case compileRegexSet res flags Nothing of
     Left err -> throwM $ mkUserError "compileRe" $
-      "Failed to compile regular expression:" <+> pretty err <> ":" <> line <> pretty re
+      "Failed to compile regular expression:" <+> pretty (T.decodeUtf8 err) <> ":" <> line <> pretty (map T.decodeUtf8 res)
     Right x  -> pure x
-  where
-    execOpts = defaultExecOpt
-      { captureGroups = False
-      }
 
-reMatches :: Regex -> Text -> Bool
-reMatches = match
+reMatches :: Regex -> C8.ByteString -> Bool
+reMatches = bytestringHasMatch
 
 reMatchesOsPath :: Regex -> OsPath -> Bool
-reMatchesOsPath re = match re . pathToText
+reMatchesOsPath re = reMatches re . pathToByteString
+
+reSetMatchesOsPath :: RegexSet -> OsPath -> Bool
+reSetMatchesOsPath reSet = bytestringHasSetMatch reSet . pathToByteString
 
 reMatchesShortByteString :: Regex -> ShortByteString -> Bool
-reMatchesShortByteString re = match re . BSS.fromShort
+reMatchesShortByteString re = reMatches re . BSS.fromShort
 
 reAllByteStringMatches
-  :: Regex -> CL8.ByteString -> AllMatches [] (MatchOffset, MatchLength)
-reAllByteStringMatches = match
+  :: Regex -> C8.ByteString -> ReversedList Match
+reAllByteStringMatches = bytestringAllMatches

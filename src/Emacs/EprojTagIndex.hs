@@ -16,6 +16,7 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Data.ByteString.Short (ShortByteString)
+import Data.ByteString.Short qualified as BSS
 import Data.IORef
 import Data.Traversable
 import Data.Tuple.Homogenous
@@ -49,7 +50,7 @@ initialise = do
   bindFunction "haskell-native--eproj-tag-index-lookup" =<<
     makeFunction emacsEprojTagIndexLookup emacsEprojTagIndexLookupDoc
   bindFunction "haskell-native--eproj-tag-index-entries-matching-re" =<<
-    makeFunction emacsEprojTagIndexEntriesMatchinRE emacsEprojTagIndexEntriesMatchinREDoc
+    makeFunction emacsEprojTagIndexEntriesMatchingRE emacsEprojTagIndexEntriesMatchinREDoc
   bindFunction "haskell-native--eproj-tag-index-keys" =<<
     makeFunction emacsEprojTagIndexKeys emacsEprojTagIndexKeysDoc
   bindFunction "haskell-native--eproj-tag-index-entries" =<<
@@ -193,20 +194,15 @@ eprojTagToEmacs EprojTag{etFile, etLine, etProps} = do
   etProps' <- tagPropsToEmacs etProps
   funcallPrimitiveSym "make-eproj-tag" (Tuple3 (etFile', etLine', etProps'))
 
-emacsEprojTagIndexEntriesMatchinRE
+emacsEprojTagIndexEntriesMatchingRE
   :: forall m v s. (WithCallStack, MonadEmacs m v, MonadIO (m s), MonadThrow (m s), MonadCatch (m s))
   => EmacsFunction ('S ('S ('S 'Z))) 'Z 'False m v s
-emacsEprojTagIndexEntriesMatchinRE (R regexp (R index (R ignoreCase Stop))) = do
+emacsEprojTagIndexEntriesMatchingRE (R regexp (R index (R ignoreCase Stop))) = do
   index'      <- unpackEprojTagIndex index
   ignoreCase' <- extractBool ignoreCase
 
-  let compOpts =
-        defaultCompOpt
-          { multiline      = False
-          , caseSensitive  = not ignoreCase'
-          , lastStarGreedy = True
-          }
-  regexp' <- compileReWithOpts compOpts =<< extractText regexp
+  let compOpts = flagUnicode <> flagMultiline <> if ignoreCase' then flagCaseInsensitive else mempty
+  regexp' <- compileReWithOpts compOpts . BSS.fromShort =<< extractShortByteString regexp
 
   makeList =<< traverse eprojTagToEmacs (Eproj.keysMatchingRegexp regexp' index')
 

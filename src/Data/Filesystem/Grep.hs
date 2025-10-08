@@ -14,8 +14,6 @@ module Data.Filesystem.Grep
   , MatchEntry(..)
   ) where
 
-import Control.Arrow (first)
-import Control.Concurrent
 import Control.Concurrent.Async.Lifted.Safe
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TMQueue
@@ -23,8 +21,8 @@ import Control.Monad.Base
 import Control.Monad.Catch
 import Control.Monad.Trans.Control
 import Data.ByteString qualified as BS
-import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short (ShortByteString)
+import Data.ByteString.Unsafe qualified as BSU
 import Data.Coerce
 import Data.Foldable
 import Data.List qualified as L
@@ -41,7 +39,6 @@ import System.Directory.OsPath.Types
 import System.File.OsPath as OsPath
 import System.OsPath
 import System.OsPath.Ext
-import Data.Int (Int64)
 
 import Emacs.Module
 import Emacs.Module.Errors
@@ -56,7 +53,7 @@ import Emacs.EarlyTermination
 grep
   :: forall m s v a. (MonadEmacs m v, forall ss. MonadThrow (m ss), MonadBaseControl IO (m s), Forall (Pure (m s)))
   => [OsPath]
-  -> Text
+  -> BS.ByteString
   -> [Text]
   -> Bool
   -> Ignores
@@ -64,15 +61,10 @@ grep
   -> (ShortByteString -> MatchEntry -> m s a)
   -> m s (Map (ShortByteString, Word) a)
 grep roots regexp globsToFind ignoreCase fileIgnores dirIgnores f = do
-  let compOpts =
-        defaultCompOpt
-          { multiline      = True
-          , caseSensitive  = not ignoreCase
-          , lastStarGreedy = True
-          }
+  let flags = flagUnicode <> flagMultiline <> if ignoreCase then flagCaseInsensitive else mempty
 
-  regexp' <- compileReWithOptsUnicodeAsBytes compOpts regexp
-  jobs    <- liftBase getNumCapabilities
+  regexp' <- compileReWithOpts flags regexp
+  let jobs = 2 :: Int
 
   extsToFindRE <- fileGlobsToRegex globsToFind
 
@@ -80,11 +72,11 @@ grep roots regexp globsToFind ignoreCase fileIgnores dirIgnores f = do
       searchFile root absPath _ (Basename basePath)
         | isIgnoredFile fileIgnores absPath = pure Nothing
         | hasExtension (unAbsFile absPath)
-        , reMatches extsToFindRE $ pathToText basePath = do
-            contents <- OsPath.readFile (unAbsFile absPath)
+        , reSetMatchesOsPath extsToFindRE basePath = do
+            contents <- OsPath.readFile' (unAbsFile absPath)
             case reAllByteStringMatches regexp' contents of
-              AllMatches [] -> pure Nothing
-              AllMatches ms -> Just <$> makeMatches root absPath ms contents
+              ReversedList [] -> pure Nothing
+              ReversedList ms -> Just <$> makeMatches root absPath ms contents
         | otherwise = pure Nothing
 
   results <- liftBase newTMQueueIO
@@ -137,7 +129,7 @@ data MatchState = MatchState
   { msPos     :: !Word
   , msLine    :: !Word
   , msCol     :: !Word
-  , msMatches :: [(MatchOffset, MatchLength)]
+  , msMatches :: [Match]
   , msResult  :: [MatchEntry]
   }
 
@@ -148,8 +140,8 @@ makeMatches
   :: MonadThrow m
   => AbsDir  -- ^ Directory where recursive search was initiated
   -> AbsFile -- ^ Matched file under the directory
-  -> [(MatchOffset, MatchLength)]
-  -> BSL.ByteString
+  -> [Match]
+  -> BS.ByteString
   -> m [MatchEntry]
 makeMatches (AbsDir searchRoot) fileAbsPath'@(AbsFile fileAbsPath) ms str =
   case stripProperPrefix searchRoot fileAbsPath of
@@ -157,14 +149,14 @@ makeMatches (AbsDir searchRoot) fileAbsPath'@(AbsFile fileAbsPath) ms str =
       "Internal error: findRec produced wrong root for path" <+> pretty (pathToText fileAbsPath) Semi.<>
       ". The root is" <+> pretty (pathToText searchRoot)
     Just relPath -> do
-      let final = BSL.foldl' (\acc c -> accumulateMatch $ bumpPos acc $ unsafeChr $ fromIntegral c) initState str
+      let final = BS.foldl' (\acc c -> accumulateMatch $ bumpPos acc $ unsafeChr $ fromIntegral c) initState str
       pure $ msResult final
       where
         initState = MatchState
           { msPos     = 0
           , msLine    = 1 -- Emacs starts to count lines from 1.
           , msCol     = 0
-          , msMatches = L.sortBy (comparing fst) ms
+          , msMatches = L.sortBy (comparing matchStart) ms
           , msResult  = []
           }
         bumpPos :: MatchState -> Char -> MatchState
@@ -175,36 +167,33 @@ makeMatches (AbsDir searchRoot) fileAbsPath'@(AbsFile fileAbsPath) ms str =
 
         accumulateMatch :: MatchState -> MatchState
         accumulateMatch s@MatchState{msMatches = []} = s
-        accumulateMatch s@MatchState{msPos, msLine, msCol, msMatches = remainingMatches@((offset, _) : _), msResult}
-          | msPos' == fi offset
+        accumulateMatch s@MatchState{msPos, msLine, msCol, msMatches = remainingMatches@(m : _), msResult}
+          | msPos == fromIntegral (matchStart m)
           = s { msMatches = remainingMatches', msResult = newEntries ++ msResult }
           | otherwise
           = s
           where
-            msPos' :: Int64
-            !msPos' = fi msPos
+            currentMatches, remainingMatches' :: [Match]
             (currentMatches, remainingMatches') =
-              first (map snd) $
-                L.span ((== msPos') . fi . fst) remainingMatches
+              L.span ((== msPos) . fromIntegral . matchStart) remainingMatches
             newEntries =
               [ MatchEntry
                  { matchAbsPath    = fileAbsPath'
                  , matchRelPath    = RelFile relPath
                  , matchLineNum    = msLine
                  , matchColumnNum  = msCol
-                 , matchLinePrefix = BSL.toStrict prefix
-                 , matchLineStr    = BSL.toStrict matched
-                 , matchLineSuffix = BSL.toStrict suffix
+                 , matchLinePrefix = prefix
+                 , matchLineStr    = matched
+                 , matchLineSuffix = suffix
                  , matchOffset     = msPos + 1 -- Emacs counts offsets from 1
                  }
-              | len <- currentMatches
-              , let (before, after)  = BSL.splitAt msPos' str
+              | currMatch <- currentMatches
+              , let len              = matchEnd currMatch - matchStart currMatch
+                    (before, after)  = BS.splitAt (fromIntegral msPos) str
                     prefix           = takeUtfLineEnd before
-                    (matched, rest') = BSL.splitAt (fi len) after
+                    (matched, rest') = BS.splitAt len after
                     suffix           = takeUtfLineFront rest'
               ]
-            fi :: Integral a => a -> Int64
-            fi = fromIntegral
 
 data TakeEndState = TakeEndState
   { tesIdx   :: !Int
@@ -213,24 +202,28 @@ data TakeEndState = TakeEndState
   deriving (Generic)
   deriving Pretty via PPGeneric TakeEndState
 
-takeUtfLineEnd :: BSL.ByteString -> BSL.ByteString
-takeUtfLineEnd str = BSL.takeEnd (min 1000 (fromIntegral startIdx)) str
+takeUtfLineEnd :: BS.ByteString -> BS.ByteString
+takeUtfLineEnd str = BS.takeEnd (min 1000 startIdx) str
   where
-    -- todo: remove fold here, we don't want to traverse whole string here, which may be really long.
-    TakeEndState startIdx _ = BSL.foldr' feedOneBack (TakeEndState 0 Start) str
+    loop :: Int -> TakeEndState -> TakeEndState
+    loop 0   !tes = tes
+    loop idx !tes = case feedOneBack (BSU.unsafeIndex str idx) tes of
+      Nothing   -> tes
+      Just tes' -> loop (idx - 1) tes'
 
-    feedOneBack :: Word8 -> TakeEndState -> TakeEndState
+    TakeEndState startIdx _ = loop (BS.length str - 1) (TakeEndState 0 Start)
+
+    feedOneBack :: Word8 -> TakeEndState -> Maybe TakeEndState
     feedOneBack !w !orig@TakeEndState{tesIdx, tesState} =
       case feedPrevByte w tesState of
-        InvalidUtf8           -> orig { tesState = InvalidUtf8 }
+        InvalidUtf8           -> Nothing
         Found 1
-          | isLineDelimiter w -> orig { tesState = InvalidUtf8 }
-        s@(Found len)         ->
-          TakeEndState
-            { tesIdx   = tesIdx + len
-            , tesState = s
-            }
-        s                     -> orig { tesState = s }
+          | isLineDelimiter w -> Nothing
+        s@(Found len)         -> Just TakeEndState
+          { tesIdx   = tesIdx + len
+          , tesState = s
+          }
+        s                     -> Just orig { tesState = s }
 
 data TakeFrontState = TakeFrontState
   { tfsIdx   :: !Int
@@ -239,20 +232,28 @@ data TakeFrontState = TakeFrontState
   deriving (Generic)
   deriving Pretty via PPGeneric TakeFrontState
 
-takeUtfLineFront :: BSL.ByteString -> BSL.ByteString
-takeUtfLineFront str = BSL.take (min 1000 (fromIntegral endIdx)) str
+takeUtfLineFront :: BS.ByteString -> BS.ByteString
+takeUtfLineFront str = BSU.unsafeTake (min 1000 endIdx) str
   where
-    -- todo: remove fold here, we don't want to traverse whole string here, which may be really long.
-    TakeFrontState endIdx _ = BSL.foldl' (flip feedOneFront) (TakeFrontState 0 ForwardStart) str
+    loop :: Int -> TakeFrontState -> TakeFrontState
+    loop idx !tfs
+      | idx == BS.length str
+      = tfs
+      | otherwise
+      = case feedOneFront (BSU.unsafeIndex str idx) tfs of
+        Nothing   -> tfs
+        Just tes' -> loop (idx + 1) tes'
 
-    feedOneFront :: Word8 -> TakeFrontState -> TakeFrontState
+    TakeFrontState endIdx _ = loop 0 (TakeFrontState 0 ForwardStart)
+
+    feedOneFront :: Word8 -> TakeFrontState -> Maybe TakeFrontState
     feedOneFront !w !orig@TakeFrontState{tfsIdx, tfsState} =
       case feedNextByte w tfsState of
-        ForwardInvalidUtf8    -> orig { tfsState = ForwardInvalidUtf8 }
+        ForwardInvalidUtf8    -> Nothing
         ForwardFound 1
-          | isLineDelimiter w -> orig { tfsState = ForwardInvalidUtf8 }
-        s@(ForwardFound len)  -> TakeFrontState
+          | isLineDelimiter w -> Nothing
+        s@(ForwardFound len)  -> Just TakeFrontState
           { tfsIdx   = tfsIdx + len
           , tfsState = s
           }
-        s                     -> orig { tfsState = s }
+        s                     -> Just orig { tfsState = s }

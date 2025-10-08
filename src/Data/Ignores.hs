@@ -25,8 +25,8 @@ import System.Directory.OsPath.Types
 import System.OsPath.Types (OsPath)
 
 data Ignores = Ignores
-  { ignoresBasenameRE :: !Regex
-  , ignoresAbsRE      :: !Regex
+  { ignoresBasenameRE :: !RegexSet
+  , ignoresAbsRE      :: !RegexSet
   }
 
 mkEmacsIgnores
@@ -64,12 +64,12 @@ mkIgnores ignoredAbsGlobs ignoredBasenameGlobs = do
 
 isIgnored :: Ignores -> OsPath -> Basename OsPath -> Bool
 isIgnored Ignores{ignoresAbsRE, ignoresBasenameRE} absPath (Basename basePath) =
-  reMatchesOsPath ignoresBasenameRE basePath ||
-  reMatchesOsPath ignoresAbsRE absPath
+  reSetMatchesOsPath ignoresBasenameRE basePath ||
+    reSetMatchesOsPath ignoresAbsRE absPath
 
 isIgnoredFile :: Ignores -> AbsFile -> Bool
 isIgnoredFile Ignores{ignoresAbsRE} (AbsFile absPath) =
-  reMatchesOsPath ignoresAbsRE absPath
+  reSetMatchesOsPath ignoresAbsRE absPath
 
 dummyIgnores :: Ignores
 dummyIgnores = Ignores
@@ -77,7 +77,7 @@ dummyIgnores = Ignores
   , ignoresBasenameRE = dummyRe
   }
   where
-    dummyRe :: Regex
-    dummyRe = case compileRe "^()$" of
+    dummyRe :: RegexSet
+    dummyRe = case compileReSet ["^()$"] of
       Nothing -> error "Invalid dummy regex"
       Just x  -> x
