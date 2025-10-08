@@ -64,7 +64,6 @@ grep roots regexp globsToFind ignoreCase fileIgnores dirIgnores f = do
   let flags = flagUnicode <> flagMultiline <> if ignoreCase then flagCaseInsensitive else mempty
 
   regexp' <- compileReWithOpts flags regexp
-  let jobs = 2 :: Int
 
   extsToFindRE <- fileGlobsToRegex globsToFind
 
@@ -85,7 +84,7 @@ grep roots regexp globsToFind ignoreCase fileIgnores dirIgnores f = do
 
       doFind :: IO ()
       doFind =
-        traverse_ collect =<< findRec FollowSymlinks jobs
+        traverse_ collect =<< findRec FollowSymlinks
           (\x y -> not $ isIgnored dirIgnores x y)
           searchFile
           (coerce roots :: [AbsDir])

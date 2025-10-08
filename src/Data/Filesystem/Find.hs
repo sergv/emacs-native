@@ -52,13 +52,12 @@ newtype RelFile = RelFile { unRelFile :: OsPath }
 findRec
   :: forall a f. (WithCallStack, Foldable f, Functor f)
   => FollowSymlinks a
-  -> Int                                 -- ^ Extra search threads to run in parallel.
   -> (OsPath -> Basename OsPath -> Bool) -- ^ Whether to visit a directory.
   -> (AbsDir -> AbsFile -> Relative OsPath -> Basename OsPath -> IO (Maybe a))
                                          -- ^ What to do with a file. Receives original directory it was located in.
   -> f AbsDir                            -- ^ Where to start search.
   -> IO [a]
-findRec followSymlinks _extraJobs dirPred filePred roots =
+findRec followSymlinks dirPred filePred roots =
   Streaming.listContentsRecFold
     Nothing
     (\absDir _ _ baseDir sym cons descendSubdir rest ->
