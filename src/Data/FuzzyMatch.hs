@@ -370,13 +370,13 @@ characterOccurrences store@ReusableState{rsNeedleStore} !needle !needleChars !ha
 
   !anyEmpty <- T.textFoldIdxM
     (\ !i _ !c (!anyEmpty :: Bool) ->
-        if anyEmpty
-        then pure anyEmpty
-        else do
-          let occs :: U.Vector PackedStrCharIdxAndStrByteIdx
-              !occs = findOccurs c
-          VM.unsafeWrite rsNeedleStore (unStrCharIdx i) occs
-          pure $ U.null occs)
+      if anyEmpty
+      then pure anyEmpty
+      else do
+        let occs :: U.Vector PackedStrCharIdxAndStrByteIdx
+            !occs = findOccurs c
+        VM.unsafeWrite rsNeedleStore (unStrCharIdx i) occs
+        pure $ U.null occs)
     False
     needle
   -- Exposes freezing issue in GHC.
@@ -937,8 +937,8 @@ analyzeGroup Group{gPrevChar, gLen, gStr, gStart} !seenBasePath !groupsCount Gro
              (I32#
                (intToInt32#
                  (condMul# isBoundary wordStart# +#
-                  condMul# (Bool# (gcWordIdx'# >=# 0#)) (gcWordIdx'# *# (-3#) -# gcWordCharIdx'#) +#
-                  condMul# (penaliseIfLeading gcPrevChar) leadingPenalty#)))
+                   condMul# (Bool# (gcWordIdx'# >=# 0#)) (gcWordIdx'# *# (-3#) -# gcWordCharIdx'#) +#
+                     condMul# (penaliseIfLeading gcPrevChar) leadingPenalty#)))
 
             -- GHC pushes update under these ifs and thus wreaks performance.
             -- Heat
