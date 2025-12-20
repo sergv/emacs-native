@@ -22,6 +22,7 @@ module Data.Regex
   , reSetMatchesOsPath
   , reMatchesShortByteString
   , reAllByteStringMatches
+  , reAllUtf8PtrMatches
 
   -- * Reexports
   , Regex
@@ -50,6 +51,7 @@ import Data.Text (Text)
 import Data.Text.Builder.Linear.Buffer
 import Data.Text.Encoding qualified as T
 import Data.Text.Ext (textFoldLinear)
+import Foreign.Ptr (Ptr, castPtr)
 import Prettyprinter
 import System.OsPath
 import System.OsPath.Ext
@@ -143,3 +145,9 @@ reMatchesShortByteString re = reMatches re . BSS.fromShort
 reAllByteStringMatches
   :: Regex -> C8.ByteString -> ReversedList Match
 reAllByteStringMatches = bytestringAllMatches
+
+reAllUtf8PtrMatches
+  :: Regex -> Ptr () -> Int -> IO (ReversedList Match)
+reAllUtf8PtrMatches re ptr size =
+  utf8PtrAllMatchesIO re (castPtr ptr) (fromIntegral size)
+

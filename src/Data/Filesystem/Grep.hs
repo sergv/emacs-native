@@ -17,10 +17,12 @@ module Data.Filesystem.Grep
 import Control.Concurrent.Async.Lifted.Safe
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TMQueue
+import Control.Exception (evaluate)
 import Control.Monad.Base
 import Control.Monad.Catch
 import Control.Monad.Trans.Control
 import Data.ByteString qualified as BS
+import Data.ByteString.Char8.Ext qualified as C8
 import Data.ByteString.Short (ShortByteString)
 import Data.ByteString.Unsafe qualified as BSU
 import Data.Coerce
@@ -32,11 +34,13 @@ import Data.Ord
 import Data.Semigroup as Semi
 import Data.Text (Text)
 import Data.Word (Word8)
+import Foreign.C.Types (CChar)
+import Foreign.Ptr (Ptr, castPtr)
 import GHC.Base (unsafeChr)
 import Prettyprinter
 import Prettyprinter.Generics
 import System.Directory.OsPath.Types
-import System.IO.MMap (mmapFileByteString)
+import System.IO.MMap (mmapWithFilePtr, Mode(ReadOnly))
 import System.OsPath
 import System.OsPath.Ext
 
@@ -73,10 +77,18 @@ grep roots regexp globsToFind ignoreCase fileIgnores dirIgnores f = do
         | hasExtension (unAbsFile absPath)
         , reSetMatchesOsPath extsToFindRE basePath = do
             absPath' <- decodeUtf $ unAbsFile absPath
-            contents <- mmapFileByteString absPath' Nothing
-            case reAllByteStringMatches regexp' contents of
-              ReversedList [] -> pure Nothing
-              ReversedList ms -> Just <$> makeMatches root absPath ms contents
+            mmapWithFilePtr
+              absPath'
+              ReadOnly
+              Nothing -- map whole file
+              $ \(ptr, size) -> do
+                matches <- reAllUtf8PtrMatches regexp' ptr size
+                case matches of
+                  ReversedList [] -> pure Nothing
+                  ReversedList ms -> do
+                    let ptr' = castPtr ptr
+                    contents <- BSU.unsafePackCStringLen (ptr', size)
+                    Just <$> makeMatches root absPath ms ptr' size contents
         | otherwise = pure Nothing
 
   results <- liftBase newTMQueueIO
@@ -85,10 +97,12 @@ grep roots regexp globsToFind ignoreCase fileIgnores dirIgnores f = do
 
       doFind :: IO ()
       doFind =
-        traverse_ collect =<< findRec FollowSymlinks
-          (\x y -> not $ isIgnored dirIgnores x y)
-          searchFile
-          (coerce roots :: [AbsDir])
+        traverse_ collect =<<
+          findRec
+            FollowSymlinks
+            (\x y -> not $ isIgnored dirIgnores x y)
+            searchFile
+            (coerce roots :: [AbsDir])
 
   withAsync (liftBase (doFind `finally` atomically (closeTMQueue results))) $ \searchAsync -> do
     matches <- consumeTMQueueWithEarlyTermination @m results mempty $
@@ -129,27 +143,33 @@ data MatchState = MatchState
   { msPos     :: !Word
   , msLine    :: !Word
   , msCol     :: !Word
-  , msMatches :: [Match]
-  , msResult  :: [MatchEntry]
+  , msMatches :: ![Match]
+  , msResult  :: ![MatchEntry]
   }
 
 isLineDelimiter :: Word8 -> Bool
 isLineDelimiter w = w < 0x20
 
 makeMatches
-  :: MonadThrow m
-  => AbsDir  -- ^ Directory where recursive search was initiated
+  :: AbsDir  -- ^ Directory where recursive search was initiated
   -> AbsFile -- ^ Matched file under the directory
   -> [Match]
+  -> Ptr CChar
+  -> Int
   -> BS.ByteString
-  -> m [MatchEntry]
-makeMatches (AbsDir searchRoot) fileAbsPath'@(AbsFile fileAbsPath) ms str =
+  -> IO [MatchEntry]
+makeMatches !(AbsDir searchRoot) !fileAbsPath'@(AbsFile fileAbsPath) !ms !ptr !size !str =
   case stripProperPrefix searchRoot fileAbsPath of
     Nothing -> throwM $ mkUserError "emacsGrepRec" $
       "Internal error: findRec produced wrong root for path" <+> pretty (pathToText fileAbsPath) Semi.<>
       ". The root is" <+> pretty (pathToText searchRoot)
     Just relPath -> do
-      let final = BS.foldl' (\acc c -> accumulateMatch $ bumpPos acc $ unsafeChr $ fromIntegral c) initState str
+      final <- C8.foldCharsM
+        ptr
+        size
+        initState
+        (\ !acc !c ->
+          accumulateMatch $ bumpPos acc $ unsafeChr $ fromIntegral c)
       pure $ msResult final
       where
         initState = MatchState
@@ -165,33 +185,42 @@ makeMatches (AbsDir searchRoot) fileAbsPath'@(AbsFile fileAbsPath) ms str =
         bumpPos s@MatchState{msPos, msLine}  '\n' = s { msPos = msPos + 1, msLine = msLine + 1, msCol = 0 }
         bumpPos s@MatchState{msPos, msCol}   _    = s { msPos = msPos + 1, msCol  = msCol + 1 }
 
-        accumulateMatch :: MatchState -> MatchState
-        accumulateMatch s@MatchState{msMatches = []} = s
+        accumulateMatch :: MatchState -> IO MatchState
+        accumulateMatch s@MatchState{msMatches = []} = pure s
         accumulateMatch s@MatchState{msPos, msLine, msCol, msMatches = remainingMatches@(m : _), msResult}
           | msPos == fromIntegral (matchStart m)
-          = s { msMatches = remainingMatches', msResult = newEntries ++ msResult }
+          = do
+            -- Must evaluate MatchStates completely before this function finishes or we’ll
+            -- be in trouble since mmapped file goes out of scope after we finish.
+            newEntries' <- traverse evaluate newEntries
+            pure $ s { msMatches = remainingMatches', msResult = newEntries' ++ msResult }
           | otherwise
-          = s
+          = pure s
           where
             currentMatches, remainingMatches' :: [Match]
             (currentMatches, remainingMatches') =
               L.span ((== msPos) . fromIntegral . matchStart) remainingMatches
+            newEntries :: [MatchEntry]
             newEntries =
               [ MatchEntry
                  { matchAbsPath    = fileAbsPath'
                  , matchRelPath    = RelFile relPath
                  , matchLineNum    = msLine
                  , matchColumnNum  = msCol
-                 , matchLinePrefix = prefix
-                 , matchLineStr    = matched
-                 , matchLineSuffix = suffix
-                 , matchOffset     = msPos + 1 -- Emacs counts offsets from 1
+                 -- Emacs counts offsets from 1
+                 , matchOffset     = msPos + 1
+                 -- It's crucial to copy since bytestring contents together with
+                 -- the passed pointer will soon go out of scope since we want
+                 -- to free mmapped file as soon as possible.
+                 , matchLinePrefix = BS.copy prefix
+                 , matchLineStr    = BS.copy matched
+                 , matchLineSuffix = BS.copy suffix
                  }
               | currMatch <- currentMatches
               , let len              = matchEnd currMatch - matchStart currMatch
-                    (before, after)  = BS.splitAt (fromIntegral msPos) str
+                    (before, after)  = C8.splitAt (fromIntegral msPos) str
                     prefix           = takeUtfLineEnd before
-                    (matched, rest') = BS.splitAt len after
+                    (matched, rest') = C8.splitAt len after
                     suffix           = takeUtfLineFront rest'
               ]
 
