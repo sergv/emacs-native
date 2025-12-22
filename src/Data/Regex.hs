@@ -14,6 +14,7 @@ module Data.Regex
   ( fileGlobsToRegex
 
   , compileRe
+  , compileReText
   , compileReSet
   , compileReWithOpts
   , compileReSetWithOpts
@@ -108,6 +109,9 @@ fileGlobsToRegex patterns =
 
 compileRe :: (WithCallStack, MonadThrow m) => C8.ByteString -> m Regex
 compileRe = compileReWithOpts mempty
+
+compileReText :: (WithCallStack, MonadThrow m) => Text -> m Regex
+compileReText = compileReWithOpts mempty . T.encodeUtf8
 
 compileReSet :: (WithCallStack, MonadThrow m) => [C8.ByteString] -> m RegexSet
 compileReSet = compileReSetWithOpts mempty
