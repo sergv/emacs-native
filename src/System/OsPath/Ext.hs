@@ -18,8 +18,13 @@ module System.OsPath.Ext
 
   , pathToUtf8
   , pathFromUtf8
+
+#ifndef mingw32_HOST_OS
+  , pathFromByteString
+#endif
   ) where
 
+import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as C8
 import Data.ByteString.Short (ShortByteString)
 import Data.ByteString.Short qualified as BSS
@@ -75,3 +80,9 @@ textFromShortByteString str@(BSS.SBS arr) = T.Text (TA.ByteArray arr) 0 (BSS.len
 
 stripProperPrefix :: OsPath -> OsPath -> Maybe OsPath
 stripProperPrefix = coerce BSS.stripPrefix
+
+#ifndef mingw32_HOST_OS
+pathFromByteString :: BS.ByteString -> OsPath
+pathFromByteString =
+  OsString . PosixString . BSS.toShort
+#endif
