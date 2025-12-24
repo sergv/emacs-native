@@ -52,6 +52,20 @@ tests = testGroup "Data.Filesystem.Grep.Tests"
             }
       xs <- grep' [osp|.|] "^module Data.Filesystem.Grep.Tests" ["*.hs"] False
       checkEqual xs [expected]
+  , testCase "grep 2" $ do
+      let path     = [osp|test-data|] </> [osp|single-line.txt|]
+          expected = MatchEntry
+            { matchAbsPath    = AbsFile $ [osp|.|] </> path
+            , matchRelPath    = RelFile path
+            , matchLineNum    = 1
+            , matchColumnNum  = 4
+            , matchLinePrefix = T.encodeUtf8 "abc "
+            , matchLineStr    = T.encodeUtf8 "foo"
+            , matchLineSuffix = T.encodeUtf8 " abc"
+            , matchOffset     = 5
+            }
+      xs <- grep' [osp|.|] "foo" ["single-line.txt"] False
+      checkEqual xs [expected]
   , testCase "grep unicode 1" $ do
       let path     = [osp|test-data|] </> [osp|test.txt|]
           expected = MatchEntry

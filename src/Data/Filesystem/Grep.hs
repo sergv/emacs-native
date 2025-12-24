@@ -236,11 +236,13 @@ takeUtfLineEnd str = BS.takeEnd (min 1000 startIdx) str
   where
     loop :: Int -> TakeEndState -> TakeEndState
     loop 0   !tes = tes
-    loop idx !tes = case feedOneBack (BSU.unsafeIndex str idx) tes of
+    loop idx !tes = case feedOneBack (BSU.unsafeIndex str idx') tes of
       Nothing   -> tes
-      Just tes' -> loop (idx - 1) tes'
+      Just tes' -> loop idx' tes'
+      where
+        !idx' = idx - 1
 
-    TakeEndState startIdx _ = loop (BS.length str - 1) (TakeEndState 0 Start)
+    TakeEndState startIdx _ = loop (BS.length str) (TakeEndState 0 Start)
 
     feedOneBack :: Word8 -> TakeEndState -> Maybe TakeEndState
     feedOneBack !w !orig@TakeEndState{tesIdx, tesState} =
