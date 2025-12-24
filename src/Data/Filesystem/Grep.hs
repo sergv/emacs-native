@@ -203,19 +203,19 @@ makeMatches !(AbsDir searchRoot) !fileAbsPath'@(AbsFile fileAbsPath) !ms !ptr !s
             newEntries :: [MatchEntry]
             newEntries =
               [ MatchEntry
-                 { matchAbsPath    = fileAbsPath'
-                 , matchRelPath    = RelFile relPath
-                 , matchLineNum    = msLine
-                 , matchColumnNum  = msCol
-                 -- Emacs counts offsets from 1
-                 , matchOffset     = msPos + 1
-                 -- It's crucial to copy since bytestring contents together with
-                 -- the passed pointer will soon go out of scope since we want
-                 -- to free mmapped file as soon as possible.
-                 , matchLinePrefix = BS.copy prefix
-                 , matchLineStr    = BS.copy matched
-                 , matchLineSuffix = BS.copy suffix
-                 }
+                  { matchAbsPath    = fileAbsPath'
+                  , matchRelPath    = RelFile relPath
+                  , matchLineNum    = msLine
+                  , matchColumnNum  = msCol
+                  -- Emacs counts offsets from 1
+                  , matchOffset     = msPos + 1
+                  -- It's crucial to copy since bytestring contents together with
+                  -- the passed pointer will soon go out of scope since we want
+                  -- to free mmapped file as soon as possible.
+                  , matchLinePrefix = BS.copy prefix
+                  , matchLineStr    = BS.copy matched
+                  , matchLineSuffix = BS.copy suffix
+                  }
               | currMatch <- currentMatches
               , let len              = matchEnd currMatch - matchStart currMatch
                     (before, after)  = C8.splitAt (fromIntegral msPos) str
