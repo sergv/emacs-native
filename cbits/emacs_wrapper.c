@@ -14,7 +14,7 @@ extern HsBool initialise(struct emacs_runtime *ert);
 }
 #endif
 
-#define ARR_SIZE(x) (sizeof(x) / sizeof(x[0]))
+#define ARR_SIZE(x) ((sizeof(x) / sizeof(0[x])) / ((size_t)(!(sizeof(x) % sizeof(0[x])))))
 
 int plugin_is_GPL_compatible = 1;
 
