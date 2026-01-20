@@ -45,6 +45,14 @@ flag standalone-foreign-lib
   manual:
     True
 
+flag build-foreign-lib
+  description:
+    Build foreign library
+  default:
+    True
+  manual:
+    True
+
 common ghc-options
   default-language:
     GHC2021
@@ -152,6 +160,10 @@ library
 
 foreign-library emacs-native
   import: ghc-options
+  if flag(build-foreign-lib)
+    buildable: True
+  else
+    buildable: False
   if flag(standalone-foreign-lib) || flag(profiling)
     options: standalone
   type:
