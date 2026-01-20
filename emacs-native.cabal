@@ -16,7 +16,7 @@ maintainer:
   Sergey Vinokurov <serg.foo@gmail.com>
 stability: stable
 tested-with:
-  GHC == 8.2.2, GHC == 8.4.3, GHC == 8.6.5
+  GHC == 9.12.2,  GHC == 9.14.1
 
 build-type:
   Simple
