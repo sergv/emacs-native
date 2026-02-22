@@ -166,6 +166,8 @@ foreign-library emacs-native
     buildable: False
   if flag(standalone-foreign-lib) || flag(profiling)
     options: standalone
+    if impl(ghc >= 9.14)
+      ld-options: -uinit_ghc_hs_iface
   type:
     native-shared
   if !os(Windows) && !os(darwin)
