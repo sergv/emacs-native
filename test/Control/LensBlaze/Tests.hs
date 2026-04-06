@@ -18,7 +18,6 @@ import Data.Word
 import GHC.TypeNats
 import Numeric
 import Test.QuickCheck
-import Test.QuickCheck.Gen
 import Test.Tasty
 import Test.Tasty.QuickCheck qualified as QC
 
