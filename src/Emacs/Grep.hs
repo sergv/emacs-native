@@ -87,7 +87,7 @@ emacsGrepRec (R roots (R regexp (R globsToFind (R ignoredFileGlobs (R ignoredDir
       !matchLinePrefix' <- makeString' matchLinePrefix
       !matchLineStr'    <- makeString' matchLineStr
       !matchLineSuffix' <- makeString' matchLineSuffix
-      matchOffset'      <- makeInt (fromIntegral matchOffset)
+      !matchOffset'     <- makeInt (fromIntegral matchOffset)
       !emacsMatchStruct <-
         funcallPrimitiveSym
           "make-egrep-match"

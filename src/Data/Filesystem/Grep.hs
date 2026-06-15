@@ -207,8 +207,7 @@ makeMatches !(AbsDir searchRoot) !fileAbsPath'@(AbsFile fileAbsPath) !ms !ptr !s
                   , matchRelPath    = RelFile relPath
                   , matchLineNum    = msLine
                   , matchColumnNum  = msCol
-                  -- Emacs counts offsets from 1
-                  , matchOffset     = msPos + 1
+                  , matchOffset     = msPos
                   -- It's crucial to copy since bytestring contents together with
                   -- the passed pointer will soon go out of scope since we want
                   -- to free mmapped file as soon as possible.

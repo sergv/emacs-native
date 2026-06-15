@@ -48,7 +48,7 @@ tests = testGroup "Data.Filesystem.Grep.Tests"
             , matchLinePrefix = T.encodeUtf8 mempty
             , matchLineStr    = T.encodeUtf8 "module Data.Filesystem.Grep.Tests"
             , matchLineSuffix = T.encodeUtf8 " (tests) where"
-            , matchOffset     = 305
+            , matchOffset     = 304
             }
       xs <- grep' [osp|.|] "^module Data.Filesystem.Grep.Tests" ["*.hs"] False
       checkEqual xs [expected]
@@ -62,7 +62,7 @@ tests = testGroup "Data.Filesystem.Grep.Tests"
             , matchLinePrefix = T.encodeUtf8 "abc "
             , matchLineStr    = T.encodeUtf8 "foo"
             , matchLineSuffix = T.encodeUtf8 " abc"
-            , matchOffset     = 5
+            , matchOffset     = 4
             }
       xs <- grep' [osp|.|] "foo" ["single-line.txt"] False
       checkEqual xs [expected]
@@ -76,7 +76,7 @@ tests = testGroup "Data.Filesystem.Grep.Tests"
             , matchLinePrefix = T.encodeUtf8 "〚decombobulate"
             , matchLineStr    = T.encodeUtf8 "〛"
             , matchLineSuffix = T.encodeUtf8 ""
-            , matchOffset     = 18
+            , matchOffset     = 17
             }
       xs <- grep' [osp|.|] "〛" ["*.txt"] False
       checkEqual xs [expected]
@@ -90,7 +90,7 @@ tests = testGroup "Data.Filesystem.Grep.Tests"
             , matchLinePrefix = T.encodeUtf8 "〖〖"
             , matchLineStr    = T.encodeUtf8 "привет мир"
             , matchLineSuffix = T.encodeUtf8 "〗〗"
-            , matchOffset     = 9
+            , matchOffset     = 8
             }
       xs <- grep' [osp|.|] "привет мир" ["more-unicode.txt"] False
       checkEqual xs [expected]
@@ -104,7 +104,7 @@ tests = testGroup "Data.Filesystem.Grep.Tests"
             , matchLinePrefix = T.encodeUtf8 "〖〖"
             , matchLineStr    = T.encodeUtf8 "привет"
             , matchLineSuffix = T.encodeUtf8 " мир〗〗"
-            , matchOffset     = 9
+            , matchOffset     = 8
             }
           expected2 = MatchEntry
             { matchAbsPath    = AbsFile $ [osp|.|] </> path
@@ -114,7 +114,7 @@ tests = testGroup "Data.Filesystem.Grep.Tests"
             , matchLinePrefix = T.encodeUtf8 ""
             , matchLineStr    = T.encodeUtf8 "привет"
             , matchLineSuffix = T.encodeUtf8 ", мир"
-            , matchOffset     = 35
+            , matchOffset     = 34
             }
       xs <- grep' [osp|.|] "привет\\>" ["more-unicode.txt"] False
       checkEqual xs [expected1, expected2]
@@ -129,7 +129,7 @@ tests = testGroup "Data.Filesystem.Grep.Tests"
             , matchLinePrefix = T.encodeUtf8 "hello "
             , matchLineStr    = T.encodeUtf8 "foo\nbar"
             , matchLineSuffix = T.encodeUtf8 " world"
-            , matchOffset     = 12
+            , matchOffset     = 11
             }
           expected2 = MatchEntry
             { matchAbsPath    = AbsFile $ path1 </> path2
@@ -139,7 +139,7 @@ tests = testGroup "Data.Filesystem.Grep.Tests"
             , matchLinePrefix = T.encodeUtf8 "Hello "
             , matchLineStr    = T.encodeUtf8 "Foo\nBar"
             , matchLineSuffix = T.encodeUtf8 " World"
-            , matchOffset     = 59
+            , matchOffset     = 58
             }
       xs <- grep' path1 "foo\nbar" ["*.txt"] True
       checkEqual xs [expected1, expected2]
@@ -154,7 +154,7 @@ tests = testGroup "Data.Filesystem.Grep.Tests"
             , matchLinePrefix = T.encodeUtf8 "./test-data/"
             , matchLineStr    = T.encodeUtf8 "binary"
             , matchLineSuffix = T.encodeUtf8 "-data.bin"
-            , matchOffset     = 1000
+            , matchOffset     = 999
             }
           expected2 = MatchEntry
             { matchAbsPath    = AbsFile $ path </> file
@@ -164,10 +164,25 @@ tests = testGroup "Data.Filesystem.Grep.Tests"
             , matchLinePrefix = T.encodeUtf8 "./"
             , matchLineStr    = T.encodeUtf8 "build-both"
             , matchLineSuffix = T.encodeUtf8 ".sh"
-            , matchOffset     = 1326
+            , matchOffset     = 1325
             }
       xs <- grep' path "binary|build-both" ["binary-data.bin"] False
       checkEqual xs [expected1, expected2]
+  , testCase "grep crlf line endings 1" $ do
+      let path     = [osp|test-data|]
+          file     = [osp|crlf.txt|]
+          expected = MatchEntry
+            { matchAbsPath    = AbsFile $ path </> file
+            , matchRelPath    = RelFile file
+            , matchLineNum    = 4
+            , matchColumnNum  = 2
+            , matchLinePrefix = T.encodeUtf8 "ba"
+            , matchLineStr    = T.encodeUtf8 "rcrl"
+            , matchLineSuffix = T.encodeUtf8 "f"
+            , matchOffset     = 11
+            }
+      xs <- grep' path "rcrl" ["crlf.txt"] False
+      checkEqual xs [expected]
   ]
 
 checkEqual
