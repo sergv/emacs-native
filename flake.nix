@@ -30,7 +30,7 @@
       let pkgs = nixpkgs.legacyPackages.${system};
           ghc = haskell-nixpkgs-improvements.haskell-package-sets."${system}".host.ghc914-pie.ghc;
       in {
-        devShell = pkgs.mkShell {
+        devShells.default = pkgs.mkShell {
           nativeBuildInputs = [
             pkgs.rure
             pkgs.rure.dev
