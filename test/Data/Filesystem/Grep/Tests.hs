@@ -183,6 +183,21 @@ tests = testGroup "Data.Filesystem.Grep.Tests"
             }
       xs <- grep' path "rcrl" ["crlf.txt"] False
       checkEqual xs [expected]
+  , testCase "grep tabs 1" $ do
+      let path     = [osp|test-data|]
+          file     = [osp|tab.txt|]
+          expected = MatchEntry
+            { matchAbsPath    = AbsFile $ path </> file
+            , matchRelPath    = RelFile file
+            , matchLineNum    = 2
+            , matchColumnNum  = 5 -- Count tabs as 1 character wide.
+            , matchLinePrefix = T.encodeUtf8 "\tfoo\t"
+            , matchLineStr    = T.encodeUtf8 "bar\t"
+            , matchLineSuffix = T.encodeUtf8 "quux\tdecombobulate\t"
+            , matchOffset     = 6
+            }
+      xs <- grep' path "bar\t" ["tab.txt"] False
+      checkEqual xs [expected]
   ]
 
 checkEqual

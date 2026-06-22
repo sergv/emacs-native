@@ -148,7 +148,7 @@ data MatchState = MatchState
   }
 
 isLineDelimiter :: Word8 -> Bool
-isLineDelimiter w = w < 0x20
+isLineDelimiter w = w < 0x20 && w /= 9
 
 makeMatches
   :: AbsDir  -- ^ Directory where recursive search was initiated
