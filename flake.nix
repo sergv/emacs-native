@@ -43,16 +43,19 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages."${system}";
-          ghc  = haskell-nixpkgs-improvements.haskell-package-sets."${system}".host.ghc914-pie.ghc;
+          # ghc  = haskell-nixpkgs-improvements.haskell-package-sets."${system}".host.ghc914-pie.ghc;
+          ghc  = haskell-nixpkgs-improvements.packages."${system}".ghc914-pie;
         in
         {
           default = pkgs.mkShell {
-            nativeBuildInputs = [
-              pkgs.rure
-              pkgs.rure.dev
-              pkgs.pkg-config
-              ghc
-            ];
+            nativeBuildInputs =
+              [
+                pkgs.rure
+                pkgs.rure.dev
+                pkgs.pkg-config
+              ] ++
+              pkgs.lib.optional (!pkgs.stdenv.isDarwin) ghc;
+
             LD_LIBRARY_PATH = "${pkgs.rure}/lib";
             # shellHook = ''
             #   echo "Updated rure-dev is at ${pkgs.rure.dev}"
