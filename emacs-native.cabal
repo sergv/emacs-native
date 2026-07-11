@@ -177,8 +177,6 @@ foreign-library emacs-native
     cbits/emacs_wrapper.c
   includes:
     emacs-module.h
-  install-includes:
-    emacs-module.h
   include-dirs:
     cbits
   if flag(profiling)
