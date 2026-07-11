@@ -30,7 +30,7 @@ HsBool init(void) {
     "-qa",
 #ifdef PROFILING
     "-p",
-    "-l",
+    "-l-agu",
     "-hc",
     "-L512",
 #endif // #ifdef PROFILING
