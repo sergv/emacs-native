@@ -43,8 +43,12 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages."${system}";
-          # ghc  = haskell-nixpkgs-improvements.haskell-package-sets."${system}".host.ghc914-pie.ghc;
-          ghc  = haskell-nixpkgs-improvements.packages."${system}".ghc914-pie;
+          ghc  =
+            if pkgs.stdenv.isDarwin
+            then haskell-nixpkgs-improvements.haskell-package-sets."${system}".host.default.ghc
+            else haskell-nixpkgs-improvements.haskell-package-sets."${system}".host.ghc914-pie.ghc;
+          # ghc  = haskell-nixpkgs-improvements.haskell-package-sets."${system}".host.ghc914.ghc;
+          # ghc  = haskell-nixpkgs-improvements.packages."${system}".ghc914-pie;
         in
         {
           default = pkgs.mkShell {
