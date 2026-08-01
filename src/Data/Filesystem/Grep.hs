@@ -8,21 +8,25 @@
 {-# LANGUAGE MonoLocalBinds        #-}
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE QuantifiedConstraints #-}
+{-# LANGUAGE QuasiQuotes           #-}
 
 module Data.Filesystem.Grep
   ( grep
   , MatchEntry(..)
   ) where
 
+import Codec.Compression.GZip qualified as GZIP
 import Control.Concurrent.Async.Lifted.Safe
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TMQueue
+import Control.DeepSeq (rnf)
 import Control.Exception (evaluate)
 import Control.Monad.Base
 import Control.Monad.Catch
 import Control.Monad.Trans.Control
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8.Ext qualified as C8
+import Data.ByteString.Lazy qualified as BSL
 import Data.ByteString.Short (ShortByteString)
 import Data.ByteString.Unsafe qualified as BSU
 import Data.Coerce
@@ -33,9 +37,10 @@ import Data.Map.Strict qualified as M
 import Data.Ord
 import Data.Semigroup as Semi
 import Data.Text (Text)
-import Data.Word (Word8)
+import Data.Word (Word8, Word32)
+import Data.Word.Ext
 import Foreign.C.Types (CChar)
-import Foreign.Ptr (Ptr, castPtr)
+import Foreign.Ptr (Ptr, castPtr, plusPtr)
 import GHC.Base (unsafeChr)
 import Prettyprinter
 import Prettyprinter.Generics
@@ -71,25 +76,52 @@ grep roots regexp globsToFind ignoreCase fileIgnores dirIgnores f = do
 
   extsToFindRE <- fileGlobsToRegex globsToFind
 
-  let searchFile :: AbsDir -> AbsFile -> Relative OsPath -> Basename OsPath -> IO (Maybe [MatchEntry])
-      searchFile root absPath _ (Basename basePath)
-        | isIgnoredFile fileIgnores absPath = pure Nothing
-        | hasExtension (unAbsFile absPath)
-        , reSetMatchesOsPath extsToFindRE basePath = do
-            absPath' <- decodeUtf $ unAbsFile absPath
-            mmapWithFilePtr
-              absPath'
-              ReadOnly
-              Nothing -- map whole file
-              $ \(ptr, size) -> do
-                matches <- reAllUtf8PtrMatches regexp' ptr size
-                case matches of
-                  ReversedList [] -> pure Nothing
-                  ReversedList ms -> do
-                    let ptr' = castPtr ptr
-                    contents <- BSU.unsafePackCStringLen (ptr', size)
-                    Just <$> makeMatches root absPath ms ptr' size contents
-        | otherwise = pure Nothing
+  let
+    searchUncompressed :: AbsDir -> AbsFile -> BS.ByteString -> Ptr b -> Int -> IO (Maybe [MatchEntry])
+    searchUncompressed root absPath contents ptr' size = do
+      matches <- reAllUtf8PtrMatches regexp' (castPtr ptr') size
+      case matches of
+        ReversedList [] -> pure Nothing
+        ReversedList ms -> do
+          Just <$> makeMatches root absPath ms (castPtr ptr') size contents
+
+    searchFile :: AbsDir -> AbsFile -> Relative OsPath -> Basename OsPath -> IO (Maybe [MatchEntry])
+    searchFile root absPath _ (Basename basePath)
+      | isIgnoredFile fileIgnores absPath = pure Nothing
+      | hasExtension (unAbsFile absPath)
+      , reSetMatchesOsPath extsToFindRE basePath = do
+          absPath' <- decodeUtf $ unAbsFile absPath
+          mmapWithFilePtr
+            absPath'
+            ReadOnly
+            Nothing -- map whole file
+            $ \(ptr, size) -> do
+              contents <- BSU.unsafePackCStringLen (castPtr ptr, size)
+              let isGzip =
+                    takeExtension (unAbsFile absPath) == [osp|.gz|] &&
+                      "\x1f\x8b\x08" `BS.isPrefixOf` contents
+              if size > 7 && isGzip
+              then do
+                !uncompressedSize <- getWord32LE (plusPtr (castPtr ptr :: Ptr Word32) (size - 4))
+                if uncompressedSize < 2 * 1024 * 1024 * 1024
+                then do
+                  let params    = GZIP.defaultDecompressParams
+                        { GZIP.decompressBufferSize = fromIntegral uncompressedSize }
+                      contents' =
+                        BSL.toStrict $
+                          GZIP.decompressWith params $
+                            BSL.fromStrict contents
+                  res <- try $ evaluate $ rnf contents'
+                  case res of
+                    Left (_ :: GZIP.DecompressError) ->
+                      searchUncompressed root absPath contents ptr size
+                    Right !() ->
+                      BSU.unsafeUseAsCStringLen contents' $ \(ptr', size') ->
+                        searchUncompressed root absPath contents' ptr' size'
+                else
+                  searchUncompressed root absPath contents ptr size
+              else searchUncompressed root absPath contents ptr size
+      | otherwise = pure Nothing
 
   results <- liftBase newTMQueueIO
   let collect :: [MatchEntry] -> IO ()

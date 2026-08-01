@@ -114,6 +114,7 @@ library
     Data.UnicodeUtils
     Data.Vector.Ext
     Data.Vector.PredefinedSorts
+    Data.Word.Ext
 
     Emacs.EarlyTermination
     Emacs.EprojTagIndex
@@ -157,6 +158,7 @@ library
     , tuples-homogenous-h98
     , vector >= 0.13
     , vector-quicksort >= 0.2
+    , zlib
 
 foreign-library emacs-native
   import: ghc-options

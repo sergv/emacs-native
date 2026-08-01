@@ -168,6 +168,31 @@ tests = testGroup "Data.Filesystem.Grep.Tests"
             }
       xs <- grep' path "binary|build-both" ["binary-data.bin"] False
       checkEqual xs [expected1, expected2]
+  , testCase "grep compressed binary 1" $ do
+      let path      = [osp|test-data|]
+          file      = [osp|binary-data.bin.gz|]
+          expected1 = MatchEntry
+            { matchAbsPath    = AbsFile $ path </> file
+            , matchRelPath    = RelFile file
+            , matchLineNum    = 1
+            , matchColumnNum  = 999
+            , matchLinePrefix = T.encodeUtf8 "./test-data/"
+            , matchLineStr    = T.encodeUtf8 "binary"
+            , matchLineSuffix = T.encodeUtf8 "-data.bin"
+            , matchOffset     = 999
+            }
+          expected2 = MatchEntry
+            { matchAbsPath    = AbsFile $ path </> file
+            , matchRelPath    = RelFile file
+            , matchLineNum    = 1
+            , matchColumnNum  = 1325
+            , matchLinePrefix = T.encodeUtf8 "./"
+            , matchLineStr    = T.encodeUtf8 "build-both"
+            , matchLineSuffix = T.encodeUtf8 ".sh"
+            , matchOffset     = 1325
+            }
+      xs <- grep' path "binary|build-both" ["binary-data.bin.gz"] False
+      checkEqual xs [expected1, expected2]
   , testCase "grep crlf line endings 1" $ do
       let path     = [osp|test-data|]
           file     = [osp|crlf.txt|]
