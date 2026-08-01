@@ -78,7 +78,7 @@ emacsGrepRec (R roots (R regexp (R globsToFind (R ignoredFileGlobs (R ignoredDir
       throwM $ mkUserError "emacsGrepRec" $
         "Search root does not exist:" <+> pretty (pathToText root)
 
-  res <- grep roots' regexp' globsToFind' ignoreCase' fileIgnores dirIgnores $
+  (res, anyMatched) <- grep roots' regexp' globsToFind' ignoreCase' fileIgnores dirIgnores $
     \relPath MatchEntry{matchAbsPath, matchLineNum, matchColumnNum, matchLinePrefix, matchLineStr, matchLineSuffix, matchOffset} -> do
       !pathEmacs        <- makeShortByteString $ pathForEmacs $ unAbsFile matchAbsPath
       !shortPathEmacs   <- makeShortByteString relPath
@@ -94,7 +94,9 @@ emacsGrepRec (R roots (R regexp (R globsToFind (R ignoredFileGlobs (R ignoredDir
           (Tuple8 (pathEmacs, shortPathEmacs, matchLineNum', matchColumnNum', matchLinePrefix', matchLineStr', matchLineSuffix', matchOffset'))
       pure emacsMatchStruct
 
-  makeList res
+  case anyMatched of
+    NoFilesMatched   -> intern "no-files-matched"
+    SomeFilesMatched -> makeList res
 
 makeString'
   :: MonadEmacs m v

@@ -98,6 +98,7 @@ library
   if flag(runtime-checks)
     cpp-options: -DRUNTIME_CHECKS
   exposed-modules:
+    Control.Concurrent.BoolFlag
     Control.LensBlaze
     Data.Emacs.Path
     Data.Eproj

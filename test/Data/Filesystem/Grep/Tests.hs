@@ -17,6 +17,7 @@ import Control.Monad.Catch (MonadThrow)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Interleave
 import Control.Monad.Trans.Control (MonadBaseControl)
+import Data.Bifunctor (first)
 import Data.Foldable (toList)
 import Data.Text (Text)
 import Data.Text qualified as T
@@ -218,6 +219,12 @@ tests = testGroup "Data.Filesystem.Grep.Tests"
             }
       xs <- grep' root "bar\t" ["tab.txt"] False
       checkEqual xs ([expected], SomeFilesMatched)
+  , testCase "grep no glob matches" $ do
+      xs <- grep' root "bar" ["*.decombobulate"] False
+      checkEqual xs ([], NoFilesMatched)
+  , testCase "grep no matches but some files matched globs" $ do
+      xs <- grep' root "decombobulatedecombobulate" ["*"] False
+      checkEqual xs ([], SomeFilesMatched)
   ]
   where
     root = [osp|test-data|]
@@ -234,9 +241,10 @@ checkEqual actual expected = unless (actual == expected) $ assertFailure msg
       , "expected" --> expected
       ]
 
-grep' :: OsPath -> Text -> [Text] -> Bool -> IO [MatchEntry]
+grep' :: OsPath -> Text -> [Text] -> Bool -> IO ([MatchEntry], AnyFilesMatched)
 grep' root reToFind globs ignoreCase = runDummyEmacsM $
-  toList <$> grep [root] (T.encodeUtf8 reToFind) globs ignoreCase dummyIgnores dummyIgnores (\_ entry -> pure entry)
+  first toList <$>
+    grep [root] (T.encodeUtf8 reToFind) globs ignoreCase dummyIgnores dummyIgnores (\_ entry -> pure entry)
 
 newtype DummyEmacsM s a = DummyEmacsM { runDummyEmacsM :: IO a }
   deriving (Functor, Applicative, Monad, MonadIO, MonadBase IO, MonadBaseControl IO, MonadThrow, MonadInterleave, VGM.PrimMonad)

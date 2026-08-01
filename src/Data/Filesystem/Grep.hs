@@ -12,11 +12,13 @@
 
 module Data.Filesystem.Grep
   ( grep
+  , AnyFilesMatched(..)
   , MatchEntry(..)
   ) where
 
 import Codec.Compression.GZip qualified as GZIP
 import Control.Concurrent.Async.Lifted.Safe
+import Control.Concurrent.BoolFlag qualified as BoolFlag
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TMQueue
 import Control.DeepSeq (rnf)
@@ -59,6 +61,21 @@ import Data.Regex
 import Data.UnicodeUtils
 import Emacs.EarlyTermination
 
+-- NB order of constructors is significant.
+data AnyFilesMatched = NoFilesMatched | SomeFilesMatched
+  deriving (Eq, Ord, Show, Generic)
+  deriving Pretty via PPGeneric AnyFilesMatched
+
+anyMatchedToBool :: AnyFilesMatched -> Bool
+anyMatchedToBool = \case
+  NoFilesMatched   -> False
+  SomeFilesMatched -> True
+
+boolToAnyMatched :: Bool -> AnyFilesMatched
+boolToAnyMatched = \case
+  False -> NoFilesMatched
+  True  -> SomeFilesMatched
+
 grep
   :: forall m s v a. (MonadEmacs m v, forall ss. MonadThrow (m ss), MonadBaseControl IO (m s), Forall (Pure (m s)))
   => [OsPath]
@@ -68,7 +85,7 @@ grep
   -> Ignores
   -> Ignores
   -> (ShortByteString -> MatchEntry -> m s a)
-  -> m s (Map (ShortByteString, Word) a)
+  -> m s (Map (ShortByteString, Word) a, AnyFilesMatched)
 grep roots regexp globsToFind ignoreCase fileIgnores dirIgnores f = do
   let flags = flagUnicode <> flagMultiline <> if ignoreCase then flagCaseInsensitive else mempty
 
@@ -77,15 +94,14 @@ grep roots regexp globsToFind ignoreCase fileIgnores dirIgnores f = do
   extsToFindRE <- fileGlobsToRegex globsToFind
 
   let
-    searchUncompressed :: AbsDir -> AbsFile -> BS.ByteString -> Ptr b -> Int -> IO (Maybe [MatchEntry])
+    searchUncompressed :: AbsDir -> AbsFile -> BS.ByteString -> Ptr b -> Int -> IO (Maybe ([MatchEntry], AnyFilesMatched))
     searchUncompressed root absPath contents ptr' size = do
       matches <- reAllUtf8PtrMatches regexp' (castPtr ptr') size
       case matches of
-        ReversedList [] -> pure Nothing
-        ReversedList ms -> do
-          Just <$> makeMatches root absPath ms (castPtr ptr') size contents
+        ReversedList [] -> pure $ Just ([], SomeFilesMatched)
+        ReversedList ms -> Just . (, SomeFilesMatched) <$> makeMatches root absPath ms (castPtr ptr') size contents
 
-    searchFile :: AbsDir -> AbsFile -> Relative OsPath -> Basename OsPath -> IO (Maybe [MatchEntry])
+    searchFile :: AbsDir -> AbsFile -> Relative OsPath -> Basename OsPath -> IO (Maybe ([MatchEntry], AnyFilesMatched))
     searchFile root absPath _ (Basename basePath)
       | isIgnoredFile fileIgnores absPath = pure Nothing
       | hasExtension (unAbsFile absPath)
@@ -123,9 +139,14 @@ grep roots regexp globsToFind ignoreCase fileIgnores dirIgnores f = do
               else searchUncompressed root absPath contents ptr size
       | otherwise = pure Nothing
 
-  results <- liftBase newTMQueueIO
-  let collect :: [MatchEntry] -> IO ()
-      collect = traverse_ (atomically . writeTMQueue results)
+  (results :: TMQueue MatchEntry) <- liftBase newTMQueueIO
+
+  anyMatched <- liftBase $ BoolFlag.new $ anyMatchedToBool NoFilesMatched
+
+  let collect :: ([MatchEntry], AnyFilesMatched) -> IO ()
+      collect (matches, haveFileMatches) = do
+        _ <- BoolFlag.or anyMatched (anyMatchedToBool haveFileMatches)
+        traverse_ (atomically . writeTMQueue results) matches
 
       doFind :: IO ()
       doFind =
@@ -148,7 +169,8 @@ grep roots regexp globsToFind ignoreCase fileIgnores dirIgnores f = do
               Nothing  -> Just <$> f relPathBS entry
         M.alterF g key acc
     wait searchAsync
-    pure matches
+    anyMatched' <- liftBase $ BoolFlag.get anyMatched
+    pure (matches, boolToAnyMatched anyMatched')
 
 data MatchEntry = MatchEntry
   { matchAbsPath    :: !AbsFile
