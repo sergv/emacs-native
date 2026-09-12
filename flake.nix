@@ -2,7 +2,7 @@
   inputs = {
 
     nixpkgs = {
-      url = "nixpkgs";
+      url = "flake:nixpkgs";
     };
 
     haskellNix = {
