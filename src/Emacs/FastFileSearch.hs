@@ -31,6 +31,7 @@ import Data.Emacs.Module.Doc qualified as Doc
 import Emacs.Module
 import Emacs.Module.Assert
 
+import Control.Monad.EarlyTerminate
 import Data.Emacs.Path
 import Data.Filesystem.Find
 import Data.Foldable (traverse_)
@@ -55,9 +56,9 @@ emacsFindRec
      ( WithCallStack
      , MonadEmacs m v
      , MonadThrow (m s)
+     , MonadEarlyTerminate (m s)
      , MonadBaseControl IO (m s)
      , Forall (Pure (m s))
-     , forall ss. MonadThrow (m ss)
      )
   => EmacsFunction ('S ('S ('S ('S ('S ('S ('S 'Z))))))) 'Z 'False m v s
 emacsFindRec (R roots (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs (R ignoredDirPrefixes (R ignoredAbsDirs (R isRelativePaths Stop))))))) = do

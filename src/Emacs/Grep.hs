@@ -28,16 +28,16 @@ import Prettyprinter (pretty, (<+>))
 import System.Directory.OsPath
 import System.OsPath.Ext
 
+import Control.Monad.EarlyTerminate
 import Data.Emacs.Module.Args
-import Emacs.Module
-import Emacs.Module.Assert
-import Emacs.Module.Errors
-
 import Data.Emacs.Module.Doc qualified as Doc
 import Data.Emacs.Path
 import Data.Filesystem.Find
 import Data.Filesystem.Grep
 import Data.Ignores
+import Emacs.Module
+import Emacs.Module.Assert
+import Emacs.Module.Errors
 import Emacs.Module.Monad qualified as Emacs
 
 initialise
@@ -58,10 +58,11 @@ emacsGrepRec
   :: forall m v s.
      ( WithCallStack
      , MonadEmacs m v
+     , MonadThrow (m s)
+     , MonadEarlyTerminate (m s)
      , MonadIO (m s)
      , MonadBaseControl IO (m s)
      , Forall (Pure (m s))
-     , forall ss. MonadThrow (m ss)
      )
   => EmacsFunction ('S ('S ('S ('S ('S ('S ('S ('S 'Z)))))))) 'Z 'False m v s
 emacsGrepRec (R roots (R regexp (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs (R ignoredDirPrefixes (R ignoredAbsDirs (R ignoreCase Stop)))))))) = do

@@ -51,15 +51,14 @@ import System.IO.MMap (mmapWithFilePtr, Mode(ReadOnly))
 import System.OsPath
 import System.OsPath.Ext
 
-import Emacs.Module
-import Emacs.Module.Errors
-
+import Control.Monad.EarlyTerminate
 import Data.Emacs.Path
 import Data.Filesystem.Find
 import Data.Ignores
 import Data.Regex
 import Data.UnicodeUtils
 import Emacs.EarlyTermination
+import Emacs.Module.Errors
 
 -- NB order of constructors is significant.
 data AnyFilesMatched = NoFilesMatched | SomeFilesMatched
@@ -77,15 +76,20 @@ boolToAnyMatched = \case
   True  -> SomeFilesMatched
 
 grep
-  :: forall m s v a. (MonadEmacs m v, forall ss. MonadThrow (m ss), MonadBaseControl IO (m s), Forall (Pure (m s)))
+  :: forall m a.
+     ( MonadThrow m
+     , MonadEarlyTerminate m
+     , MonadBaseControl IO m
+     , Forall (Pure m)
+     )
   => [OsPath]
   -> BS.ByteString
   -> [Text]
   -> Bool
   -> Ignores
   -> Ignores
-  -> (ShortByteString -> MatchEntry -> m s a)
-  -> m s (Map (ShortByteString, Word) a, AnyFilesMatched)
+  -> (ShortByteString -> MatchEntry -> m a)
+  -> m (Map (ShortByteString, Word) a, AnyFilesMatched)
 grep roots regexp globsToFind ignoreCase fileIgnores dirIgnores f = do
   let flags = flagUnicode <> flagMultiline <> if ignoreCase then flagCaseInsensitive else mempty
 
@@ -163,7 +167,7 @@ grep roots regexp globsToFind ignoreCase fileIgnores dirIgnores f = do
         let !relPathBS = pathForEmacs $ unRelFile matchRelPath
             key :: (ShortByteString, Word)
             !key       = (relPathBS, matchOffset)
-            g :: Maybe a -> m s (Maybe a)
+            g :: Maybe a -> m (Maybe a)
             g = \case
               x@Just{} -> pure x
               Nothing  -> Just <$> f relPathBS entry

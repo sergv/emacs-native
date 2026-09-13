@@ -99,7 +99,10 @@ library
     cpp-options: -DRUNTIME_CHECKS
   exposed-modules:
     Control.Concurrent.BoolFlag
+    Control.Monad.EarlyTerminate
+    Control.Monad.NoEarlyTermination
     Control.LensBlaze
+
     Data.Emacs.Path
     Data.Eproj
     Data.Filesystem.Find
@@ -146,6 +149,7 @@ library
     , lifted-async
     , mmap
     , monad-control
+    , monad-interleave
     , os-string
     , prettyprinter >= 1.7
     , prettyprinter-combinators
@@ -155,6 +159,7 @@ library
     , stm-chans
     , text
     , text-builder-linear
+    , transformers
     , transformers-base
     , tuples-homogenous-h98
     , vector >= 0.13
@@ -222,17 +227,13 @@ test-suite emacs-native-test
     , code-page
     , emacs-module
     , emacs-native
-    , exceptions
     , filepath
-    , monad-control
-    , monad-interleave
     , prettyprinter-combinators
     , primitive
     , tasty
     , tasty-hunit
     , tasty-quickcheck
     , text
-    , transformers-base
     , vector
   ghc-options:
     -rtsopts

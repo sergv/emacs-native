@@ -38,6 +38,7 @@ import Data.Vector.Unboxed qualified as U
 import Data.Vector.Unboxed.Mutable qualified as UM
 import GHC.IO (unsafeIOToST)
 
+import Control.Monad.EarlyTerminate
 import Data.Emacs.Module.Doc qualified as Doc
 import Data.FuzzyMatch.SortKey
 import Emacs.EarlyTermination
@@ -75,9 +76,9 @@ scoreMatches
      , MonadEmacs m v
      , MonadIO (m s)
      , MonadThrow (m s)
+     , MonadEarlyTerminate (m s)
      , MonadBaseControl IO (m s)
      , Forall (Pure (m s))
-     , forall ss. MonadThrow (m ss)
      , NFData (v s)
      , Prim (v s)
      , PM.PrimState (m s) ~ RealWorld
