@@ -108,8 +108,7 @@ grep roots regexp globsToFind ignoreCase fileIgnores dirIgnores f = do
     searchFile :: AbsDir -> AbsFile -> Relative OsPath -> Basename OsPath -> IO (Maybe ([MatchEntry], AnyFilesMatched))
     searchFile root absPath _ (Basename basePath)
       | isIgnoredFile fileIgnores absPath = pure Nothing
-      | hasExtension (unAbsFile absPath)
-      , reSetMatchesOsPath extsToFindRE basePath = do
+      | reSetMatchesOsPath extsToFindRE basePath = do
           absPath' <- decodeUtf $ unAbsFile absPath
           mmapWithFilePtr
             absPath'

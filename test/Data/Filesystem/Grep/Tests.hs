@@ -209,6 +209,26 @@ tests = testGroup "Data.Filesystem.Grep.Tests"
             }
       xs <- grep' root "bar\t" ["tab.txt"] False
       checkEqual xs ([expected], SomeFilesMatched)
+  , testGroup "globs match filenames without extensions" $
+      let file     = [osp|pippo|]
+          expected = MatchEntry
+            { matchAbsPath    = AbsFile $ root </> file
+            , matchRelPath    = RelFile file
+            , matchLineNum    = 3
+            , matchColumnNum  = 4 -- Count tabs as 1 character wide.
+            , matchLinePrefix = T.encodeUtf8 "123 "
+            , matchLineStr    = T.encodeUtf8 "pippo"
+            , matchLineSuffix = T.encodeUtf8 " 456"
+            , matchOffset     = 6
+            }
+      in
+      [ testCase "glob that matches anything" $ do
+          xs <- grep' root "pippo" ["*"] False
+          checkEqual xs ([expected], SomeFilesMatched)
+      , testCase "glob that matches middle of file name" $ do
+          xs <- grep' root "pippo" ["*ipp*"] False
+          checkEqual xs ([expected], SomeFilesMatched)
+      ]
   , testCase "grep no glob matches" $ do
       xs <- grep' root "bar" ["*.decombobulate"] False
       checkEqual xs ([], NoFilesMatched)
