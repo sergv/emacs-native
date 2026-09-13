@@ -24,7 +24,7 @@ HsBool init(void) {
     "+RTS",
     "-N2",
     "-s",
-    "-A32m",
+    "-A64m",
     "-qg",
     "-qb",
     "-qa",
