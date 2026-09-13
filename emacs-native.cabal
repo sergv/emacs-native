@@ -166,6 +166,25 @@ library
     , vector-quicksort >= 0.2
     , zlib
 
+executable emacs-native-grep
+  import: ghc-options
+  main-is:
+    exe/EmacsNativeGrepMain.hs
+  build-depends:
+    , base >= 4.16
+    , bytestring
+    , directory-ospath-streaming
+    , emacs-native
+    , filepath >= 1.4.100
+    , optparse-applicative
+    , prettyprinter-combinators
+    , text
+  ghc-options:
+    -rtsopts
+    -threaded
+    "-with-rtsopts=-A64m -qg -qb"
+    -main-is EmacsNativeGrepMain
+
 foreign-library emacs-native
   import: ghc-options
   if flag(build-foreign-lib)
