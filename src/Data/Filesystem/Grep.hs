@@ -54,6 +54,7 @@ import System.OsPath.Ext
 import Control.Monad.EarlyTerminate
 import Data.Emacs.Path
 import Data.Filesystem.Find
+import Data.Filesystem.Find.Types
 import Data.Ignores
 import Data.Regex
 import Data.UnicodeUtils

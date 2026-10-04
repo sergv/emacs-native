@@ -106,6 +106,7 @@ library
     Data.Emacs.Path
     Data.Eproj
     Data.Filesystem.Find
+    Data.Filesystem.Find.Types
     Data.Filesystem.Grep
     Data.FuzzyMatch
     Data.FuzzyMatch.SortKey
@@ -166,15 +167,17 @@ library
     , vector-quicksort >= 0.2
     , zlib
 
-executable emacs-native-grep
+executable emacs-native-helper
   import: ghc-options
   main-is:
-    exe/EmacsNativeGrepMain.hs
+    exe/EmacsNativeHelper.hs
   build-depends:
     , base >= 4.16
     , bytestring
+    , directory
     , directory-ospath-streaming
     , emacs-native
+    , exceptions
     , filepath >= 1.4.100
     , optparse-applicative
     , prettyprinter-combinators
@@ -183,7 +186,7 @@ executable emacs-native-grep
     -rtsopts
     -threaded
     "-with-rtsopts=-A64m -qg -qb"
-    -main-is EmacsNativeGrepMain
+    -main-is EmacsNativeHelper
 
 foreign-library emacs-native
   import: ghc-options

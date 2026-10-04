@@ -16,7 +16,7 @@ module Data.Ignores
   ) where
 
 import Data.Coerce (coerce)
-import Data.Filesystem.Find
+import Data.Filesystem.Find.Types
 import Data.Regex
 import Data.Text (Text)
 import Emacs.Module

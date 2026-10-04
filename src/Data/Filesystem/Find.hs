@@ -6,47 +6,49 @@
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
 
-{-# LANGUAGE DerivingVia #-}
-
 module Data.Filesystem.Find
-  ( FollowSymlinks(..)
+  ( RelativePaths(..)
+  , fastFileSearch
   , findRec
-  , AbsDir(..)
-  , RelDir(..)
-  , AbsFile(..)
-  , RelFile(..)
   ) where
 
+import Control.Monad.Base
+import Control.Monad.Catch (MonadThrow)
 import Data.Coerce
-import Prettyprinter.Show
+import Data.Filesystem.Find.Types
+import Data.Ignores
+import Data.Regex
+import Data.Text (Text)
 import System.Directory.OsPath.Streaming as Streaming
 import System.Directory.OsPath.Types
 import System.OsPath
 
 import Emacs.Module.Assert
 
-data FollowSymlinks a
-  = -- | Recurse into symlinked directories
-    FollowSymlinks
-  | -- | Do not recurse into symlinked directories, but possibly report them.
-    -- Function receives absolute directory name and its basename part.
-    ReportSymlinks (OsPath -> Basename OsPath -> IO (Maybe a))
+data RelativePaths = ProduceRelativePaths | ProduceAbsolutePaths
 
-newtype AbsDir  = AbsDir  { unAbsDir  :: OsPath }
-  deriving (Eq, Show)
-  deriving Pretty via PPShow AbsDir
-
-newtype RelDir  = RelDir  { unRelDir  :: OsPath }
-  deriving (Eq, Show)
-  deriving Pretty via PPShow RelDir
-
-newtype AbsFile = AbsFile { unAbsFile :: OsPath }
-  deriving (Eq, Show)
-  deriving Pretty via PPShow AbsFile
-
-newtype RelFile = RelFile { unRelFile :: OsPath }
-  deriving (Eq, Show)
-  deriving Pretty via PPShow RelFile
+fastFileSearch
+  :: (WithCallStack, Foldable f, Functor f, Coercible a Text, MonadThrow m, MonadBase IO m)
+  => RelativePaths
+  -> Ignores
+  -> Ignores
+  -> f a
+  -> [AbsDir]
+  -> m [OsPath]
+fastFileSearch resultPathType fileIgnores dirIgnores globsToFind roots = do
+  globsToFindRE <- fileGlobsToRegex globsToFind
+  let
+    shouldCollect :: AbsDir -> AbsFile -> Relative OsPath -> Basename OsPath -> Maybe OsPath
+    shouldCollect _root absPath (Relative relPath) (Basename basePath)
+      | isIgnoredFile fileIgnores absPath         = Nothing
+      | reSetMatchesOsPath globsToFindRE basePath = Just $ case resultPathType of
+        ProduceRelativePaths -> relPath
+        ProduceAbsolutePaths -> unAbsFile absPath
+      | otherwise                                 = Nothing
+  liftBase $ findRec FollowSymlinks
+    (\x y -> not $ isIgnored dirIgnores x y)
+    (\x y z w -> pure $ shouldCollect x y z w)
+    roots
 
 {-# INLINE findRec #-}
 findRec

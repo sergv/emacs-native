@@ -23,7 +23,6 @@ import Control.Monad.Catch
 import Control.Monad.Trans.Control
 import Data.ByteString.Short qualified as BSS
 import Data.Coerce
-import System.Directory.OsPath.Types
 import System.OsPath.Types (OsPath)
 
 import Data.Emacs.Module.Args
@@ -34,9 +33,9 @@ import Emacs.Module.Assert
 import Control.Monad.EarlyTerminate
 import Data.Emacs.Path
 import Data.Filesystem.Find
+import Data.Filesystem.Find.Types
 import Data.Foldable (traverse_)
 import Data.Ignores
-import Data.Regex
 import Emacs.EarlyTermination
 import Emacs.Module.Monad qualified as Emacs
 
@@ -68,26 +67,22 @@ emacsFindRec (R roots (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs (R i
     mkEmacsIgnores ignoredFileGlobs ignoredDirGlobs ignoredDirPrefixes ignoredAbsDirs
   isRelativePaths'          <- extractBool isRelativePaths
   nil'                      <- nil
-  globsToFindRE             <- fileGlobsToRegex globsToFind'
 
   let roots'' :: [AbsDir]
       roots'' = coerce roots'
 
   results <- liftBase newTMQueueIO
 
-  let shouldCollect :: AbsDir -> AbsFile -> Relative OsPath -> Basename OsPath -> IO (Maybe OsPath)
-      shouldCollect _root absPath (Relative relPath) (Basename basePath)
-        | isIgnoredFile fileIgnores absPath         = pure Nothing
-        | reSetMatchesOsPath globsToFindRE basePath = pure $ Just $ if isRelativePaths' then relPath else unAbsFile absPath
-        | otherwise                                 = pure Nothing
-
-      collect :: OsPath -> IO ()
+  let collect :: OsPath -> IO ()
       collect = atomically . writeTMQueue results
 
+      doFind :: IO ()
       doFind =
-        traverse_ collect =<< findRec FollowSymlinks
-          (\x y -> not $ isIgnored dirIgnores x y)
-          shouldCollect
+        traverse_ collect =<< fastFileSearch
+          (if isRelativePaths' then ProduceRelativePaths else ProduceAbsolutePaths)
+          fileIgnores
+          dirIgnores
+          globsToFind'
           roots''
 
   withAsync (liftBase (doFind `finally` atomically (closeTMQueue results))) $ \searchAsync -> do

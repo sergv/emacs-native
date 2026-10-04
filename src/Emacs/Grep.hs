@@ -32,7 +32,7 @@ import Control.Monad.EarlyTerminate
 import Data.Emacs.Module.Args
 import Data.Emacs.Module.Doc qualified as Doc
 import Data.Emacs.Path
-import Data.Filesystem.Find
+import Data.Filesystem.Find.Types
 import Data.Filesystem.Grep
 import Data.Ignores
 import Emacs.Module

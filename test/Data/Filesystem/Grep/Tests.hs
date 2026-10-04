@@ -23,7 +23,7 @@ import System.OsPath
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import Data.Filesystem.Find
+import Data.Filesystem.Find.Types
 import Data.Filesystem.Grep
 import Data.Ignores
 
