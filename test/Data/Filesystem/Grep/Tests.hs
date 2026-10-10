@@ -254,5 +254,5 @@ checkEqual actual expected = unless (actual == expected) $ assertFailure msg
 grep' :: OsPath -> Text -> [Text] -> Bool -> IO ([MatchEntry], AnyFilesMatched)
 grep' root reToFind globs ignoreCase = runNoEarlyTerminationT $
   first toList <$>
-    grep [root] (T.encodeUtf8 reToFind) globs ignoreCase dummyIgnores dummyIgnores (\_ entry -> pure entry)
+    grep [root] (T.encodeUtf8 reToFind) globs ignoreCase dummyFullIgnores (\_ entry -> pure entry)
 

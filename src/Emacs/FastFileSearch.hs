@@ -60,13 +60,12 @@ emacsFindRec
      , Forall (Pure (m s))
      )
   => EmacsFunction ('S ('S ('S ('S ('S ('S ('S 'Z))))))) 'Z 'False m v s
-emacsFindRec (R roots (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs (R ignoredDirPrefixes (R ignoredAbsDirs (R isRelativePaths Stop))))))) = do
-  roots'                    <- extractListWith extractOsPath roots
-  globsToFind'              <- extractListWith extractText globsToFind
-  (fileIgnores, dirIgnores) <-
-    mkEmacsIgnores ignoredFileGlobs ignoredDirGlobs ignoredDirPrefixes ignoredAbsDirs
-  isRelativePaths'          <- extractBool isRelativePaths
-  nil'                      <- nil
+emacsFindRec (R roots (R globsToFind (R ignoredFileBasenameGlobs (R ignoredFileAbsGlobs (R ignoredDirBasenameGlobs (R ignoredDirAbsGlobs (R isRelativePaths Stop))))))) = do
+  roots'           <- extractListWith extractOsPath roots
+  globsToFind'     <- extractListWith extractText globsToFind
+  ignores          <- mkEmacsIgnores ignoredFileBasenameGlobs ignoredFileAbsGlobs ignoredDirBasenameGlobs ignoredDirAbsGlobs
+  isRelativePaths' <- extractBool isRelativePaths
+  nil'             <- nil
 
   let roots'' :: [AbsDir]
       roots'' = coerce roots'
@@ -80,8 +79,7 @@ emacsFindRec (R roots (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs (R i
       doFind =
         traverse_ collect =<< fastFileSearch
           (if isRelativePaths' then ProduceRelativePaths else ProduceAbsolutePaths)
-          fileIgnores
-          dirIgnores
+          ignores
           globsToFind'
           roots''
 

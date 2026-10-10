@@ -10,6 +10,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 
+{-# OPTIONS_GHC -Wno-orphans #-}
+
 module EmacsNativeHelper (main) where
 
 import Control.Monad.Catch (MonadThrow)
@@ -41,36 +43,39 @@ data Command
 readOsPath :: ReadM OsPath
 readOsPath = eitherReader (bimap show id . encodeUtf)
 
+instance Pretty a => Pretty (Basename a) where
+  pretty = pretty . unBasename
+
 data IgnoresConfig = IgnoresConfig
-  { cfgIgnoredFileGlobs   :: ![Text]
-  , cfgIgnoredDirGlobs    :: ![Text]
-  , cfgIgnoredDirPrefixes :: ![Text]
-  , cfgIgnoredAbsDirs     :: ![Text]
+  { cfgIgnoredFileBasenameGlobs :: ![Basename Text]
+  , cfgIgnoredFileAbsGlobs      :: ![Text]
+  , cfgIgnoredDirBasenameGlobs  :: ![Basename Text]
+  , cfgIgnoredDirAbsGlobs       :: ![Text]
   }
   deriving (Generic)
   deriving Pretty via PPGeneric IgnoresConfig
 
 ignoresParser :: Parser IgnoresConfig
 ignoresParser = do
-  cfgIgnoredFileGlobs   <- many $ strOption $
-    long "ignore-file-glob" <>
+  cfgIgnoredFileBasenameGlobs <- many $ fmap Basename $ strOption $
+    long "ignore-file-basename-glob" <>
       metavar "GLOB" <>
-        help "Filename globs to ignore, e.g. *.txt"
+        help "File globs that match basename paths to ignore, e.g. *.txt"
 
-  cfgIgnoredDirGlobs    <- many $ strOption $
-    long "ignore-dir-glob" <>
+  cfgIgnoredFileAbsGlobs      <- many $ strOption $
+    long "ignore-file-abs-glob" <>
       metavar "GLOB" <>
-        help "Directory globs to not descend into during recursive search, e.g. *.txt"
+        help "File globs that match absolute paths to ignore, e.g. ~/f*o/*.txt"
 
-  cfgIgnoredDirPrefixes <- many $ strOption $
-    long "ignore-dir-prefix" <>
-      metavar "STR" <>
-        help "Ignore directories starting with these strings during recusive search"
+  cfgIgnoredDirBasenameGlobs <- many $ fmap Basename $ strOption $
+    long "ignore-dir-basename-glob" <>
+      metavar "GLOB" <>
+        help "Directory globs that match basename paths to ignore, e.g. bar*, ba*z/"
 
-  cfgIgnoredAbsDirs     <- many $ strOption $
-    long "ignore-dir-abs" <>
-      metavar "ABS-PATH" <>
-        help "Ignore these directories during recusive search"
+  cfgIgnoredDirAbsGlobs      <- many $ strOption $
+    long "ignore-dir-abs-glob" <>
+      metavar "GLOB" <>
+        help "Directory globs that match absolute paths to ignore, e.g. ~/foo/bar*, ~/foo/ba*z/"
 
   pure IgnoresConfig{..}
 
@@ -152,8 +157,8 @@ progInfo =
   info
     (helper <*>
       subparser
-        ( command "grep" (Grep <$> grepProgInfo) <>
-            command "find" (Find <$> findProgInfo)))
+        (command "grep" (Grep <$> grepProgInfo) <>
+          command "find" (Find <$> findProgInfo)))
     -- todo: C-' in Emacs doesn’t insert "’" (the typographic single quote) in strings.
     -- In comments regular "'" inserts typographic quotes,  C-' inserts regular quotes
     -- In strings it should be the other way around.
@@ -171,28 +176,25 @@ main = do
 
 find :: FindConfig -> IO ()
 find FindConfig{fcfgRoots, fcfgGlobsToFind, fcfgIgnores, fcfgIsRelativePaths} = do
-  (fileIgnores, dirIgnores) <- mkFullIgnores fcfgIgnores
+  ignores  <- mkFullIgnores' fcfgIgnores
   absRoots <- traverse makeAbsolute fcfgRoots
   traverse_ (T.putStrLn . pathToText) =<<
     fastFileSearch
       (if fcfgIsRelativePaths then ProduceRelativePaths else ProduceAbsolutePaths)
-      fileIgnores
-      dirIgnores
+      ignores
       fcfgGlobsToFind
       (coerce absRoots :: [AbsDir])
 
-mkFullIgnores :: MonadThrow m => IgnoresConfig -> m (Ignores, Ignores)
-mkFullIgnores IgnoresConfig{cfgIgnoredFileGlobs, cfgIgnoredDirGlobs, cfgIgnoredDirPrefixes, cfgIgnoredAbsDirs} = do
-  fileIgnores <- mkIgnores cfgIgnoredFileGlobs []
-  dirIgnores  <- mkIgnores cfgIgnoredAbsDirs (coerce (cfgIgnoredDirGlobs ++ map (<> "*") cfgIgnoredDirPrefixes))
-  pure (fileIgnores, dirIgnores)
+mkFullIgnores' :: MonadThrow m => IgnoresConfig -> m FullIgnores
+mkFullIgnores' IgnoresConfig{cfgIgnoredFileBasenameGlobs, cfgIgnoredFileAbsGlobs, cfgIgnoredDirBasenameGlobs, cfgIgnoredDirAbsGlobs} = do
+  mkFullIgnores cfgIgnoredFileBasenameGlobs cfgIgnoredFileAbsGlobs cfgIgnoredDirBasenameGlobs cfgIgnoredDirAbsGlobs
 
 grep :: GrepConfig -> IO ()
 grep GrepConfig{gcfgRoots, gcfgRegexp, gcfgGlobsToFind, gcfgIgnoreCase, gcfgIgnores} = do
-  (fileIgnores, dirIgnores) <- mkFullIgnores gcfgIgnores
+  ignores <- mkFullIgnores' gcfgIgnores
 
   (res, anyMatched) <- runNoEarlyTerminationT $
-    Grep.grep gcfgRoots gcfgRegexp gcfgGlobsToFind gcfgIgnoreCase fileIgnores dirIgnores $
+    Grep.grep gcfgRoots gcfgRegexp gcfgGlobsToFind gcfgIgnoreCase ignores $
       \relPath match -> pure (relPath, match)
 
   case anyMatched of

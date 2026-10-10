@@ -87,11 +87,10 @@ grep
   -> BS.ByteString
   -> [Text]
   -> Bool
-  -> Ignores
-  -> Ignores
+  -> FullIgnores
   -> (ShortByteString -> MatchEntry -> m a)
   -> m (Map (ShortByteString, Word) a, AnyFilesMatched)
-grep roots regexp globsToFind ignoreCase fileIgnores dirIgnores f = do
+grep roots regexp globsToFind ignoreCase ignores f = do
   let flags = flagUnicode <> flagMultiline <> if ignoreCase then flagCaseInsensitive else mempty
 
   regexp' <- compileReWithOpts flags regexp
@@ -107,8 +106,8 @@ grep roots regexp globsToFind ignoreCase fileIgnores dirIgnores f = do
         ReversedList ms -> Just . (, SomeFilesMatched) <$> makeMatches root absPath ms (castPtr ptr') size contents
 
     searchFile :: AbsDir -> AbsFile -> Relative OsPath -> Basename OsPath -> IO (Maybe ([MatchEntry], AnyFilesMatched))
-    searchFile root absPath _ (Basename basePath)
-      | isIgnoredFile fileIgnores absPath = pure Nothing
+    searchFile root absPath _ basename@(Basename basePath)
+      | isIgnoredFile ignores basename absPath   = pure Nothing
       | reSetMatchesOsPath extsToFindRE basePath = do
           absPath' <- decodeUtf $ unAbsFile absPath
           mmapWithFilePtr
@@ -157,7 +156,7 @@ grep roots regexp globsToFind ignoreCase fileIgnores dirIgnores f = do
         traverse_ collect =<<
           findRec
             FollowSymlinks
-            (\x y -> not $ isIgnored dirIgnores x y)
+            (\absDir basename -> not $ isIgnoredDir ignores basename absDir)
             searchFile
             (coerce roots :: [AbsDir])
 

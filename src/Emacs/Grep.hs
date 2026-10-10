@@ -65,13 +65,12 @@ emacsGrepRec
      , Forall (Pure (m s))
      )
   => EmacsFunction ('S ('S ('S ('S ('S ('S ('S ('S 'Z)))))))) 'Z 'False m v s
-emacsGrepRec (R roots (R regexp (R globsToFind (R ignoredFileGlobs (R ignoredDirGlobs (R ignoredDirPrefixes (R ignoredAbsDirs (R ignoreCase Stop)))))))) = do
-  roots'                    <- extractListWith extractOsPath roots
-  regexp'                   <- extractByteString regexp
-  globsToFind'              <- extractListWith extractText globsToFind
-  ignoreCase'               <- extractBool ignoreCase
-  (fileIgnores, dirIgnores) <-
-    mkEmacsIgnores ignoredFileGlobs ignoredDirGlobs ignoredDirPrefixes ignoredAbsDirs
+emacsGrepRec (R roots (R regexp (R globsToFind (R ignoredFileBasenameGlobs (R ignoredFileAbsGlobs (R ignoredDirBasenameGlobs (R ignoredDirAbsGlobs (R ignoreCase Stop)))))))) = do
+  roots'       <- extractListWith extractOsPath roots
+  regexp'      <- extractByteString regexp
+  globsToFind' <- extractListWith extractText globsToFind
+  ignoreCase'  <- extractBool ignoreCase
+  ignores      <- mkEmacsIgnores ignoredFileBasenameGlobs ignoredFileAbsGlobs ignoredDirBasenameGlobs ignoredDirAbsGlobs
 
   for_ roots' $ \root -> do
     exists <- liftBase $ doesDirectoryExist root
@@ -79,7 +78,7 @@ emacsGrepRec (R roots (R regexp (R globsToFind (R ignoredFileGlobs (R ignoredDir
       throwM $ mkUserError "emacsGrepRec" $
         "Search root does not exist:" <+> pretty (pathToText root)
 
-  (res, anyMatched) <- grep roots' regexp' globsToFind' ignoreCase' fileIgnores dirIgnores $
+  (res, anyMatched) <- grep roots' regexp' globsToFind' ignoreCase' ignores $
     \relPath MatchEntry{matchAbsPath, matchLineNum, matchColumnNum, matchLinePrefix, matchLineStr, matchLineSuffix, matchOffset} -> do
       !pathEmacs        <- makeShortByteString $ pathForEmacs $ unAbsFile matchAbsPath
       !shortPathEmacs   <- makeShortByteString relPath

@@ -23,7 +23,7 @@ data FollowSymlinks a
     FollowSymlinks
   | -- | Do not recurse into symlinked directories, but possibly report them.
     -- Function receives absolute directory name and its basename part.
-    ReportSymlinks (OsPath -> Basename OsPath -> IO (Maybe a))
+    ReportSymlinks (AbsDir -> Basename OsPath -> IO (Maybe a))
 
 newtype AbsDir  = AbsDir  { unAbsDir  :: OsPath }
   deriving (Eq, Show)
