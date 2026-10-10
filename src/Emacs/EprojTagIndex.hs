@@ -8,7 +8,6 @@
 
 {-# LANGUAGE DataKinds         #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE QuasiQuotes       #-}
 
 module Emacs.EprojTagIndex (initialise) where
 
