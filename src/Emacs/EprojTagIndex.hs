@@ -115,10 +115,10 @@ emacsEmptyEprojTagIndex
   => EmacsFunction 'Z 'Z 'False m v s
 emacsEmptyEprojTagIndex Stop = do
   typ <- eprojTagIndexType
-  (radixTreePtr :: StablePtr EmacsEprojTagIndex) <- liftIO $ do
+  (ptr :: StablePtr EmacsEprojTagIndex) <- liftIO $ do
     index <- newIORef Eproj.empty
     newStablePtr $ EmacsEprojTagIndex index
-  payload <- makeUserPtrFromStablePtr radixTreePtr
+  payload <- makeUserPtrFromStablePtr ptr
   cons typ payload
 
 emacsEmptyEprojTagIndexDoc :: Doc.Doc
