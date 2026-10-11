@@ -126,6 +126,8 @@ library
     Emacs.FastFileSearch
     Emacs.FuzzyMatch
     Emacs.Grep
+    Emacs.Ignores
+    Emacs.PredefinedSymbols
 
     System.OsPath.Ext
   other-modules:
@@ -143,7 +145,7 @@ library
     , deepseq
     , directory
     , directory-ospath-streaming >= 0.2.1
-    , emacs-module >= 0.3
+    , emacs-module >= 0.4
     , exceptions
     , filepath >= 1.5
     , ghc-prim

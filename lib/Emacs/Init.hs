@@ -31,6 +31,7 @@ import Emacs.EprojTagIndex qualified
 import Emacs.FastFileSearch qualified
 import Emacs.FuzzyMatch qualified
 import Emacs.Grep qualified
+import Emacs.Ignores qualified
 import Emacs.Module.Monad qualified as Emacs
 
 foreign export ccall initialise :: Ptr Runtime -> IO CBool
@@ -56,6 +57,7 @@ initialise' = do
   Emacs.FastFileSearch.initialise
   Emacs.FuzzyMatch.initialise
   Emacs.Grep.initialise
+  Emacs.Ignores.initialise
   Emacs.EprojTagIndex.initialise
   _ <- provide $ mkSymbolName "haskell-native-emacs-extensions"
   pure True

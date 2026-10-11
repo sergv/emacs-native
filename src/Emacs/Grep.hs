@@ -8,6 +8,7 @@
 
 {-# LANGUAGE DataKinds             #-}
 {-# LANGUAGE MonoLocalBinds        #-}
+{-# LANGUAGE MultilineStrings      #-}
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE QuantifiedConstraints #-}
 
@@ -22,10 +23,11 @@ import Control.Monad.Trans.Control
 import Data.ByteString qualified as BS
 import Data.ByteString.Char8 qualified as C8
 import Data.Foldable
-import Data.Functor.Identity (Identity(runIdentity))
+import Data.Text (Text)
 import Data.Tuple.Homogenous
 import Prettyprinter (pretty, (<+>))
 import System.Directory.OsPath
+import System.OsPath (OsPath)
 import System.OsPath.Ext
 
 import Control.Monad.EarlyTerminate
@@ -35,26 +37,27 @@ import Data.Emacs.Path
 import Data.Filesystem.Find.Types
 import Data.Filesystem.Grep
 import Data.Ignores
+import Emacs.Ignores (unpackFullIgnores)
 import Emacs.Module
 import Emacs.Module.Assert
 import Emacs.Module.Errors
 import Emacs.Module.Monad qualified as Emacs
+import Emacs.PredefinedSymbols qualified as Sym
 
 initialise
   :: WithCallStack
   => Emacs.EmacsM s ()
-initialise =
+initialise = do
   bindFunction "haskell-native-grep" =<<
-    makeFunction emacsGrepRec emacsGrepRecDoc
+    makeFunction emacsGrep emacsGrepDoc
+  bindFunction "haskell-native-grep-with-ignores" =<<
+    makeFunction emacsGrepWithIgnores emacsGrepWithIgnoresDoc
 
-emacsGrepRecDoc :: Doc.Doc
-emacsGrepRecDoc = runIdentity $ do
-  when undefined $ do
-    undefined
-  pure "Recursively find files leveraging multiple cores."
+emacsGrepDoc :: Doc.Doc
+emacsGrepDoc =
+  "Search for regular expression in files that match some globs and don’t match some others."
 
-
-emacsGrepRec
+emacsGrep
   :: forall m v s.
      ( WithCallStack
      , MonadEmacs m v
@@ -65,20 +68,67 @@ emacsGrepRec
      , Forall (Pure (m s))
      )
   => EmacsFunction ('S ('S ('S ('S ('S ('S ('S ('S 'Z)))))))) 'Z 'False m v s
-emacsGrepRec (R roots (R regexp (R globsToFind (R ignoredFileBasenameGlobs (R ignoredFileAbsGlobs (R ignoredDirBasenameGlobs (R ignoredDirAbsGlobs (R ignoreCase Stop)))))))) = do
+emacsGrep (R roots (R regexp (R globsToFind (R ignoredFileBasenameGlobs (R ignoredFileAbsGlobs (R ignoredDirBasenameGlobs (R ignoredDirAbsGlobs (R ignoreCase Stop)))))))) = do
   roots'       <- extractListWith extractOsPath roots
   regexp'      <- extractByteString regexp
   globsToFind' <- extractListWith extractText globsToFind
   ignoreCase'  <- extractBool ignoreCase
   ignores      <- mkEmacsIgnores ignoredFileBasenameGlobs ignoredFileAbsGlobs ignoredDirBasenameGlobs ignoredDirAbsGlobs
 
-  for_ roots' $ \root -> do
+  emacsGrepImpl roots' regexp' globsToFind' ignoreCase' ignores
+
+emacsGrepWithIgnoresDoc :: Doc.Doc
+emacsGrepWithIgnoresDoc =
+  """
+    Search for regular expression in files that match some globs and don’t match some others.
+
+    Similar to ‘haskell-native-grep’ but takes precompiled specification of which files to ignore.
+  """
+
+emacsGrepWithIgnores
+  :: forall m v s.
+     ( WithCallStack
+     , MonadEmacs m v
+     , MonadThrow (m s)
+     , MonadEarlyTerminate (m s)
+     , MonadIO (m s)
+     , MonadBaseControl IO (m s)
+     , Forall (Pure (m s))
+     )
+  => EmacsFunction ('S ('S ('S ('S ('S 'Z))))) 'Z 'False m v s
+emacsGrepWithIgnores (R roots (R regexp (R globsToFind (R ignores (R ignoreCase Stop))))) = do
+  roots'       <- extractListWith extractOsPath roots
+  regexp'      <- extractByteString regexp
+  globsToFind' <- extractListWith extractText globsToFind
+  ignoreCase'  <- extractBool ignoreCase
+  ignores'     <- unpackFullIgnores ignores
+
+  emacsGrepImpl roots' regexp' globsToFind' ignoreCase' ignores'
+
+emacsGrepImpl
+  :: forall m v s.
+     ( WithCallStack
+     , MonadEmacs m v
+     , MonadThrow (m s)
+     , MonadEarlyTerminate (m s)
+     , MonadIO (m s)
+     , MonadBaseControl IO (m s)
+     , Forall (Pure (m s))
+     )
+  => [OsPath]
+  -> C8.ByteString
+  -> [Text]
+  -> Bool
+  -> FullIgnores
+  -> m s (v s)
+emacsGrepImpl roots regexp globsToFind ignoreCase ignores = do
+  for_ roots $ \root -> do
     exists <- liftBase $ doesDirectoryExist root
     unless exists $
-      throwM $ mkUserError "emacsGrepRec" $
+      throwM $ mkUserError "emacsGrep" $
         "Search root does not exist:" <+> pretty (pathToText root)
 
-  (res, anyMatched) <- grep roots' regexp' globsToFind' ignoreCase' ignores $
+  (res, anyMatched) <- grep roots regexp globsToFind ignoreCase ignores $
     \relPath MatchEntry{matchAbsPath, matchLineNum, matchColumnNum, matchLinePrefix, matchLineStr, matchLineSuffix, matchOffset} -> do
       !pathEmacs        <- makeShortByteString $ pathForEmacs $ unAbsFile matchAbsPath
       !shortPathEmacs   <- makeShortByteString relPath
@@ -90,12 +140,12 @@ emacsGrepRec (R roots (R regexp (R globsToFind (R ignoredFileBasenameGlobs (R ig
       !matchOffset'     <- makeInt (fromIntegral matchOffset)
       !emacsMatchStruct <-
         funcallPrimitiveSym
-          "make-egrep-match"
+          Sym.makeEgrepMatch
           (Tuple8 (pathEmacs, shortPathEmacs, matchLineNum', matchColumnNum', matchLinePrefix', matchLineStr', matchLineSuffix', matchOffset'))
       pure emacsMatchStruct
 
   case anyMatched of
-    NoFilesMatched   -> intern "no-files-matched"
+    NoFilesMatched   -> intern Sym.noFilesMatched
     SomeFilesMatched -> makeList res
 
 makeString'

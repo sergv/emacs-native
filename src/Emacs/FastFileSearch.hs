@@ -10,6 +10,7 @@
 
 {-# LANGUAGE DataKinds             #-}
 {-# LANGUAGE MonoLocalBinds        #-}
+{-# LANGUAGE MultilineStrings      #-}
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE QuantifiedConstraints #-}
 
@@ -23,20 +24,21 @@ import Control.Monad.Catch
 import Control.Monad.Trans.Control
 import Data.ByteString.Short qualified as BSS
 import Data.Coerce
+import Data.Foldable (traverse_)
+import Data.Text (Text)
 import System.OsPath.Types (OsPath)
 
+import Control.Monad.EarlyTerminate
 import Data.Emacs.Module.Args
 import Data.Emacs.Module.Doc qualified as Doc
-import Emacs.Module
-import Emacs.Module.Assert
-
-import Control.Monad.EarlyTerminate
 import Data.Emacs.Path
 import Data.Filesystem.Find
 import Data.Filesystem.Find.Types
-import Data.Foldable (traverse_)
 import Data.Ignores
 import Emacs.EarlyTermination
+import Emacs.Ignores (unpackFullIgnores)
+import Emacs.Module
+import Emacs.Module.Assert
 import Emacs.Module.Monad qualified as Emacs
 
 initialise
@@ -45,10 +47,12 @@ initialise
 initialise = do
   bindFunction "haskell-native-find-rec" =<<
     makeFunction emacsFindRec emacsFindRecDoc
+  bindFunction "haskell-native-find-rec-with-ignores" =<<
+    makeFunction emacsFindRecWithIgnores emacsFindRecWithIgnoresDoc
 
 emacsFindRecDoc :: Doc.Doc
 emacsFindRecDoc =
-  "Recursively find files leveraging multiple cores."
+  "Recursively search for files matching globs across directories."
 
 emacsFindRec
   :: forall m v s.
@@ -65,6 +69,50 @@ emacsFindRec (R roots (R globsToFind (R ignoredFileBasenameGlobs (R ignoredFileA
   globsToFind'     <- extractListWith extractText globsToFind
   ignores          <- mkEmacsIgnores ignoredFileBasenameGlobs ignoredFileAbsGlobs ignoredDirBasenameGlobs ignoredDirAbsGlobs
   isRelativePaths' <- extractBool isRelativePaths
+
+  emacsFindRecImpl roots' globsToFind' ignores isRelativePaths'
+
+emacsFindRecWithIgnoresDoc :: Doc.Doc
+emacsFindRecWithIgnoresDoc =
+  """
+    Recursively search for files matching globs across directories.
+
+    Similar to ‘haskell-native-find-rec’ but takes precompiled specification of which files to ignore.
+  """
+
+emacsFindRecWithIgnores
+  :: forall m v s.
+     ( WithCallStack
+     , MonadEmacs m v
+     , MonadThrow (m s)
+     , MonadEarlyTerminate (m s)
+     , MonadBaseControl IO (m s)
+     , Forall (Pure (m s))
+     )
+  => EmacsFunction ('S ('S ('S ('S 'Z)))) 'Z 'False m v s
+emacsFindRecWithIgnores (R roots (R globsToFind (R ignores (R isRelativePaths Stop)))) = do
+  roots'           <- extractListWith extractOsPath roots
+  globsToFind'     <- extractListWith extractText globsToFind
+  ignores'         <- unpackFullIgnores ignores
+  isRelativePaths' <- extractBool isRelativePaths
+
+  emacsFindRecImpl roots' globsToFind' ignores' isRelativePaths'
+
+emacsFindRecImpl
+  :: forall m v s.
+     ( WithCallStack
+     , MonadEmacs m v
+     , MonadThrow (m s)
+     , MonadEarlyTerminate (m s)
+     , MonadBaseControl IO (m s)
+     , Forall (Pure (m s))
+     )
+  => [OsPath]
+  -> [Text]
+  -> FullIgnores
+  -> Bool
+  -> m s (v s)
+emacsFindRecImpl roots' globsToFind' ignores isRelativePaths' = do
   nil'             <- nil
 
   let roots'' :: [AbsDir]

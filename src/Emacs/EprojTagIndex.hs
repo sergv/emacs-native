@@ -37,7 +37,10 @@ import Emacs.Module.Assert
 import Emacs.Module.Errors
 import Emacs.Module.Monad qualified as Emacs
 
-cacheSym "haskell-native--eproj-tag-index" (Just "eprojTagIndexSym")
+cacheSym "haskell-native--eproj-tag-index" "eprojTagIndexSymTH"
+
+eprojTagIndexSym :: SymbolName
+eprojTagIndexSym = eprojTagIndexSymTH
 
 initialise
   :: WithCallStack
