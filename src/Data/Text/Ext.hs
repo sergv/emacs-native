@@ -63,8 +63,8 @@ textFoldLinear f seed (TI.Text arr off len) =
     textFoldLinearLoop x !j
       | j >= end  = x
       | otherwise =
-        let TU.Iter c delta = TU.iterArray arr $ unStrByteIdx j
-        in textFoldLinearLoop (inline f c x) (byteIdxAdvance j delta)
+          let !(# c, delta #) = iterArray' arr j
+          in textFoldLinearLoop (inline f (C# (chr# c)) x) (byteIdxAdvance j delta)
 
 {-# INLINE textFoldIdx #-}
 textFoldIdx :: forall a b. Num b => (StrCharIdx b -> Char -> a -> a) -> a -> Text -> a
@@ -76,8 +76,8 @@ textFoldIdx f !seed (TI.Text arr off len) =
     textFoldIdxLoop !x !i !j
       | j >= end  = x
       | otherwise =
-        let TU.Iter c delta = TU.iterArray arr $ unStrByteIdx j
-        in textFoldIdxLoop (inline f i c x) (charIdxAdvance i 1) (byteIdxAdvance j delta)
+          let !(# c, delta #) = iterArray' arr j
+          in textFoldIdxLoop (inline f i (C# (chr# c)) x) (charIdxAdvance i 1) (byteIdxAdvance j delta)
 
 {-# INLINE textFoldM #-}
 textFoldM :: forall m a. Monad m => (Char -> a -> m a) -> a -> Text -> m a
