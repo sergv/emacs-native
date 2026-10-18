@@ -238,7 +238,7 @@ fuzzyMatchMultipleTests :: TestTree
 fuzzyMatchMultipleTests = testGroup "fuzzy match multiple"
   [ mkTestCase "foo" ["foobar", "foobaz", "quux", "fqouuxo"] [Just 214, Just 214, Nothing, Just 75]
   , mkTestCase "vector.hs" ["local-store/ghc-9.4.2/vector-space-0.16-6c2632778a7166806a878ce1c082a8cd55db17dc183ef6153dc43f8064939746/share/doc/html/meta.json", "/home/sergey/projects/haskell/packages/local-store/ghc-9.4.2/mime-types-0.1.1.0-36574ed6c6ba4b463c91ac91e7334e6d64c7e64484e986bb0ef24ae7064fefb6/cabal-hash.txt", "local-store/ghc-9.4.2/mime-types-0.1.1.0-36574ed6c6ba4b463c91ac91e7334e6d64c7e64484e986bb0ef24ae7064fefb6/cabal-hash.txt"] [Just 228, Nothing, Nothing]
-  , mkTestCase "Trie.hs" ["TradeScriptAux/Fides.hs", "Packages/utils/src/Interlude.hs", "src/Tools/XtrmPricer/XtrmPricer.hs", "Packages/BackendMatrix/src/BackendMatrix/Core.hs",  "src/BackendTaxonomy/Tests/Facts/TargetAccrualEarlyRedemptionTestFact.hs", "Packages/utils/src/Utils/Trie.hs"] [Just 238, Nothing, Just 191, Nothing, Just 114, Just 523]
+  , mkTestCase "Trie.hs" ["TrxxeXxrixxXzy/Xixex.hs", "Zzzzzzzz/utils/src/Interlude.hs", "src/Txxxx/ZtzzPricer/ZtzzZrizer.hs", "Packages/XxxxexxXxtrix/src/XxxxexxXxxxix/More.hs", "src/ZazzezzToxocony/Tests/Facts/TxxxetXxxxxxxYarlzRezezztizzTestPact.hs", "Xxxxxxex/utils/src/Utils/Trie.hs"] [Just 238, Nothing, Just 191, Nothing, Just 114, Just 523]
   ]
   where
     mkTestCase :: Text -> [Text] -> [Maybe Int] -> TestTree
