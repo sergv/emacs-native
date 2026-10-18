@@ -8,6 +8,7 @@
 
 {-# LANGUAGE CPP               #-}
 {-# LANGUAGE LinearTypes       #-}
+{-# LANGUAGE MagicHash         #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Data.Regex
@@ -75,27 +76,26 @@ fileGlobsToRegex patterns =
     compileGlob :: Text -> C8.ByteString
     compileGlob pat =
       T.encodeUtf8 $
-        runBuffer (\buf -> (textFoldLinear f (buf |>. '^' |>. '(') pat) |>. ')' |>. '$')
-
+        runBuffer (\buf -> (textFoldLinear f (buf |># "^("#) pat) |># ")$"#)
     f :: Char -> Buffer %1 -> Buffer
     f c buf = case c of
-      '*'   -> buf |> ".*"
-      '.'   -> buf |> "\\."
-      '|'   -> buf |> "\\|"
-      '+'   -> buf |> "\\+"
-      '['   -> buf |> "\\["
-      ']'   -> buf |> "\\]"
-      '('   -> buf |> "\\("
-      ')'   -> buf |> "\\)"
-      '^'   -> buf |> "\\^"
-      '$'   -> buf |> "\\$"
-      '?'   -> buf |> "\\?"
+      '*'   -> buf |># ".*"#
+      '.'   -> buf |># "\\."#
+      '|'   -> buf |># "\\|"#
+      '+'   -> buf |># "\\+"#
+      '['   -> buf |># "\\["#
+      ']'   -> buf |># "\\]"#
+      '('   -> buf |># "\\("#
+      ')'   -> buf |># "\\)"#
+      '^'   -> buf |># "\\^"#
+      '$'   -> buf |># "\\$"#
+      '?'   -> buf |># "\\?"#
 #if defined(mingw32_HOST_OS)
-      '\\'  -> buf |> "[\\/]"
-      '/'   -> buf |> "[\\/]"
+      '\\'  -> buf |># "[\\/]"#
+      '/'   -> buf |># "[\\/]"#
 #endif
 #if !defined(mingw32_HOST_OS)
-      '\\'  -> buf |> "\\\\"
+      '\\'  -> buf |># "\\\\"#
 #endif
       other -> buf |>. other
 
