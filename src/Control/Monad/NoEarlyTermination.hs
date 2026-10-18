@@ -32,4 +32,5 @@ runNoEarlyTerminationT :: NoEarlyTerminationT m a -> m a
 runNoEarlyTerminationT (NoEarlyTerminationT x) = x
 
 instance Monad m => MonadEarlyTerminate (NoEarlyTerminationT m) where
+  {-# INLINE earlyTerminationPoint #-}
   earlyTerminationPoint = id

@@ -49,7 +49,12 @@ import GHC.Word
 import Data.UnicodeUtils
 
 {-# INLINE textFoldLinear #-}
-textFoldLinear :: forall (a :: UnliftedType). (Char -> a %1 -> a) -> a %1 -> Text -> a
+textFoldLinear
+  :: forall (a :: UnliftedType).
+     (Char -> a %1 -> a)
+  -> a
+  %1 -> Text
+  -> a
 textFoldLinear f seed (TI.Text arr off len) =
   textFoldLinearLoop seed (StrByteIdx off)
   where

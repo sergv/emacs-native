@@ -19,7 +19,7 @@ import Control.Monad.NoEarlyTermination
 import Data.Bifunctor
 import Data.ByteString (ByteString)
 import Data.Coerce
-import Data.Foldable (traverse_)
+import Data.Foldable (traverse_, toList)
 import Data.Text (Text)
 import Data.Text.IO qualified as T
 import Options.Applicative
@@ -31,6 +31,7 @@ import System.Directory.OsPath.Types (Basename(..))
 import System.OsPath
 import System.OsPath.Ext
 
+import Data.ElispSexp qualified as Sexp
 import Data.Filesystem.Find
 import Data.Filesystem.Find.Types
 import Data.Filesystem.Grep qualified as Grep
@@ -119,6 +120,7 @@ data GrepConfig = GrepConfig
   , gcfgGlobsToFind :: ![Text]
   , gcfgIgnores     :: !IgnoresConfig
   , gcfgIgnoreCase  :: !Bool
+  , gcfgSexpOutput  :: !Bool
   }
   deriving Generic
   deriving Pretty via PPGeneric GrepConfig
@@ -134,6 +136,10 @@ grepParser = do
   gcfgIgnoreCase        <- switch $
     long "ignore-case" <>
       help "Ignore character case during matching, i.e. match specified regexp case-insensitively"
+
+  gcfgSexpOutput        <- switch $
+    long "sexp-output" <>
+      help "Format results as S-expression for easier reading by emacs"
 
   gcfgIgnores           <- ignoresParser
 
@@ -190,15 +196,28 @@ mkFullIgnores' IgnoresConfig{cfgIgnoredFileBasenameGlobs, cfgIgnoredFileAbsGlobs
   mkFullIgnores cfgIgnoredFileBasenameGlobs cfgIgnoredFileAbsGlobs cfgIgnoredDirBasenameGlobs cfgIgnoredDirAbsGlobs
 
 grep :: GrepConfig -> IO ()
-grep GrepConfig{gcfgRoots, gcfgRegexp, gcfgGlobsToFind, gcfgIgnoreCase, gcfgIgnores} = do
+grep GrepConfig{gcfgRoots, gcfgRegexp, gcfgGlobsToFind, gcfgIgnoreCase, gcfgSexpOutput, gcfgIgnores} = do
   ignores <- mkFullIgnores' gcfgIgnores
 
+  gcfgRoots' <- traverse makeAbsolute gcfgRoots
+
   (res, anyMatched) <- runNoEarlyTerminationT $
-    Grep.grep gcfgRoots gcfgRegexp gcfgGlobsToFind gcfgIgnoreCase ignores $
+    Grep.grep gcfgRoots' gcfgRegexp gcfgGlobsToFind gcfgIgnoreCase ignores $
       \relPath match -> pure (relPath, match)
 
-  case anyMatched of
-    Grep.NoFilesMatched   -> putStrLn "No matches"
-    Grep.SomeFilesMatched -> PP.putDocLn $ PP.pretty res
+  if gcfgSexpOutput
+  then
+    T.putStrLn $ Sexp.renderSexp $
+      case anyMatched of
+        Grep.NoFilesMatched   ->
+          Sexp.Symbol "no-files-matched"
+        Grep.SomeFilesMatched ->
+          Sexp.toSexp $ map snd $ toList res
+  else
+    case anyMatched of
+      Grep.NoFilesMatched   -> putStrLn "No matches"
+      Grep.SomeFilesMatched ->
+        PP.putDocLn $ PP.pretty res
 
   pure ()
+

@@ -103,6 +103,7 @@ library
     Control.Monad.NoEarlyTermination
     Control.LensBlaze
 
+    Data.ElispSexp
     Data.Emacs.Path
     Data.Eproj
     Data.Filesystem.Find
@@ -154,6 +155,7 @@ library
     , monad-control
     , monad-interleave
     , os-string
+    , ppad-base64
     , prettyprinter >= 1.7
     , prettyprinter-combinators
     , primitive

@@ -90,10 +90,11 @@ fileGlobsToRegex patterns =
       '^'   -> buf |> "\\^"
       '$'   -> buf |> "\\$"
       '?'   -> buf |> "\\?"
-#ifdef mingw32_HOST_OS
+#if defined(mingw32_HOST_OS)
       '\\'  -> buf |> "[\\/]"
       '/'   -> buf |> "[\\/]"
-#else
+#endif
+#if !defined(mingw32_HOST_OS)
       '\\'  -> buf |> "\\\\"
 #endif
       other -> buf |>. other
@@ -101,9 +102,10 @@ fileGlobsToRegex patterns =
     flags = if isLinux then flagCaseInsensitive else mempty
 
     isLinux =
-#ifdef mingw32_HOST_OS
+#if defined(mingw32_HOST_OS)
       False
-#else
+#endif
+#if !defined(mingw32_HOST_OS)
       True
 #endif
 
