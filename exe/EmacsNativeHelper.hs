@@ -59,24 +59,28 @@ data IgnoresConfig = IgnoresConfig
 ignoresParser :: Parser IgnoresConfig
 ignoresParser = do
   cfgIgnoredFileBasenameGlobs <- many $ fmap Basename $ strOption $
-    long "ignore-file-basename-glob" <>
-      metavar "GLOB" <>
-        help "File globs that match basename paths to ignore, e.g. *.txt"
+    long "ifbg" <>
+      long "ignore-file-basename-glob" <>
+        metavar "GLOB" <>
+          help "File globs that match basename paths to ignore, e.g. *.txt"
 
   cfgIgnoredFileAbsGlobs      <- many $ strOption $
-    long "ignore-file-abs-glob" <>
-      metavar "GLOB" <>
-        help "File globs that match absolute paths to ignore, e.g. ~/f*o/*.txt"
+    long "ifag" <>
+      long "ignore-file-abs-glob" <>
+        metavar "GLOB" <>
+          help "File globs that match absolute paths to ignore, e.g. ~/f*o/*.txt"
 
   cfgIgnoredDirBasenameGlobs <- many $ fmap Basename $ strOption $
-    long "ignore-dir-basename-glob" <>
-      metavar "GLOB" <>
-        help "Directory globs that match basename paths to ignore, e.g. bar*, ba*z/"
+    long "idbg" <>
+      long "ignore-dir-basename-glob" <>
+        metavar "GLOB" <>
+          help "Directory globs that match basename paths to ignore, e.g. bar*, ba*z/"
 
   cfgIgnoredDirAbsGlobs      <- many $ strOption $
-    long "ignore-dir-abs-glob" <>
-      metavar "GLOB" <>
-        help "Directory globs that match absolute paths to ignore, e.g. ~/foo/bar*, ~/foo/ba*z/"
+    long "idag" <>
+      long "ignore-dir-abs-glob" <>
+        metavar "GLOB" <>
+          help "Directory globs that match absolute paths to ignore, e.g. ~/foo/bar*, ~/foo/ba*z/"
 
   pure IgnoresConfig{..}
 
