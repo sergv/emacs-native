@@ -246,6 +246,7 @@ test-suite emacs-native-test
     Control.LensBlaze.Tests
     Data.Filesystem.Grep.Tests
     Data.FuzzyMatch.Tests
+    Data.Regex.Tests
     Data.UnicodeUtils.Tests
   build-depends:
     , QuickCheck

@@ -10,6 +10,7 @@
 {-# LANGUAGE LinearTypes       #-}
 {-# LANGUAGE MagicHash         #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE UnliftedDatatypes #-}
 
 module Data.Regex
   ( fileGlobsToRegex
@@ -42,6 +43,7 @@ module Data.Regex
   , flagDefault
   ) where
 
+import Control.Exception (assert)
 import Control.Monad.Catch (MonadThrow(..))
 import Data.ByteString.Char8 qualified as C8
 import Data.ByteString.Short (ShortByteString)
@@ -54,12 +56,24 @@ import Data.Text.Builder.Linear.Buffer
 import Data.Text.Encoding qualified as T
 import Data.Text.Ext (textFoldLinear)
 import Foreign.Ptr (Ptr, castPtr)
+import GHC.Types (UnliftedType)
 import Prettyprinter
 import System.OsPath
 import System.OsPath.Ext
 
 import Emacs.Module.Assert (WithCallStack)
 import Emacs.Module.Errors
+
+data GlobState = AfterStar | Generic
+  deriving (Eq)
+
+data BufState :: UnliftedType where
+  BufState :: GlobState -> {-# UNPACK #-} Buffer %1 -> BufState
+
+bsBuffer :: BufState %1 -> Buffer
+bsBuffer (BufState pos buf) = case pos of
+  AfterStar -> buf |># "[^/]*"#
+  Generic   -> buf
 
 fileGlobsToRegex
   :: (WithCallStack, MonadThrow m, Foldable f, Functor f, Coercible a Text)
@@ -76,28 +90,37 @@ fileGlobsToRegex patterns =
     compileGlob :: Text -> C8.ByteString
     compileGlob pat =
       T.encodeUtf8 $
-        runBuffer (\buf -> (textFoldLinear f (buf |># "^("#) pat) |># ")$"#)
-    f :: Char -> Buffer %1 -> Buffer
-    f c buf = case c of
-      '*'   -> buf |># ".*"#
-      '.'   -> buf |># "\\."#
-      '|'   -> buf |># "\\|"#
-      '+'   -> buf |># "\\+"#
-      '['   -> buf |># "\\["#
-      ']'   -> buf |># "\\]"#
-      '('   -> buf |># "\\("#
-      ')'   -> buf |># "\\)"#
-      '^'   -> buf |># "\\^"#
-      '$'   -> buf |># "\\$"#
-      '?'   -> buf |># "\\?"#
+        runBuffer (\buf -> bsBuffer (textFoldLinear f (BufState Generic (buf |># "^("#)) pat) |># ")$"#)
+
+    f :: Char -> BufState %1 -> BufState
+    f c (BufState pos buf) =
+      case (pos, c) of
+        (AfterStar, '*') -> BufState Generic (buf |># ".*"#)
+        _                ->
+          let buf0 = case pos of
+                AfterStar -> buf |># "[^/]*"#
+                Generic   -> buf
+          in
+            case c of
+              '*'   -> BufState (assert (pos == Generic) AfterStar) buf0
+              '.'   -> BufState Generic   (buf0 |># "\\."#)
+              '|'   -> BufState Generic   (buf0 |># "\\|"#)
+              '+'   -> BufState Generic   (buf0 |># "\\+"#)
+              '['   -> BufState Generic   (buf0 |># "\\["#)
+              ']'   -> BufState Generic   (buf0 |># "\\]"#)
+              '('   -> BufState Generic   (buf0 |># "\\("#)
+              ')'   -> BufState Generic   (buf0 |># "\\)"#)
+              '^'   -> BufState Generic   (buf0 |># "\\^"#)
+              '$'   -> BufState Generic   (buf0 |># "\\$"#)
+              '?'   -> BufState Generic   (buf0 |># "\\?"#)
 #if defined(mingw32_HOST_OS)
-      '\\'  -> buf |># "[\\/]"#
-      '/'   -> buf |># "[\\/]"#
+              '\\'  -> BufState Generic   (buf0 |># "[\\/]"#)
+              '/'   -> BufState Generic   (buf0 |># "[\\/]"#)
 #endif
 #if !defined(mingw32_HOST_OS)
-      '\\'  -> buf |># "\\\\"#
+              '\\'  -> BufState Generic   (buf0 |># "\\\\"#)
 #endif
-      other -> buf |>. other
+              other -> BufState Generic   (buf0 |>. other)
 
     flags = if isLinux then flagCaseInsensitive else mempty
 

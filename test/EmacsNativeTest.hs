@@ -14,10 +14,11 @@ module EmacsNativeTest (main) where
 import System.IO.CodePage
 import Test.Tasty
 
-import Data.UnicodeUtils.Tests qualified
 import Control.LensBlaze.Tests qualified
-import Data.FuzzyMatch.Tests qualified
 import Data.Filesystem.Grep.Tests qualified
+import Data.FuzzyMatch.Tests qualified
+import Data.Regex.Tests qualified
+import Data.UnicodeUtils.Tests qualified
 
 main :: IO ()
 main = withCP65001 $ defaultMain tests
@@ -27,6 +28,7 @@ tests = testGroup "Tests"
   [ Control.LensBlaze.Tests.tests
   , Data.FuzzyMatch.Tests.tests
   , Data.Filesystem.Grep.Tests.tests
+  , Data.Regex.Tests.tests
   , Data.UnicodeUtils.Tests.tests
   ]
 
