@@ -8,6 +8,7 @@
 
 module Data.Regex.Tests (tests) where
 
+import Data.Text (Text)
 import Data.Text qualified as T
 import System.OsPath
 import Test.Tasty
@@ -23,7 +24,7 @@ tests = testGroup "Data.Regex.Tests"
 globTests :: TestTree
 globTests = testGroup "glob tests"
   [ testCase (T.unpack ("globs " <> T.pack (show globs) <> " " <> (if outcome then "match" else "don’t match") <> " input ‘" <> T.pack input <> "’")) $ do
-      globs' <- fileGlobsToRegex globs
+      globs' <- fileGlobsToRegex (globs :: [Text])
       input' <- encodeUtf input
       reSetMatchesOsPath globs' input' @?= outcome
   | (globs, input, outcome) <-
