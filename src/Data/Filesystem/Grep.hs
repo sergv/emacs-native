@@ -221,10 +221,11 @@ makeMatches !(AbsDir searchRoot) !fileAbsPath'@(AbsFile fileAbsPath) !ms !ptr !s
       "Internal error: findRec produced wrong root for path" <+> pretty (pathToText fileAbsPath) Semi.<>
       ". The root is" <+> pretty (pathToText searchRoot)
     Just relPath -> do
+      initState' <- accumulateMatch initState
       final <- C8.foldCharsM
         ptr
         size
-        initState
+        initState'
         (\ !acc !c ->
           accumulateMatch $ bumpPos acc $ unsafeChr $ fromIntegral c)
       pure $ msResult final

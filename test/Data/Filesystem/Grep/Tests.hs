@@ -57,6 +57,48 @@ tests = testGroup "Data.Filesystem.Grep.Tests"
             }
       xs <- grep' [osp|.|] "foo" ["single-line.txt"] False
       checkEqual xs ([expected], SomeFilesMatched)
+  , testCase "grep 3 file start" $ do
+      let path     = root </> [osp|start-end-matches.txt|]
+          expected = MatchEntry
+            { matchAbsPath    = AbsFile $ [osp|.|] </> path
+            , matchRelPath    = RelFile path
+            , matchLineNum    = 1
+            , matchColumnNum  = 0
+            , matchLinePrefix = T.encodeUtf8 ""
+            , matchLineStr    = T.encodeUtf8 "st"
+            , matchLineSuffix = T.encodeUtf8 "art"
+            , matchOffset     = 0
+            }
+      xs <- grep' [osp|.|] "st" ["start-end-matches.txt"] False
+      checkEqual xs ([expected], SomeFilesMatched)
+  , testCase "grep 4 file mid" $ do
+      let path     = root </> [osp|start-end-matches.txt|]
+          expected = MatchEntry
+            { matchAbsPath    = AbsFile $ [osp|.|] </> path
+            , matchRelPath    = RelFile path
+            , matchLineNum    = 1
+            , matchColumnNum  = 1
+            , matchLinePrefix = T.encodeUtf8 "s"
+            , matchLineStr    = T.encodeUtf8 "ta"
+            , matchLineSuffix = T.encodeUtf8 "rt"
+            , matchOffset     = 1
+            }
+      xs <- grep' [osp|.|] "ta" ["start-end-matches.txt"] False
+      checkEqual xs ([expected], SomeFilesMatched)
+  , testCase "grep 5 file end" $ do
+      let path     = root </> [osp|start-end-matches.txt|]
+          expected = MatchEntry
+            { matchAbsPath    = AbsFile $ [osp|.|] </> path
+            , matchRelPath    = RelFile path
+            , matchLineNum    = 2
+            , matchColumnNum  = 1
+            , matchLinePrefix = T.encodeUtf8 "e"
+            , matchLineStr    = T.encodeUtf8 "nd"
+            , matchLineSuffix = T.encodeUtf8 ""
+            , matchOffset     = 7
+            }
+      xs <- grep' [osp|.|] "nd" ["start-end-matches.txt"] False
+      checkEqual xs ([expected], SomeFilesMatched)
   , testCase "grep unicode 1" $ do
       let path     = root </> [osp|test.txt|]
           expected = MatchEntry
