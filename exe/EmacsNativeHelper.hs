@@ -85,29 +85,34 @@ ignoresParser = do
   pure IgnoresConfig{..}
 
 data FindConfig = FindConfig
-  { fcfgRoots           :: ![OsPath]
-  , fcfgGlobsToFind     :: ![Text]
-  , fcfgIgnores         :: !IgnoresConfig
-  , fcfgIsRelativePaths :: !Bool
+  { fcfgRoots          :: ![OsPath]
+  , fcfgGlobsToFind    :: ![Text]
+  , fcfgIgnores        :: !IgnoresConfig
+  , fcfgRelativePaths  :: !RelativePaths
+  , fcfgSkipUnreadable :: !SkipUnreadable
   }
   deriving Generic
   deriving Pretty via PPGeneric FindConfig
 
 findParser :: Parser FindConfig
 findParser = do
-  fcfgGlobsToFind     <- many $ strOption $
+  fcfgGlobsToFind        <- many $ strOption $
     short 'g' <>
       long "glob" <>
         metavar "GLOB" <>
           help "Filename globs to search for, e.g. *.txt"
 
-  fcfgIgnores         <- ignoresParser
+  fcfgIgnores            <- ignoresParser
 
-  fcfgIsRelativePaths <- switch $
+  fcfgRelativePaths      <- flag ProduceAbsolutePaths ProduceRelativePaths $
     long "relative-paths" <>
       help "Print result names relative to ROOT"
 
-  fcfgRoots           <- many $ argument readOsPath $
+  fcfgSkipUnreadable <- flag FailOnUnreadable SkipUnreadable $
+    long "skip-unreadable-dirs" <>
+      help "Do not error out on directories without readable permission and just ignore them instead."
+
+  fcfgRoots              <- many $ argument readOsPath $
     metavar "ROOT" <>
     help "Directory to recursively search in"
 
@@ -119,39 +124,44 @@ findProgInfo = info
   (fullDesc <> header "Find just like in libemacs-native.so but available from command line for asynchronous execution, profiling, or debugging")
 
 data GrepConfig = GrepConfig
-  { gcfgRoots       :: ![OsPath]
-  , gcfgRegexp      :: !ByteString
-  , gcfgGlobsToFind :: ![Text]
-  , gcfgIgnores     :: !IgnoresConfig
-  , gcfgIgnoreCase  :: !Bool
-  , gcfgSexpOutput  :: !Bool
+  { gcfgRoots          :: ![OsPath]
+  , gcfgRegexp         :: !ByteString
+  , gcfgGlobsToFind    :: ![Text]
+  , gcfgIgnores        :: !IgnoresConfig
+  , gcfgIgnoreCase     :: !Bool
+  , gcfgSexpOutput     :: !Bool
+  , gcfgSkipUnreadable :: !SkipUnreadable
   }
   deriving Generic
   deriving Pretty via PPGeneric GrepConfig
 
 grepParser :: Parser GrepConfig
 grepParser = do
-  gcfgGlobsToFind       <- many $ strOption $
+  gcfgGlobsToFind        <- many $ strOption $
     short 'g' <>
       long "glob" <>
         metavar "GLOB" <>
-          help "Filename globs to search for, e.g. *.txt"
+          help "Filename globs to search for      , e.g. *.txt"
 
-  gcfgIgnoreCase        <- switch $
+  gcfgIgnoreCase         <- switch $
     long "ignore-case" <>
-      help "Ignore character case during matching, i.e. match specified regexp case-insensitively"
+      help "Ignore character case during matching , i.e. match specified regexp case-insensitively"
 
-  gcfgSexpOutput        <- switch $
+  gcfgSexpOutput         <- switch $
     long "sexp-output" <>
       help "Format results as S-expression for easier reading by emacs"
 
-  gcfgIgnores           <- ignoresParser
+  gcfgSkipUnreadable <- flag FailOnUnreadable SkipUnreadable $
+    long "skip-unreadable" <>
+      help "Do not error out on directories without readable permission and just ignore them instead. Also ignore unreadable files."
 
-  gcfgRegexp            <- strArgument $
+  gcfgIgnores            <- ignoresParser
+
+  gcfgRegexp             <- strArgument $
     metavar "REGEXP" <>
     help "Regexp to search for"
 
-  gcfgRoots             <- many $ argument readOsPath $
+  gcfgRoots              <- many $ argument readOsPath $
     metavar "DIRECTORY" <>
     help "Directories to recursively search in"
 
@@ -185,12 +195,13 @@ main = do
     Find cfg' -> find cfg'
 
 find :: FindConfig -> IO ()
-find FindConfig{fcfgRoots, fcfgGlobsToFind, fcfgIgnores, fcfgIsRelativePaths} = do
+find FindConfig{fcfgRoots, fcfgGlobsToFind, fcfgIgnores, fcfgRelativePaths, fcfgSkipUnreadable} = do
   ignores  <- mkFullIgnores' fcfgIgnores
   absRoots <- traverse makeAbsolute fcfgRoots
   traverse_ (T.putStrLn . pathToText) =<<
     fastFileSearch
-      (if fcfgIsRelativePaths then ProduceRelativePaths else ProduceAbsolutePaths)
+      fcfgRelativePaths
+      fcfgSkipUnreadable
       ignores
       fcfgGlobsToFind
       (coerce absRoots :: [AbsDir])
@@ -200,13 +211,19 @@ mkFullIgnores' IgnoresConfig{cfgIgnoredFileBasenameGlobs, cfgIgnoredFileAbsGlobs
   mkFullIgnores cfgIgnoredFileBasenameGlobs cfgIgnoredFileAbsGlobs cfgIgnoredDirBasenameGlobs cfgIgnoredDirAbsGlobs
 
 grep :: GrepConfig -> IO ()
-grep GrepConfig{gcfgRoots, gcfgRegexp, gcfgGlobsToFind, gcfgIgnoreCase, gcfgSexpOutput, gcfgIgnores} = do
+grep GrepConfig{gcfgRoots, gcfgRegexp, gcfgGlobsToFind, gcfgIgnoreCase, gcfgSexpOutput, gcfgSkipUnreadable, gcfgIgnores} = do
   ignores <- mkFullIgnores' gcfgIgnores
 
   gcfgRoots' <- traverse makeAbsolute gcfgRoots
 
   (res, anyMatched) <- runNoEarlyTerminationT $
-    Grep.grep gcfgRoots' gcfgRegexp gcfgGlobsToFind gcfgIgnoreCase ignores $
+    Grep.grep
+      gcfgRoots'
+      gcfgRegexp
+      gcfgGlobsToFind
+      gcfgIgnoreCase
+      gcfgSkipUnreadable
+      ignores $
       \relPath match -> pure (relPath, match)
 
   if gcfgSexpOutput

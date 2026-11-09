@@ -170,6 +170,9 @@ library
     , vector >= 0.13
     , vector-quicksort >= 0.2
     , zlib
+  if !os(Windows)
+    build-depends:
+      , unix
 
 executable emacs-native-helper
   import: ghc-options

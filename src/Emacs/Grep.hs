@@ -34,6 +34,7 @@ import Control.Monad.EarlyTerminate
 import Data.Emacs.Module.Args
 import Data.Emacs.Module.Doc qualified as Doc
 import Data.Emacs.Path
+import Data.Filesystem.Find (SkipUnreadable(..))
 import Data.Filesystem.Find.Types
 import Data.Filesystem.Grep
 import Data.Ignores
@@ -67,15 +68,22 @@ emacsGrep
      , MonadBaseControl IO (m s)
      , Forall (Pure (m s))
      )
-  => EmacsFunction ('S ('S ('S ('S ('S ('S ('S ('S 'Z)))))))) 'Z 'False m v s
-emacsGrep (R roots (R regexp (R globsToFind (R ignoredFileBasenameGlobs (R ignoredFileAbsGlobs (R ignoredDirBasenameGlobs (R ignoredDirAbsGlobs (R ignoreCase Stop)))))))) = do
-  roots'       <- extractListWith extractOsPath roots
-  regexp'      <- extractByteString regexp
-  globsToFind' <- extractListWith extractText globsToFind
-  ignoreCase'  <- extractBool ignoreCase
-  ignores      <- mkEmacsIgnores ignoredFileBasenameGlobs ignoredFileAbsGlobs ignoredDirBasenameGlobs ignoredDirAbsGlobs
+  => EmacsFunction ('S ('S ('S ('S ('S ('S ('S ('S ('S 'Z))))))))) 'Z 'False m v s
+emacsGrep (R roots (R regexp (R globsToFind (R ignoredFileBasenameGlobs (R ignoredFileAbsGlobs (R ignoredDirBasenameGlobs (R ignoredDirAbsGlobs (R ignoreCase (R isSkipUnreadable Stop))))))))) = do
+  roots'            <- extractListWith extractOsPath roots
+  regexp'           <- extractByteString regexp
+  globsToFind'      <- extractListWith extractText globsToFind
+  ignoreCase'       <- extractBool ignoreCase
+  ignores           <- mkEmacsIgnores ignoredFileBasenameGlobs ignoredFileAbsGlobs ignoredDirBasenameGlobs ignoredDirAbsGlobs
+  isSkipUnreadable' <- extractBool isSkipUnreadable
 
-  emacsGrepImpl roots' regexp' globsToFind' ignoreCase' ignores
+  emacsGrepImpl
+    roots'
+    regexp'
+    globsToFind'
+    ignoreCase'
+    (if isSkipUnreadable' then SkipUnreadable else FailOnUnreadable)
+    ignores
 
 emacsGrepWithIgnoresDoc :: Doc.Doc
 emacsGrepWithIgnoresDoc =
@@ -95,15 +103,22 @@ emacsGrepWithIgnores
      , MonadBaseControl IO (m s)
      , Forall (Pure (m s))
      )
-  => EmacsFunction ('S ('S ('S ('S ('S 'Z))))) 'Z 'False m v s
-emacsGrepWithIgnores (R roots (R regexp (R globsToFind (R ignores (R ignoreCase Stop))))) = do
-  roots'       <- extractListWith extractOsPath roots
-  regexp'      <- extractByteString regexp
-  globsToFind' <- extractListWith extractText globsToFind
-  ignoreCase'  <- extractBool ignoreCase
-  ignores'     <- unpackFullIgnores ignores
+  => EmacsFunction ('S ('S ('S ('S ('S ('S 'Z)))))) 'Z 'False m v s
+emacsGrepWithIgnores (R roots (R regexp (R globsToFind (R ignores (R ignoreCase (R isSkipUnreadable Stop)))))) = do
+  roots'            <- extractListWith extractOsPath roots
+  regexp'           <- extractByteString regexp
+  globsToFind'      <- extractListWith extractText globsToFind
+  ignoreCase'       <- extractBool ignoreCase
+  ignores'          <- unpackFullIgnores ignores
+  isSkipUnreadable' <- extractBool isSkipUnreadable
 
-  emacsGrepImpl roots' regexp' globsToFind' ignoreCase' ignores'
+  emacsGrepImpl
+    roots'
+    regexp'
+    globsToFind'
+    ignoreCase'
+    (if isSkipUnreadable' then SkipUnreadable else FailOnUnreadable)
+    ignores'
 
 emacsGrepImpl
   :: forall m v s.
@@ -119,16 +134,17 @@ emacsGrepImpl
   -> C8.ByteString
   -> [Text]
   -> Bool
+  -> SkipUnreadable
   -> FullIgnores
   -> m s (v s)
-emacsGrepImpl roots regexp globsToFind ignoreCase ignores = do
+emacsGrepImpl roots regexp globsToFind ignoreCase skipUnreadable ignores = do
   for_ roots $ \root -> do
     exists <- liftBase $ doesDirectoryExist root
     unless exists $
       throwM $ mkUserError "emacsGrep" $
         "Search root does not exist:" <+> pretty (pathToText root)
 
-  (res, anyMatched) <- grep roots regexp globsToFind ignoreCase ignores $
+  (res, anyMatched) <- grep roots regexp globsToFind ignoreCase skipUnreadable ignores $
     \relPath MatchEntry{matchAbsPath, matchLineNum, matchColumnNum, matchLinePrefix, matchLineStr, matchLineSuffix, matchOffset} -> do
       !pathEmacs        <- makeShortByteString $ pathForEmacs $ unAbsFile matchAbsPath
       !shortPathEmacs   <- makeShortByteString relPath

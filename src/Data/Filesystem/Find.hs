@@ -6,10 +6,20 @@
 -- Maintainer  :  serg.foo@gmail.com
 ----------------------------------------------------------------------------
 
+{-# LANGUAGE CPP                   #-}
+{-# LANGUAGE DerivingVia           #-}
+{-# LANGUAGE QuantifiedConstraints #-}
+
+#if defined(mingw32_HOST_OS)
+#define WINDOWS 1
+#endif
+
 module Data.Filesystem.Find
   ( RelativePaths(..)
+  , SkipUnreadable(..)
   , fastFileSearch
   , findRec
+  , haveReadPermission
   ) where
 
 import Control.Monad.Base
@@ -19,22 +29,35 @@ import Data.Filesystem.Find.Types
 import Data.Ignores
 import Data.Regex
 import Data.Text (Text)
+import Prettyprinter.Generics (Pretty(..), Generic, PPGeneric(..))
 import System.Directory.OsPath.Streaming as Streaming
 import System.Directory.OsPath.Types
 import System.OsPath
 
+#ifndef WINDOWS
+import System.Posix.Files.PosixString qualified as PosixString
+import System.OsString.Internal.Types (getOsString)
+#endif
+
 import Emacs.Module.Assert
 
 data RelativePaths = ProduceRelativePaths | ProduceAbsolutePaths
+  deriving (Eq, Ord, Show, Generic)
+  deriving Pretty via PPGeneric RelativePaths
+
+data SkipUnreadable = SkipUnreadable | FailOnUnreadable
+  deriving (Eq, Ord, Show, Generic)
+  deriving Pretty via PPGeneric SkipUnreadable
 
 fastFileSearch
   :: (WithCallStack, Foldable f, Functor f, Coercible a Text, MonadThrow m, MonadBase IO m)
   => RelativePaths
+  -> SkipUnreadable
   -> FullIgnores
   -> f a
   -> [AbsDir]
   -> m [OsPath]
-fastFileSearch resultPathType ignores globsToFind roots = do
+fastFileSearch resultPathType skipUnreadableDirs ignores globsToFind roots = do
   globsToFindRE <- fileGlobsToRegex globsToFind
   let
     shouldCollect :: AbsFile -> Relative OsPath -> Basename OsPath -> Maybe OsPath
@@ -45,7 +68,9 @@ fastFileSearch resultPathType ignores globsToFind roots = do
             ProduceRelativePaths -> relPath
             ProduceAbsolutePaths -> unAbsFile absPath
       | otherwise                                 = Nothing
-  liftBase $ findRec FollowSymlinks
+  liftBase $ findRec
+    FollowSymlinks
+    skipUnreadableDirs
     (\absDir basename -> not $ isIgnoredDir ignores basename absDir)
     (\_root y z w     -> pure $ shouldCollect y z w)
     roots
@@ -54,24 +79,33 @@ fastFileSearch resultPathType ignores globsToFind roots = do
 findRec
   :: forall a f. (WithCallStack, Foldable f, Functor f)
   => FollowSymlinks a
+  -> SkipUnreadable
   -> (AbsDir -> Basename OsPath -> Bool) -- ^ Whether to visit a directory.
   -> (AbsDir -> AbsFile -> Relative OsPath -> Basename OsPath -> IO (Maybe a))
                                          -- ^ What to do with a file. Receives original directory it was located in.
   -> f AbsDir                            -- ^ Where to start search.
   -> IO [a]
-findRec followSymlinks dirPred filePred roots =
+findRec followSymlinks skipUnreadableDirs dirPred filePred roots =
   Streaming.listContentsRecFold
     Nothing
-    (\absDir _ _ baseDir sym cons descendSubdir rest ->
+    (\absDir _root _relDir baseDir sym cons descendSubdir rest ->
       let absDir' = AbsDir absDir
       in
         if dirPred absDir' baseDir
-        then
+        then do
+          let descendSubdir' dir =
+                case skipUnreadableDirs of
+                  SkipUnreadable   -> do
+                    isReadable <- haveReadPermission absDir
+                    if isReadable
+                    then descendSubdir dir
+                    else dir
+                  FailOnUnreadable -> descendSubdir dir
           case sym of
-            Regular -> descendSubdir rest
+            Regular -> descendSubdir' rest
             Symlink ->
               case followSymlinks of
-                FollowSymlinks        -> descendSubdir rest
+                FollowSymlinks        -> descendSubdir' rest
                 ReportSymlinks report -> do
                   res <- report absDir' baseDir
                   case res of
@@ -85,3 +119,13 @@ findRec followSymlinks dirPred filePred roots =
         Directory _ -> pure Nothing
         File _      -> filePred root (AbsFile absFile) rel baseFile)
     (fmap (coerce addTrailingPathSeparator) roots)
+
+{-# INLINE haveReadPermission #-}
+haveReadPermission :: OsPath -> IO Bool
+haveReadPermission _path =
+#ifdef WINDOWS
+  pure True
+#endif
+#ifndef WINDOWS
+  PosixString.fileAccess (getOsString _path) True False False
+#endif

@@ -23,6 +23,7 @@ import System.OsPath
 import Test.Tasty
 import Test.Tasty.HUnit
 
+import Data.Filesystem.Find (SkipUnreadable(..))
 import Data.Filesystem.Find.Types
 import Data.Filesystem.Grep
 import Data.Ignores
@@ -296,5 +297,5 @@ checkEqual actual expected = unless (actual == expected) $ assertFailure msg
 grep' :: OsPath -> Text -> [Text] -> Bool -> IO ([MatchEntry], AnyFilesMatched)
 grep' root reToFind globs ignoreCase = runNoEarlyTerminationT $
   first toList <$>
-    grep [root] (T.encodeUtf8 reToFind) globs ignoreCase dummyFullIgnores (\_ entry -> pure entry)
+    grep [root] (T.encodeUtf8 reToFind) globs ignoreCase FailOnUnreadable dummyFullIgnores (\_ entry -> pure entry)
 

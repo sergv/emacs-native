@@ -87,10 +87,11 @@ grep
   -> BS.ByteString
   -> [Text]
   -> Bool
+  -> SkipUnreadable
   -> FullIgnores
   -> (ShortByteString -> MatchEntry -> m a)
   -> m (Map (ShortByteString, Word) a, AnyFilesMatched)
-grep roots regexp globsToFind ignoreCase ignores f = do
+grep roots regexp globsToFind ignoreCase skipUnreadable ignores f = do
   let flags = flagUnicode <> flagMultiline <> if ignoreCase then flagCaseInsensitive else mempty
 
   regexp' <- compileReWithOpts flags regexp
@@ -109,37 +110,41 @@ grep roots regexp globsToFind ignoreCase ignores f = do
     searchFile root absPath _ basename@(Basename basePath)
       | isIgnoredFile ignores basename absPath   = pure Nothing
       | reSetMatchesOsPath extsToFindRE basePath = do
-          absPath' <- decodeUtf $ unAbsFile absPath
-          mmapWithFilePtr
-            absPath'
-            ReadOnly
-            Nothing -- map whole file
-            $ \(ptr, size) -> do
-              contents <- BSU.unsafePackCStringLen (castPtr ptr, size)
-              let isGzip =
-                    takeExtension (unAbsFile absPath) == [osp|.gz|] &&
-                      "\x1f\x8b\x08" `BS.isPrefixOf` contents
-              if size > 7 && isGzip
-              then do
-                !uncompressedSize <- getWord32LE (plusPtr (castPtr ptr :: Ptr Word32) (size - 4))
-                if uncompressedSize < 2 * 1024 * 1024 * 1024
+          isReadable <- haveReadPermission $ unAbsFile absPath
+          if isReadable
+          then do
+            absPath' <- decodeUtf $ unAbsFile absPath
+            mmapWithFilePtr
+              absPath'
+              ReadOnly
+              Nothing -- map whole file
+              $ \(ptr, size) -> do
+                contents <- BSU.unsafePackCStringLen (castPtr ptr, size)
+                let isGzip =
+                      takeExtension (unAbsFile absPath) == [osp|.gz|] &&
+                        "\x1f\x8b\x08" `BS.isPrefixOf` contents
+                if size > 7 && isGzip
                 then do
-                  let params    = GZIP.defaultDecompressParams
-                        { GZIP.decompressBufferSize = fromIntegral uncompressedSize }
-                      contents' =
-                        BSL.toStrict $
-                          GZIP.decompressWith params $
-                            BSL.fromStrict contents
-                  res <- try $ evaluate $ rnf contents'
-                  case res of
-                    Left (_ :: GZIP.DecompressError) ->
-                      searchUncompressed root absPath contents ptr size
-                    Right !() ->
-                      BSU.unsafeUseAsCStringLen contents' $ \(ptr', size') ->
-                        searchUncompressed root absPath contents' ptr' size'
-                else
-                  searchUncompressed root absPath contents ptr size
-              else searchUncompressed root absPath contents ptr size
+                  !uncompressedSize <- getWord32LE (plusPtr (castPtr ptr :: Ptr Word32) (size - 4))
+                  if uncompressedSize < 2 * 1024 * 1024 * 1024
+                  then do
+                    let params    = GZIP.defaultDecompressParams
+                          { GZIP.decompressBufferSize = fromIntegral uncompressedSize }
+                        contents' =
+                          BSL.toStrict $
+                            GZIP.decompressWith params $
+                              BSL.fromStrict contents
+                    res <- try $ evaluate $ rnf contents'
+                    case res of
+                      Left (_ :: GZIP.DecompressError) ->
+                        searchUncompressed root absPath contents ptr size
+                      Right !() ->
+                        BSU.unsafeUseAsCStringLen contents' $ \(ptr', size') ->
+                          searchUncompressed root absPath contents' ptr' size'
+                  else
+                    searchUncompressed root absPath contents ptr size
+                else searchUncompressed root absPath contents ptr size
+          else pure Nothing
       | otherwise = pure Nothing
 
   (results :: TMQueue MatchEntry) <- liftBase newTMQueueIO
@@ -156,6 +161,7 @@ grep roots regexp globsToFind ignoreCase ignores f = do
         traverse_ collect =<<
           findRec
             FollowSymlinks
+            skipUnreadable
             (\absDir basename -> not $ isIgnoredDir ignores basename absDir)
             searchFile
             (coerce roots :: [AbsDir])

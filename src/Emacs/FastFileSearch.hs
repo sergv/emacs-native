@@ -63,14 +63,20 @@ emacsFindRec
      , MonadBaseControl IO (m s)
      , Forall (Pure (m s))
      )
-  => EmacsFunction ('S ('S ('S ('S ('S ('S ('S 'Z))))))) 'Z 'False m v s
-emacsFindRec (R roots (R globsToFind (R ignoredFileBasenameGlobs (R ignoredFileAbsGlobs (R ignoredDirBasenameGlobs (R ignoredDirAbsGlobs (R isRelativePaths Stop))))))) = do
-  roots'           <- extractListWith extractOsPath roots
-  globsToFind'     <- extractListWith extractText globsToFind
-  ignores          <- mkEmacsIgnores ignoredFileBasenameGlobs ignoredFileAbsGlobs ignoredDirBasenameGlobs ignoredDirAbsGlobs
-  isRelativePaths' <- extractBool isRelativePaths
+  => EmacsFunction ('S ('S ('S ('S ('S ('S ('S ('S 'Z)))))))) 'Z 'False m v s
+emacsFindRec (R roots (R globsToFind (R ignoredFileBasenameGlobs (R ignoredFileAbsGlobs (R ignoredDirBasenameGlobs (R ignoredDirAbsGlobs (R isRelativePaths (R isSkipUnreadable Stop)))))))) = do
+  roots'                <- extractListWith extractOsPath roots
+  globsToFind'          <- extractListWith extractText globsToFind
+  ignores               <- mkEmacsIgnores ignoredFileBasenameGlobs ignoredFileAbsGlobs ignoredDirBasenameGlobs ignoredDirAbsGlobs
+  isRelativePaths'      <- extractBool isRelativePaths
+  isSkipUnreadable' <- extractBool isSkipUnreadable
 
-  emacsFindRecImpl roots' globsToFind' ignores isRelativePaths'
+  emacsFindRecImpl
+    roots'
+    globsToFind'
+    ignores
+    (if isRelativePaths' then ProduceRelativePaths else ProduceAbsolutePaths)
+    (if isSkipUnreadable' then SkipUnreadable else FailOnUnreadable)
 
 emacsFindRecWithIgnoresDoc :: Doc.Doc
 emacsFindRecWithIgnoresDoc =
@@ -89,14 +95,20 @@ emacsFindRecWithIgnores
      , MonadBaseControl IO (m s)
      , Forall (Pure (m s))
      )
-  => EmacsFunction ('S ('S ('S ('S 'Z)))) 'Z 'False m v s
-emacsFindRecWithIgnores (R roots (R globsToFind (R ignores (R isRelativePaths Stop)))) = do
-  roots'           <- extractListWith extractOsPath roots
-  globsToFind'     <- extractListWith extractText globsToFind
-  ignores'         <- unpackFullIgnores ignores
-  isRelativePaths' <- extractBool isRelativePaths
+  => EmacsFunction ('S ('S ('S ('S ('S 'Z))))) 'Z 'False m v s
+emacsFindRecWithIgnores (R roots (R globsToFind (R ignores (R isRelativePaths (R isSkipUnreadable Stop))))) = do
+  roots'                <- extractListWith extractOsPath roots
+  globsToFind'          <- extractListWith extractText globsToFind
+  ignores'              <- unpackFullIgnores ignores
+  isRelativePaths'      <- extractBool isRelativePaths
+  isSkipUnreadable' <- extractBool isSkipUnreadable
 
-  emacsFindRecImpl roots' globsToFind' ignores' isRelativePaths'
+  emacsFindRecImpl
+    roots'
+    globsToFind'
+    ignores'
+    (if isRelativePaths' then ProduceRelativePaths else ProduceAbsolutePaths)
+    (if isSkipUnreadable' then SkipUnreadable else FailOnUnreadable)
 
 emacsFindRecImpl
   :: forall m v s.
@@ -110,9 +122,10 @@ emacsFindRecImpl
   => [OsPath]
   -> [Text]
   -> FullIgnores
-  -> Bool
+  -> RelativePaths
+  -> SkipUnreadable
   -> m s (v s)
-emacsFindRecImpl roots' globsToFind' ignores isRelativePaths' = do
+emacsFindRecImpl roots' globsToFind' ignores isRelativePaths' skipUnreadable = do
   nil'             <- nil
 
   let roots'' :: [AbsDir]
@@ -126,7 +139,8 @@ emacsFindRecImpl roots' globsToFind' ignores isRelativePaths' = do
       doFind :: IO ()
       doFind =
         traverse_ collect =<< fastFileSearch
-          (if isRelativePaths' then ProduceRelativePaths else ProduceAbsolutePaths)
+          isRelativePaths'
+          skipUnreadable
           ignores
           globsToFind'
           roots''
